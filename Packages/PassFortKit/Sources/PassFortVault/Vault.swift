@@ -6,8 +6,8 @@ import PassFortCrypto
 // import PFCrypto
 
 public enum Vault {
-    /// Proves the allowed direction: PassFortVault -> PassFortCrypto (pure Swift API).
-    public static func seamSelfTest(_ probe: Data) throws -> Data {
-        try echo(probe)
-    }
+  /// Proves the allowed direction: PassFortVault -> PassFortCrypto (pure Swift API).
+  public static func seamSelfTest(_ probe: Data) throws -> Data {
+    try echo(probe)
+  }
 }
