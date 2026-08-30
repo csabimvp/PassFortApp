@@ -1,0 +1,26 @@
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+
+# CMake — out-of-source build dir, disposable
+native-tests/build/
+
+# Vault data — never commit anything with real secrets
+*.pfvault
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Later milestones (Cloud/, Web/)
+node_modules/
+*.wasm
+.azure/
+Cloud/api/local.settings.json
+
+# Claude — local-only by choice
+.claude
+CLAUDE.md
