@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Draft (scaffolding). Nothing is built yet; this document is the plan we design against.
-**Last updated:** 2026-08-28 (rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
+**Last updated:** 2026-08-30 (rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
 
 ---
 
@@ -225,10 +225,10 @@ Five things to notice:
 | Xcode | 26.6 (17F113) | ⚠️ `xcode-select -p` points at CommandLineTools — run `sudo xcode-select -s /Applications/Xcode.app` |
 | Swift | 6.3.3 | C++ interop is stable here |
 | clang | 21.0.0 | |
-| Botan | 3.12.0 (Homebrew) | dev/prototyping only — ship the amalgamation (ADR-0001) |
+| Botan | 3.13.0 (Homebrew) | dev/prototyping only — ship the amalgamation (ADR-0001, amended 2026-08-30) |
 | CMake | 4.4.2 | native tests + Botan build only, not in the app build graph |
 
-Confirmed available in Botan 3.12.0 by direct probe: `Argon2id`, `HKDF(SHA-256)`, `AES-256/GCM`, and `ChaCha20Poly1305` **with a 24-byte nonce** (i.e. XChaCha20-Poly1305 — valid nonce lengths reported: 8, 12, 24). Note Botan 3 exposes concrete algorithms through generic factory headers (`aead.h`, `kdf.h`, `pwdhash.h`), so write to `AEAD_Mode::create(...)` / `PasswordHashFamily::create(...)`, not to per-algorithm headers.
+Confirmed available by direct probe against Botan 3.12.0 (unchanged in 3.13.0; re-probe pending): `Argon2id`, `HKDF(SHA-256)`, `AES-256/GCM`, and `ChaCha20Poly1305` **with a 24-byte nonce** (i.e. XChaCha20-Poly1305 — valid nonce lengths reported: 8, 12, 24). Note Botan 3 exposes concrete algorithms through generic factory headers (`aead.h`, `kdf.h`, `pwdhash.h`), so write to `AEAD_Mode::create(...)` / `PasswordHashFamily::create(...)`, not to per-algorithm headers.
 
 **Cloud and web toolchain (M5, M6 — not yet installed; pin each version at first use).**
 

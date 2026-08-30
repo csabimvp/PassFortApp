@@ -3,6 +3,14 @@
 **Status:** Accepted
 **Date:** 2026-08-24
 
+> **Amendment — 2026-08-30.** The pinned version is now **Botan 3.13.0** (current Homebrew
+> stable), not 3.12.0. This is a routine pin bump made during the M0/M1 bootstrap, before any
+> vault was written — the decision, the module set, and the rationale below are unchanged, only
+> the version string is newer. No superseding ADR: "upgrading Botan is an explicit, reviewable
+> commit" is exactly what this ADR asks for, not a change of direction. The KDF/AEAD primitive
+> probe (`architecture.md` §4.1) still needs re-running against 3.13.0; the algorithms it covers
+> are unchanged between 3.12 and 3.13.
+
 ## Context
 
 The core needs Argon2id, an AEAD, HKDF, HMAC, and a CSPRNG. Three realistic sources:

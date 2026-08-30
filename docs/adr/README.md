@@ -4,7 +4,7 @@ One file per decision, numbered, immutable once accepted — corrections go in a
 
 | # | Title | Status |
 |---|---|---|
-| [0001](0001-botan-static-amalgamation.md) | Botan 3, statically linked as a minimized amalgamation | Accepted |
+| [0001](0001-botan-static-amalgamation.md) | Botan 3, statically linked as a minimized amalgamation | Accepted (amended 2026-08-30: pin 3.12.0 → 3.13.0) |
 | [0002](0002-cxx-swift-boundary-style.md) | Opaque handles and `noexcept` free functions at the Swift↔C++ seam | Accepted (amended by 0004) |
 | [0003](0003-per-record-envelope-encryption.md) | Per-record envelope encryption in SQLite | Accepted (amended by 0004) |
 | [0004](0004-swift-owns-storage.md) | Swift owns storage; C++ owns only keys | Accepted |

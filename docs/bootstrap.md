@@ -2,7 +2,10 @@
 
 **Status:** Active. Follow top to bottom to go from an empty repo to a building SwiftPM package with the
 Swift↔C++ seam proven end to end (milestone M0), plus the Botan, CMake, and CI scaffolding M1 needs.
-**Last updated:** 2026-08-30 (Phase 1: add the GitHub remote and reconcile with its README commit)
+**Last updated:** 2026-08-30 (Phase 1: add the GitHub remote; Phase 2: `-enable-library-evolution` on
+`PassFortCrypto` to contain viral C++ interop; Phase 2/6: spell out when the Xcode project starts — M3;
+Phase 3: `#include "botan_all.h"` goes outside every namespace, Botan pin 3.12.0 → 3.13.0 per ADR-0001
+amendment)
 
 This runbook implements the "Immediate next steps" of `architecture.md` §15. Once the commands here are
 real and stable, fold them into the README's *Getting started* / *Testing* sections and retire this file
@@ -44,11 +47,11 @@ clang --version                 # -> 21.x
 
 # Dev-time only (not shipped): Botan reference build + CMake for native tests
 brew install botan cmake
-botan version                   # -> 3.12.0
+botan version                   # -> 3.13.0
 cmake --version                 # -> 4.4.x
 ```
 
-**Checkpoint:** all five versions match §4.1. If Homebrew's Botan is not 3.12.0 it does not matter — the
+**Checkpoint:** all five versions match §4.1. If Homebrew's Botan is not 3.13.0 it does not matter — the
 vendored amalgamation (Phase 3) is what ships; Homebrew's copy is only for experiments.
 
 ---
@@ -157,6 +160,14 @@ commit(s), and `git status` reports `Your branch is ahead of 'origin/main' by N 
 This phase proves the §6.3 marshaling pattern in the repo and that the §4 layering is enforced by the
 compiler rather than by review.
 
+> **Do not create an Xcode project yet.** M0–M2 are built and tested entirely through SwiftPM and
+> `passfort-cli` — no `.xcodeproj`, no app target, no `xcodebuild`. Opening Xcode now only buys a
+> `project.pbxproj` to keep in sync and a slower build loop. The Xcode project is **Phase 6**, deferred
+> to **M3** when the SwiftUI GUI starts (`architecture.md` §12); by then the package it wraps is stable
+> and CI already builds it. Everything from here to the end of Phase 5 is `cd Packages/PassFortKit &&
+> swift build`. All you need from Xcode right now is its toolchain — `sudo xcode-select -s
+> /Applications/Xcode.app` from Phase 0.
+
 ### `Packages/PassFortKit/Package.swift`
 
 ```swift
@@ -184,7 +195,18 @@ let package = Package(
         .target(
             name: "PassFortCrypto",
             dependencies: ["PFCrypto"],
-            swiftSettings: [.interoperabilityMode(.Cxx)]
+            swiftSettings: [
+                .interoperabilityMode(.Cxx),
+                // C++ interop mode is recorded in the binary .swiftmodule and is
+                // VIRAL: without this, every downstream Swift target (PassFortVault,
+                // passfort-cli) also has to enable it just to `import PassFortCrypto`,
+                // which would destroy the §4 "layering violation = compile error"
+                // guarantee. Library evolution makes PassFortCrypto publish a textual
+                // .swiftinterface; clients compile against that and never see the C++
+                // interop flag. It also makes "no pf.* type in public API" a compile
+                // error (interface verification), which is exactly the §4 rule.
+                .unsafeFlags(["-enable-library-evolution"]),
+            ]
         ),
 
         // -- Swift storage/model/sync. MUST NOT import PFCrypto -- no interop flag,
@@ -434,10 +456,29 @@ swift run passfort-cli
 **Checkpoint (M0 done):** `swift test` is green and `passfort-cli` prints `seam OK`. The §6.3 pattern is
 proven in the repo, not in a scratch package.
 
-**If `swift build` reports that `PassFortVault` needs `.interoperabilityMode(.Cxx)`:** that is the C++
-interop transitivity limitation. The fix is not to add the flag — it is to confirm that no `pf.*` type
-appears in any `public` or `package` declaration of `PassFortCrypto`. The `internal import` plus the
-plain-enum `PassFortError` are designed to prevent exactly this leak.
+**If `swift build` fails building `PassFortVault` or `passfort-cli` with `module 'PFCrypto' requires
+feature 'cplusplus'`, `could not build Objective-C module 'PFCrypto'`, or `module 'PassFortCrypto' was
+built with C++ interoperability enabled, but current compilation does not enable C++ interoperability`:**
+these are all one problem — C++ interop is viral through the binary `.swiftmodule`, and it reaches any
+target that imports `PassFortCrypto` even transitively, regardless of `internal` / `@_implementationOnly`
+on the `import PFCrypto`. Confirmed on Swift 6.3.3.
+
+The fix is **not** to add `.interoperabilityMode(.Cxx)` to `PassFortVault` — that compiles, but it lets
+`PassFortVault` `import PFCrypto`, which is the §4 layering violation the missing flag is supposed to
+make impossible. The fix is the `-enable-library-evolution` flag on `PassFortCrypto` (already in the
+`Package.swift` above): it forces a textual `.swiftinterface` that downstream targets compile against
+without inheriting the interop mode. Two things must hold for it to work, and both are existing §4
+rules:
+
+- **No `pf.*` type in any `public` / `package` declaration of `PassFortCrypto`** — the `internal import`
+  and the plain-enum `PassFortError` exist for this. Under library evolution a leak is now a hard
+  `verify-emitted-module-interface` error, not a subtle ABI hazard.
+- `-enable-library-evolution` goes through `.unsafeFlags`, which bars `PassFortKit` from being consumed
+  as a *versioned* remote dependency. It is only ever consumed by path (the Xcode app at M3, Phase 6),
+  so this costs nothing here.
+
+**Verify the guarantee survived:** uncomment `import PFCrypto` in `PassFortVault/Vault.swift`, run
+`swift build`, confirm it still fails, re-comment it.
 
 ---
 
@@ -451,7 +492,7 @@ plain-enum `PassFortError` are designed to prevent exactly this leak.
 # build graph (ADR-0001). Requires: git, python3, clang.
 set -euo pipefail
 
-BOTAN_VERSION="3.12.0"
+BOTAN_VERSION="3.13.0"          # pinned by ADR-0001 (amended 2026-08-30)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR_DIR="${REPO_ROOT}/Packages/PassFortKit/Sources/PFCrypto/vendor/botan"
 WORK_DIR="$(mktemp -d)"
@@ -510,7 +551,26 @@ Its headers stay out of `include/`, so the Swift compiler never parses them — 
 
 ### Prove the link
 
-Add to `boundary/bytes.cpp`, inside `namespace pf` (and add `#include "botan_all.h"` near the top):
+First, add the Botan header to the **top** of `boundary/bytes.cpp`, with the other `#include`s —
+**outside every namespace.** `botan_all.h` declares `namespace Botan` and pulls in standard-library
+headers; putting the `#include` inside `namespace pf { … }` nests all of that under `pf::` and nothing
+compiles:
+
+```cpp
+#include "PFCrypto/PFBytes.hpp"
+
+#include <cstring>
+#include <utility>
+#include <vector>
+
+#include "botan_all.h"   // vendored amalgamation -- resolved via the vendor/botan header search path
+
+namespace pf
+{
+    // ... existing Bytes class, pf_bytes_*, pf_echo ...
+```
+
+Then add this function *inside* `namespace pf`, alongside `pf_echo`:
 
 ```cpp
 BytesResult pf_botan_version() noexcept {
@@ -539,8 +599,10 @@ swift build       # SLOW first time -- botan_all.cpp is one large TU. Incrementa
 swift run passfort-cli
 ```
 
-**Checkpoint:** the CLI prints `botan 3.12.0`. Botan is vendored, linked, and invisible to Swift. Commit
-the amalgamation and `build_botan.sh` together.
+**Checkpoint:** the CLI prints a line starting `botan Botan 3.13.0` (`Botan::version_string()` also
+appends a build/revision tag — a git-checkout build shows `(unreleased, revision git:…)`, which is
+cosmetic). Botan is vendored, linked, and invisible to Swift. Commit the amalgamation and
+`build_botan.sh` together in one commit that references ADR-0001.
 
 The amalgamation bakes in this machine's target arch (`aes_armv8`, endianness). ADR-0001's "pin the
 version, re-run deliberately" applies per target arch — revisit if iOS or an Intel target ever appears.
@@ -769,18 +831,37 @@ few minutes); later runs restore the cache and finish fast.
 
 ## Phase 6 — The Xcode app project (defer until M3)
 
-Not needed to build M1–M2. When the GUI starts:
+**When:** the first time you need to *see a window* — i.e. the start of M3, once `passfort-cli` already
+does full CRUD against a real vault (end of M2) and CI is green. Not before: M0–M2 have no GUI, and an
+empty `.xcodeproj` sitting in the tree from M0 is just a `project.pbxproj` to babysit and a merge
+hazard. The package is the product; the Xcode project is a thin shell around it that you add when the
+SwiftUI layer needs a host to run in.
 
-1. **Xcode -> File -> New -> Project -> macOS -> App.** Name it `PassFort`, SwiftUI, Swift. Save it at
-   the repo root so `PassFort.xcodeproj` sits next to `Packages/`.
+**Why it can wait safely:** the app target only ever depends on `PassFortVault` (a plain SwiftPM
+library). Nothing about the seam, the crypto core, the storage layer, or CI needs Xcode — they are all
+`swift build` / `swift test` / `ctest`. Adding the project late costs nothing; adding it early taxes
+every commit until M3.
+
+**How, when you get there:**
+
+1. **Xcode -> File -> New -> Project -> macOS -> App.** Name it `PassFort`, SwiftUI, Swift, no tests
+   bundle yet (add it as a separate target later). Save it at the repo root so `PassFort.xcodeproj`
+   sits next to `Packages/` — **not** inside `Packages/`.
 2. **File -> Add Package Dependencies -> Add Local...** -> select `Packages/PassFortKit`. Add
-   `PassFortVault` (and `PassFortCrypto` if the app needs it directly) to the app target.
+   `PassFortVault` (and `PassFortCrypto` only if the app calls the session directly) to the app target.
 3. New Xcode targets use **file-system synchronized groups** by default — create, rename, and delete
    files in the filesystem and Xcode picks them up. **Never hand-edit `project.pbxproj`** (`xcode.md`).
 4. The fast loop stays `swift test` in `Packages/PassFortKit`. Use Xcode to run the app and for signing
    and entitlements (M4), which are GUI-driven.
-5. `xcodebuild -list`, then
+5. `xcodebuild -list` to confirm the scheme name is `PassFort`, then
    `xcodebuild test -scheme PassFort -destination 'platform=macOS'` verifies from the CLI.
+6. Commit `PassFort.xcodeproj` in one focused commit (`Add macOS app shell (M3)`), and add its
+   `xcuserdata/` / `*.xcuserstate` to `.gitignore` if Phase 1's list does not already cover them (it
+   does).
+7. **Wire it into CI:** extend the `swift` job (or add an `app` job) with
+   `xcodebuild -scheme PassFort -destination 'platform=macOS' build` — unsigned, per `architecture.md`
+   §13.4 / §12 M3 ("the app compiles in CI"). This is also the point to settle the hosted-vs-self-hosted
+   macOS-runner question (`architecture.md` §14, open decision 16).
 
 ---
 
