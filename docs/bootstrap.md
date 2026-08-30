@@ -2,7 +2,7 @@
 
 **Status:** Active. Follow top to bottom to go from an empty repo to a building SwiftPM package with the
 Swift↔C++ seam proven end to end (milestone M0), plus the Botan, CMake, and CI scaffolding M1 needs.
-**Last updated:** 2026-08-28 (Phase 5 "Continuous integration" added; former Phase 5 → Phase 6)
+**Last updated:** 2026-08-30 (Phase 1: add the GitHub remote and reconcile with its README commit)
 
 This runbook implements the "Immediate next steps" of `architecture.md` §15. Once the commands here are
 real and stable, fold them into the README's *Getting started* / *Testing* sections and retire this file
@@ -114,6 +114,41 @@ empty directories — expected).
 The `git-and-commits.md` convention mentions a staged-diff secret-scan hook. If it is not installed yet
 that is fine for now; it must be enforcing before the first M5 commit that touches
 `Cloud/api/local.settings.json`.
+
+### Add the GitHub remote
+
+The GitHub repo — `git@github.com:csabimvp/PassFortApp.git` — was created through the web UI with a
+README, so `origin/main` already carries one commit that the local repo does not. The two histories are
+independent roots. Don't force-push over GitHub's commit; replay the local history on top of it:
+
+```bash
+cd /Users/csabimvp/dev/projects/PassFortApp
+
+git remote add origin git@github.com:csabimvp/PassFortApp.git
+git fetch origin
+
+# Rebase the local scaffold commit(s) onto GitHub's initial README commit. Rebase
+# does not need --allow-unrelated-histories (that flag is merge/pull only); it just
+# replays every local commit that origin/main lacks.
+git rebase origin/main
+
+git log --oneline --graph        # -> README commit is the root, local commits follow
+```
+
+No conflict is expected: there is no `README.md` in the local tree yet, so GitHub's commit and the local
+scaffold commit touch disjoint files. If git *does* stop, the conflict is in `README.md` — reconcile it
+(the header note about folding the command loops into the README applies to this file), then
+`git add README.md && git rebase --continue`.
+
+Pushing needs an explicit ask every time (`git-and-commits.md`), so it does not happen here. The first
+push is at the end of Phase 5, once CI and formatting are in place:
+
+```bash
+git push -u origin main
+```
+
+**Checkpoint:** `git log --oneline` shows the GitHub README commit followed by the local scaffold
+commit(s), and `git status` reports `Your branch is ahead of 'origin/main' by N commits`.
 
 ---
 
@@ -700,8 +735,9 @@ jobs:
 
 ### Before the first push
 
-`-Werror` and `--strict` fail the pipeline on formatting drift, so normalise once, then push to a
-GitHub remote (create the repo first if there isn't one):
+`-Werror` and `--strict` fail the pipeline on formatting drift, so normalise once, then make the first
+push. The `origin` remote was added back in Phase 1; this is the point where local work first reaches
+GitHub, and per `git-and-commits.md` the `git push` needs an explicit go-ahead:
 
 ```bash
 cd /Users/csabimvp/dev/projects/PassFortApp
@@ -709,7 +745,6 @@ cd /Users/csabimvp/dev/projects/PassFortApp
 ( cd Packages/PassFortKit && swift format --in-place --recursive Sources Tests )
 clang-format -i $(git ls-files '*.cpp' '*.hpp' | grep -v '/vendor/')
 
-git remote add origin git@github.com:<you>/PassFort.git   # one-time, if not already set
 git add -A
 git commit -m "Add CI workflow and .clang-format; normalise formatting"
 git push -u origin main                                    # CI runs on GitHub from here
