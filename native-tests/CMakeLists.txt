@@ -28,17 +28,20 @@ add_executable(pfcrypto_tests
     ${PFCRYPTO}/boundary/bytes.cpp
     ${PFCRYPTO}/boundary/session.cpp
     ${PFCRYPTO}/boundary/record.cpp
+    ${PFCRYPTO}/boundary/manifest.cpp
     ${PFCRYPTO}/keyring/kdf.cpp
     ${PFCRYPTO}/keyring/hkdf.cpp
     ${PFCRYPTO}/keyring/header.cpp
     ${PFCRYPTO}/aead/record_crypto.cpp
+    ${PFCRYPTO}/manifest/manifest_mac.cpp
     tests/test_bytes.cpp
     tests/test_header_codec.cpp
     tests/test_kat_argon2.cpp
     tests/test_kat_chacha.cpp
     tests/test_kat_hkdf.cpp
     tests/test_keyring.cpp
-    tests/test_seal_open.cpp)
+    tests/test_seal_open.cpp
+    tests/test_manifest.cpp)
 # ${PFCRYPTO} itself is on the path so tests can #include "keyring/kdf.hpp" etc.
 target_include_directories(pfcrypto_tests PRIVATE
     ${PFCRYPTO} ${PFCRYPTO}/include ${PFCRYPTO}/internal)
