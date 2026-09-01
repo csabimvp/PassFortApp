@@ -21,6 +21,17 @@ struct KdfParams {
     uint8_t salt[16] = {};
 };
 
+// Hard ceilings on the KDF parameters (§5.2). The *lower* memory bound is a
+// policy calibrate() applies; these are the only limits header_decode enforces,
+// so a tampered or foreign header cannot make Argon2 attempt a multi-terabyte /
+// multi-hour run before the AEAD tag check would reject it anyway.
+inline constexpr uint32_t kArgon2MaxKiB = 4u * 1024 * 1024; // 4 GiB
+inline constexpr uint32_t kArgon2MaxCost = 16;              // ceiling for t and p
+
+// True if params are values Argon2id will accept and that cannot cause a
+// pathological run. Does not check the calibrate() memory *floor*.
+bool kdf_params_sane(const KdfParams &params) noexcept;
+
 // Argon2id(password, params.salt) with params.{m_kib,t,p} -> 64 bytes.
 // The 64 bytes are the single expensive KDF output that hkdf.hpp expands into
 // the KEK and auth_secret (§5.1). Throws Botan::Exception on invalid params.

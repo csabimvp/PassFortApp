@@ -14,8 +14,8 @@ namespace pf::keyring {
 
 namespace {
 
-constexpr uint32_t kMinKiB = 64u * 1024;   // 64 MiB floor  (§5.2)
-constexpr uint32_t kMaxKiB = 4096u * 1024; // 4 GiB ceiling (§5.2)
+constexpr uint32_t kMinKiB = 64u * 1024;    // 64 MiB floor (§5.2, a calibrate policy)
+constexpr uint32_t kMaxKiB = kArgon2MaxKiB; // 4 GiB ceiling (§5.2)
 constexpr uint32_t kFixedT = 3;
 constexpr uint32_t kFixedP = 4;
 
@@ -42,6 +42,20 @@ uint32_t clamp_kib(double v) {
 }
 
 } // namespace
+
+bool kdf_params_sane(const KdfParams &params) noexcept {
+    if (params.kdf_id != 1)
+        return false;
+    if (params.t < 1 || params.t > kArgon2MaxCost)
+        return false;
+    if (params.p < 1 || params.p > kArgon2MaxCost)
+        return false;
+    if (params.m_kib > kArgon2MaxKiB)
+        return false;
+    if (params.m_kib < 8u * params.p) // Argon2's own minimum
+        return false;
+    return true;
+}
 
 SecureBytes argon2id_64(const uint8_t *pw, size_t pw_len, const KdfParams &params) {
     auto fam = Botan::PasswordHashFamily::create_or_throw("Argon2id");

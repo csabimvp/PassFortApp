@@ -13,6 +13,7 @@ let package = Package(
         .target(
             name: "PFCrypto",
             cxxSettings: [
+                .headerSearchPath("."),  // boundary/*.cpp -> #include "keyring/header.hpp"
                 .headerSearchPath("include"),
                 .headerSearchPath("internal"),
                 .headerSearchPath("vendor/botan"),

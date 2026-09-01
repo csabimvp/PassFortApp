@@ -26,8 +26,10 @@ target_compile_options(pf_botan PRIVATE -w)          # vendored -- not ours to l
 # KAT/tamper/fuzz suites) lands incrementally, not all at once. See m1-crypto-core.md.
 add_executable(pfcrypto_tests
     ${PFCRYPTO}/boundary/bytes.cpp
+    ${PFCRYPTO}/boundary/session.cpp
     ${PFCRYPTO}/keyring/kdf.cpp
     ${PFCRYPTO}/keyring/hkdf.cpp
+    ${PFCRYPTO}/keyring/header.cpp
     tests/test_bytes.cpp
     tests/test_header_codec.cpp
     tests/test_kat_argon2.cpp
