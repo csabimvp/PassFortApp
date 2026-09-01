@@ -10,6 +10,7 @@ One file per decision, numbered, immutable once accepted — corrections go in a
 | [0004](0004-swift-owns-storage.md) | Swift owns storage; C++ owns only keys | Accepted |
 | [0005](0005-azure-sync-backend.md) | Custom Azure sync backend, not CloudKit | Accepted |
 | [0006](0006-web-client-wasm-core.md) | The web client runs the crypto core as WebAssembly | Accepted |
+| [0007](0007-recovery-key-header-slot.md) | Recovery-key DEK slot folded into vault-header format v1 (no migration) | Accepted |
 
 ## Template
 

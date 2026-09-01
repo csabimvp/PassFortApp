@@ -5,7 +5,7 @@ import GRDB
 /// write-ahead logging, `synchronous = FULL`, and a `0600` file (architecture
 /// §8.2). Every read and write in `PassFortVault` goes through this one queue,
 /// so there is never a concurrent-writer problem to reason about.
-public struct VaultDatabase {
+public struct VaultDatabase: Sendable {
   let dbQueue: DatabaseQueue
 
   public init(path: String) throws {

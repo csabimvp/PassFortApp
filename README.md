@@ -21,8 +21,8 @@ app, the `passfort-cli` tool, and (later) a browser client running the same core
 WebAssembly. Milestones M1 and M2 are built and tested entirely through `passfort-cli`, before the GUI
 exists.
 
-`docs/architecture.md` (rev 6) is the specification the project is built against; read it before
-changing anything. The six ADRs in `docs/adr/` hold the reasoning behind every load-bearing choice.
+`docs/architecture.md` (rev 7) is the specification the project is built against; read it before
+changing anything. The seven ADRs in `docs/adr/` hold the reasoning behind every load-bearing choice.
 
 ## Architecture
 
@@ -51,7 +51,8 @@ Key decisions and their ADRs: Botan as a static minimized amalgamation (`docs/ad
 `noexcept` / opaque-handle / POD-only seam style (`docs/adr/0002`); per-record envelope encryption in
 SQLite (`docs/adr/0003`); **Swift owns storage, C++ owns only keys** (`docs/adr/0004`, which amends
 0002 and 0003); a custom Azure sync backend rather than CloudKit (`docs/adr/0005`); the web client
-running the core as WebAssembly (`docs/adr/0006`).
+running the core as WebAssembly (`docs/adr/0006`); the recovery-key DEK slot folded into header format
+v1 with no migration (`docs/adr/0007`).
 
 ## Project structure
 
@@ -80,8 +81,8 @@ PassFortApp/
 ├── scripts/
 │   └── build_botan.sh               # regenerate the minimized Botan amalgamation — run deliberately
 └── docs/
-    ├── architecture.md              # the specification (rev 6); stable §-numbers referenced everywhere
-    ├── adr/                         # 6 ADRs — reasoning behind load-bearing choices
+    ├── architecture.md              # the specification (rev 7); stable §-numbers referenced everywhere
+    ├── adr/                         # 7 ADRs — reasoning behind load-bearing choices
     ├── bootstrap.md                 # M0 runbook (toolchain → seam → Botan → CMake → CI)
     └── runbooks/                    # per-milestone build runbooks (M1 onward)
 ```
@@ -237,6 +238,6 @@ explicit, reviewable commit; the version is recorded in the vault header.
 ## Further documentation
 
 - `docs/architecture.md` — the full specification: threat model, data models, vault format, roadmap.
-- `docs/adr/` — the six architecture decision records; `docs/adr/README.md` is the template and index.
+- `docs/adr/` — the seven architecture decision records; `docs/adr/README.md` is the template and index.
 - `docs/bootstrap.md` — the M0 runbook (toolchain → seam → Botan → CMake harness → CI).
 - `docs/runbooks/` — per-milestone build runbooks (M1 onward) and the series index.

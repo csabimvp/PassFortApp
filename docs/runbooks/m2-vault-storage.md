@@ -1,8 +1,12 @@
 # M2 — Vault + storage
 
-**Status:** Drafted. Start when `m1-crypto-core.md` is complete (the whole §6.2 surface driven from
-Swift, KATs/tamper/fuzz green). Expect to revise this as M1 lands — anything below marked *(confirm
-against M1)* depends on choices you'll have made by then.
+**Status:** In progress — Phases 1–6 landed (GRDB, `Database.swift`, schema v1 + fixture harness, model
+types with JSON + 256-byte padding, `VaultManifest`/`VaultMeta` + verify-at-unlock, `VaultRepository`
+CRUD + `HighWaterMark`). Phases 7–11 remain — **Phase 7, the mid-write kill test, is next and is the
+single most important test in M2.** Open decisions resolved 2026-09-01: recovery key folds into header
+format v1 (ADR-0007), `usedAt` stays `nil` in M2 (§14.11), recovery key rendered Crockford Base32,
+`verify --accept-restore` for legitimate restores. Open finding: `is_deleted` is not in the manifest
+MAC (Phase 6 note) — decide before M5.
 **Spec:** `architecture.md` §7 (data models), §8 (storage), §5.6 (recovery), §7.6 (export), §13.1.
 
 ---
@@ -43,7 +47,7 @@ migrations, and no opinion about a BLOB-shaped schema.
 
 ```swift
 // Package.swift
-.package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),  // confirm current major
+.package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),  // resolved to 7.11.1
 
 .target(
     name: "PassFortVault",
@@ -252,14 +256,13 @@ enum PayloadCodec {
 }
 ```
 
-- **JSON for M2** (open decision 5) — zero dependencies, and `schema_version` in the AAD makes it
-  swappable for CBOR later.
-- **Padding** (open decision 7 — the recommendation is *yes*): pad the JSON to the next multiple of
-  256 bytes before sealing, so `sealed.count` stops leaking note length. Prefix the plaintext with a
-  `u32` length, pad with zeros, strip on decode. Cheap; closes the metadata leak from §3.1.
-- `usedAt` is a **write-amplification trap** (§7.2). For M2, either debounce it to once/day or leave it
-  `nil` and defer "last used" to a local sidecar (open decision 11 leans sidecar) — do **not** touch it
-  on every `open`.
+- **JSON for M2** (open decision 5) — done in Phase 4: zero dependencies, and `schema_version` in the
+  AAD makes it swappable for CBOR later.
+- **Padding** (open decision 7) — done in Phase 4: `u32` BE length ‖ JSON ‖ zero padding to the next
+  multiple of 256 bytes before sealing, so `sealed.count` stops leaking note length (§3.1).
+- `usedAt` is a **write-amplification trap** (§7.2). **Decided (§14.11): M2 leaves it `nil` and never
+  writes it** — `PayloadCodec` round-trips the field if a newer writer set it, but no M2 code path
+  touches it. "Last used" becomes a local-only sidecar table when the M3 GUI first needs it.
 
 ### `VaultModels.swift`
 
@@ -275,76 +278,118 @@ multiple of 256. Commit: `PassFortVault: record models + payload codec with forw
 
 ---
 
-## Phase 5 — `VaultManifest.swift`: wire the streaming MAC
+## Phase 5 — `VaultManifest.swift`: wire the streaming MAC — DONE (2026-09-01)
+
+Landed as `Sources/PassFortVault/VaultManifest.swift` + `VaultMeta.swift`, tested in
+`VaultManifestTests.swift` (6 tests). What actually shipped, and how it differs from the sketch
+below:
 
 ```swift
-import PassFortCrypto
-
-struct VaultManifest {
-    /// Recompute the manifest MAC over every row, in UUID order (§5.5).
-    static func compute(session: VaultSession, db: Database) async throws -> ManifestState {
-        let rows = try SealedRecord
-            .order(Column("uuid"))           // Swift decides the order; C++ hashes (§5.5)
-            .fetchAll(db)
-        let builder = try await session.manifestBuilder()
-        for r in rows {
-            try await builder.update(uuid: r.id, version: r.version, sealed: r.sealed)
-        }
-        let vaultVersion = try Self.readVaultVersion(db)
-        let mac = try await builder.finish(vaultVersion: vaultVersion)
-        return ManifestState(vaultVersion: vaultVersion, mac: mac)
+public enum VaultManifest {
+    public enum Failure: Error, Equatable {
+        case macMismatch
+        case rollbackDetected(vaultVersion: UInt64, highWater: UInt64)
     }
 
-    /// At unlock: recompute, compare to vault_meta['manifest_mac'], AND check
-    /// vault_version >= the high-water mark cached outside the DB.
-    static func verifyAtUnlock(session: VaultSession, db: Database, highWater: UInt64) async throws
+    /// Reads a consistent row snapshot off the queue, then streams it through the
+    /// session. For `passfort-cli verify` and tests.
+    public static func compute(session: VaultSession, database: VaultDatabase,
+                               vaultVersion: UInt64) async throws -> ManifestState
+
+    /// Version check first (cheap, rejects a rolled-back file), then MAC recompute.
+    @discardableResult
+    public static func verifyAtUnlock(session: VaultSession, database: VaultDatabase,
+                                      highWater: UInt64) async throws -> ManifestState
 }
 ```
 
-**What this function does.** `SealedRecord.order(Column("uuid")).fetchAll(db)` is GRDB's query builder
-— it emits `SELECT * FROM records ORDER BY uuid` and decodes each row into a `SealedRecord`. The
-`ORDER BY` is not cosmetic: the MAC folds rows in `uuid` order (§5.5), and the *same set of rows in a
-different order produces a different MAC*, so verify and compute must both sort. Then it's the
-streaming pattern from M1 Phase 7 — one `builder.update` per row (each `await`s a `pf_mac_update` hop
-into C++), then `builder.finish` folds in `vault_version` and returns the 32-byte tag. `k_manifest`
-never leaves the C++ session.
+**The async/sync boundary shaped the API — worth internalising before Phase 6.** GRDB's
+`dbQueue.read`/`write` closures are **synchronous** `@Sendable (Database) throws -> T`; you cannot
+`await` inside one, and the `Database` handle must not escape it. But `session.makeManifestBuilder`
+is actor-isolated (`await`), and so are `session.seal` / `session.open`. So every function here
+splits in two: **(1)** a synchronous `dbQueue.read { }` that pulls out a plain-value snapshot
+(`[SealedRecord]` sorted by `uuid`, plus `vault_version` and the stored MAC), then **(2)** the
+`await` MAC streaming *outside* the closure. `ManifestBuilder.update` / `.finish` are themselves
+synchronous (the builder is a standalone `@unchecked Sendable` object) — only *making* the builder
+costs one actor hop. So the per-row cost is n plain C calls, **not** n `await`s — the runbook's
+earlier "each `await`s a `pf_mac_update` hop" was wrong about the shipped seam.
 
-- **Include tombstoned rows** (`is_deleted = 1`) in the MAC — they're still real rows and dropping one
-  must be detected. Only `compact` (Phase 6) actually removes them.
-- The **`vault_version` high-water mark** lives *outside* the vault file (§5.5). M4 puts it in the
-  Keychain; for the M2 CLI, a sidecar file `~/Library/Application Support/PassFort/.vault_hw` (mode
-  `0600`) is enough. On unlock: if `vault_meta['vault_version']` < the sidecar value, the file was
-  rolled back → refuse to open.
+- **Tombstoned rows** (`is_deleted = 1`) are included in the MAC — `SealedRecord.order(Column("uuid"))
+  .fetchAll` has no `is_deleted` filter. Only `compact` removes a row.
+- **`vault_version` is a parameter to `compute`, never read from the row inside it** — the MAC binds
+  it (`HMAC(k, vault_version ‖ Σrows)`), so the caller passes the exact version the stored MAC was
+  made at (verify) or the one about to be stored (write). The earlier sketch read it internally and
+  the Phase 6 sketch then stored `vaultVersion + 1` — that mismatch would have broken every verify.
+- **`vault_version` stored as 8 raw big-endian bytes** in `vault_meta` (`VaultMeta.writeVaultVersion`)
+  — same canonical-int convention as the header codec.
+- **The high-water mark** lives outside the file (§5.5): a `0600` sidecar `.vault_hw` for the M2 CLI,
+  the Keychain from M4. `verifyAtUnlock` takes it as `highWater:` and throws `.rollbackDetected`
+  before spending a MAC recompute.
 
-**Checkpoint:** `tests/…` — build a 3-record vault, compute the MAC, store it; delete a row directly
-with SQL, `verifyAtUnlock` throws; restore an older copy of the whole `.sqlite`, `verifyAtUnlock`
-throws on the `vault_version` check. Commit: `PassFortVault: manifest MAC compute + verify-at-unlock
+**O(n)-per-write cost — decided, not deferred silently.** A full recompute on every write is correct
+(the MAC is over the whole set) and cheap at this project's scale — the crypto runs at GB/s; even
+10k rows is single-digit ms of hashing. If `passfort-cli bench` (extend it in Phase 10) ever shows it
+biting, the fix is a **batched seam call** (`pf_mac_update_batch` over one contiguous buffer) —
+same format, same tests, no ADR. An incremental multiset-hash combiner (LtHash-style, O(1) per write)
+is a real format change and out of scope; note it and move on.
+
+**Checkpoint (met):** `verifyPassesOnAnUntouchedVault`; `deletingARowBehindTheAppFailsTheMACCheck` and
+`editingSealedBytesBehindTheAppFailsTheMACCheck` → `.macMismatch`;
+`restoringAnOlderWholeFileFailsTheRollbackCheck` + `rollbackCheckRunsBeforeTheMACRecompute` →
+`.rollbackDetected`; `macIsDeterministicAndBoundToVaultVersion`. `Package.swift`:
+`PassFortVaultTests` gained a `PassFortCrypto` dep (live `VaultSession` in tests) — `Package.resolved`
+unchanged (local target). Commit: `PassFortVault: manifest MAC compute + verify-at-unlock
 (architecture §5.5)`.
 
 ---
 
-## Phase 6 — `VaultRepository.swift`: CRUD, one transaction per write
+## Phase 6 — `VaultRepository.swift`: CRUD, one transaction per write — DONE (2026-09-01)
 
-This is the heart of M2 and the one place the §8.2 invariant is enforced.
+The heart of M2 and the one place the §8.2 invariant is enforced. Landed as
+`Sources/PassFortVault/VaultRepository.swift` + `HighWaterMark.swift`, 8 tests in
+`VaultRepositoryTests.swift`.
 
 ```swift
 public actor VaultRepository {
-    private let db: VaultDatabase
-    private let session: VaultSession
+    // lifecycle -- session must already be open on the header
+    static func bootstrap(database:session:header:deviceID:highWater:) async throws -> VaultRepository
+    static func open(database:session:deviceID:highWater:) async throws -> VaultRepository  // verifyAtUnlock + repair
+    func header() async throws -> Data
 
-    // READ: pf_open each row, pair plaintext with envelope identity -> Account (§7.2)
-    public func account(id: UUID) async throws -> Account?
-    public func summaries() async throws -> [AccountSummary]     // the in-memory index (§8.3)
+    func account(id: UUID) async throws -> Account?             // pf_open one row (tombstone flagged, not hidden)
+    func summaries() async throws -> [AccountSummary]           // the in-memory index (§8.3)
 
-    // WRITE: serialize payload -> pf_seal -> bump version -> restamp updatedAt(HLC)
-    //        -> write row -> recompute + write manifest_mac -> bump vault_version
-    //        ALL IN ONE db.write { } TRANSACTION (§8.2)
-    public func create(_ payload: AccountPayload) async throws -> Account
-    public func update(id: UUID, _ mutate: (inout AccountPayload) -> Void) async throws -> Account
-    public func delete(id: UUID) async throws                    // tombstone: is_deleted = 1
-    public func compact() async throws                           // purge acked tombstones
+    func create(_ payload: AccountPayload) async throws -> Account
+    @discardableResult func update(id: UUID, _ mutate: (inout AccountPayload) -> Void) async throws -> Account
+    func delete(id: UUID) async throws                          // tombstone, re-sealed at the bumped version
+    func compact() async throws                                 // purge tombstones; no-op + no bump when none
 }
 ```
+
+**What differs from the original sketch:**
+
+- **Lifecycle is explicit.** `bootstrap` seeds a new vault (stores the header in `vault_meta['header']`,
+  writes `vault_version = 0`, MACs the empty set); `open` runs `VaultManifest.verifyAtUnlock` and
+  repairs the sidecar forward if the file is ahead of it. `VaultDatabase` gained `: Sendable` so it can
+  cross into the actor.
+- **`HighWaterMark`** — the anti-rollback mark, a `0600` sidecar `<dbPath>.hw` (8 big-endian bytes;
+  `.vault_hw` in the runbook was a guess — keyed to the db path is cleaner for >1 vault). `.reset()` is
+  the `verify --accept-restore` hook (Phase 10). M4 swaps the backing store for the Keychain.
+- **One private `commit(_ rowChange:)`** is the §8.2 core, shared by all four writers: read the current
+  `vault_version` → open the `ManifestBuilder` at `version + 1` (the one actor hop) → in a single
+  `db.write`, apply the row change, fold every row through the builder, write `manifest_mac` and
+  `vault_version`. Then bump the sidecar *after* the commit. A `staleWrite` guard re-checks
+  `vault_version` inside the transaction.
+- **`delete` re-seals** the payload at the bumped version, so the row and its blob stay AAD-consistent
+  and the manifest covers the tombstone transition via the version bump.
+
+> **Finding to note (not a Phase 6 bug): `is_deleted` is not in the manifest MAC.** §5.5 folds
+> `uuid ‖ version ‖ SHA-256(ciphertext)` per row — not `is_deleted`. Flipping only that column behind
+> the app's back (hiding a live record, or resurrecting a tombstone without a version change) is
+> undetected. `VaultRepository` always bumps `version` on a delete so its *own* deletes are covered,
+> but an attacker editing the column directly is not. Closing this is a §5.5 change (add `is_deleted`
+> to the MAC input) — an ADR + the cross-impl vector updated. Worth a decision before M5 sync, when
+> tombstones start crossing the wire.
 
 **`db.dbQueue.write { db in … }` is the transaction.** GRDB opens a SQLite transaction, runs your
 closure, and `COMMIT`s if it returns normally or `ROLLBACK`s if it throws. Everything inside — the row
@@ -354,29 +399,52 @@ is no code path where the row changes but the MAC doesn't, because they're in th
 The only thing *not* covered by it is the sidecar file (it's not in SQLite) — hence the ordering
 callout below.
 
-The write path, precisely (§7.2 "a save runs the reverse"):
+The write path, precisely (§7.2 "a save runs the reverse"). **The async crypto happens *before* the
+transaction; only synchronous SQLite work happens inside it** — GRDB's `write { db in … }` closure is
+synchronous and cannot `await` (Phase 5 note). The one thing that must be inside: making the
+`ManifestBuilder` costs an `await`, so open it before the closure and fold rows through it (sync)
+inside:
 
 ```swift
-public func update(id: UUID, _ mutate: ...) async throws -> Account {
-    try await db.dbQueue.write { db in                     // ← ONE transaction
-        guard var rec = try SealedRecord.fetchOne(db, key: id.data) else { throw PassFortError.notFound }
-        var payload = try PayloadCodec.decode(await session.open(recordID: id, version: rec.version,
-                                                                 schema: rec.schemaVersion, sealed: rec.sealed))
-        mutate(&payload)
-        rec.version    += 1                                 // monotonic; goes into the new AAD
-        rec.updatedAt   = HLC.now(device: deviceID)
-        rec.sealed      = try await session.seal(recordID: id, version: rec.version,
-                                                 schema: rec.schemaVersion,
-                                                 plaintext: PayloadCodec.encode(payload))
-        try rec.update(db)
-        let manifest = try await VaultManifest.compute(session: session, db: db)   // over the NEW row set
-        try writeMeta(db, "manifest_mac", manifest.mac)
-        try writeMeta(db, "vault_version", manifest.vaultVersion + 1)
-        bumpHighWater(manifest.vaultVersion + 1)            // sidecar, AFTER the transaction commits
-        return Account(envelope: rec, payload: payload)
+public func update(id: UUID, _ mutate: (inout AccountPayload) -> Void) async throws -> Account {
+    // --- async, before the transaction ---
+    let (old, oldVersion) = try await db.dbQueue.read { db -> (SealedRecord, UInt64) in
+        guard let rec = try SealedRecord.fetchOne(db, key: id.rawData) else { throw VaultError.notFound }
+        return (rec, try VaultMeta.readVaultVersion(db))
     }
+    var payload = try PayloadCodec.decode(
+        await session.open(recordID: id, version: old.version, schema: old.schemaVersion, sealed: old.sealed))
+    mutate(&payload)
+
+    var rec = old
+    rec.version  += 1
+    rec.updatedAt = .now(device: deviceID)
+    rec.sealed    = try await session.seal(recordID: id, version: rec.version,
+                                           schema: rec.schemaVersion, plaintext: PayloadCodec.encode(payload))
+
+    let newVaultVersion = oldVersion + 1
+    let builder = try await session.makeManifestBuilder(vaultVersion: newVaultVersion)   // the one hop
+
+    // --- synchronous, ONE transaction (§8.2) ---
+    try await db.dbQueue.write { db in
+        // guard against an interleaved writer (belt-and-suspenders: the actor + the
+        // serialized queue already exclude one on this machine)
+        guard try VaultMeta.readVaultVersion(db) == oldVersion else { throw VaultError.staleWrite }
+        try rec.update(db)
+        for r in try SealedRecord.order(Column("uuid")).fetchAll(db) {   // the post-write set
+            try builder.update(recordID: r.id, version: r.version, sealed: r.sealed)
+        }
+        try VaultMeta.write(db, .manifestMAC, try builder.finish())
+        try VaultMeta.writeVaultVersion(db, newVaultVersion)
+    }
+    bumpHighWater(newVaultVersion)                                  // sidecar, AFTER commit
+    return Account(envelope: rec, payload: payload)
 }
 ```
+
+Note `VaultManifest.compute` is **not** used here — it opens its own read snapshot, which would be a
+different transaction from the row write. The write path folds rows through its own builder inside the
+one transaction instead. `compute` is for `passfort-cli verify` and tests.
 
 > **The ordering subtlety that will bite you.** The sidecar high-water bump must happen *after* the
 > SQLite transaction commits — if you bump it first and the transaction rolls back, the next unlock
@@ -385,12 +453,17 @@ public func update(id: UUID, _ mutate: ...) async throws -> Account {
 > unlock, tolerate sidecar being exactly one behind (a crash in that window) but not ahead.
 
 Recomputing the full manifest on every write is O(n) — fine at hobby scale (§8.3), and it's the
-*correct* thing (the MAC is over the whole set). Note it as a known cost; incremental MAC update is a
-future optimization, not an M2 concern.
+*correct* thing (the MAC is over the whole set). The cost is n row fetches + n plain `pf_mac_update` C
+calls (not n `await`s — Phase 5 note); the crypto runs at GB/s. If `passfort-cli bench` ever shows it
+biting, the lever is a batched `pf_mac_update_batch` seam call — same format, no ADR. An incremental
+multiset-hash combiner (O(1) per write) is a format change and out of scope for M2.
 
-**Checkpoint:** `tests/…` full CRUD — create returns an `Account`; update bumps `version` and changes
-`sealed`; the manifest verifies after every operation; delete leaves a tombstone that still MACs;
-`compact` removes it. Commit: `PassFortVault: VaultRepository CRUD, one transaction per write
+**Checkpoint (met):** `createRoundTripsThroughAccount`; `updateBumpsVersionAndResealsAndStaysVerifiable`
+(version 1→2, `sealed` changes, reopen re-verifies); `summariesCoverEveryRowAndCarryNoSecret`;
+`deleteHidesFromLiveReadsButStillVerifies` (tombstone flagged, `update` on it → `.notFound`, manifest
+still verifies); `compactRemovesTombstonesAndKeepsTheManifestConsistent`; `compactIsANoOpWithNothingToPurge`
+(no version bump); `restoringAnOlderDatabaseFileIsRejectedAtOpen` → `.rollbackDetected(2, 3)`;
+`aFreshVaultOpensClean`. Commit: `PassFortVault: VaultRepository CRUD, one transaction per write
 (architecture §8.2)`.
 
 ---
@@ -427,30 +500,38 @@ row and manifest never diverge (architecture §8.2)`.
 
 ## Phase 8 — Recovery key (§5.6)
 
-A second `wrapped_dek` slot in the header. **Whether the header already has room for it was decided in
-M1 Phase 5** *(confirm against M1)*:
+**Decided — ADR-0007.** M1 shipped the header with one fixed slot and no `slot_count`. Because no
+vault has shipped (the only fixture is an empty, headerless database), M2 **redefines
+`format_version = 1`** to add `slot_count` + an optional slot 1 — *no* `format_version = 2`, *no*
+re-seal migration. First job of this phase is the `keyring/header.*` change:
 
-- **If M1 built `slot_count` into `format_version = 1`:** M2 just implements
-  `pf_recovery_wrap` / `pf_recovery_unwrap` in `PFCrypto` (`keyring/header.cpp`) to fill/read slot 1.
-  No format bump, no migration.
-- **If M1's header has no slot concept:** this needs `format_version = 2`, a new ADR (format change,
-  §5.3), and a re-seal migration that rewrites every vault header. Heavier — write the ADR first.
+- insert `slot_count u8` right after `wrap_alg` (§5.3 revised layout); it becomes the last AAD byte, so
+  stripping a slot fails the tag check
+- `header_encode` writes `slot_count = 1` and one slot as today; `header_decode` reads `slot_count`
+  then tries slot 0; `pf_recovery_open` tries slot 1
+- any developer vault at the old 132-byte layout is discarded and recreated — no upgrade path, none
+  needed
+- update the layout `static_assert`: fixed prefix is now 53 bytes, a 1-slot header 133, a 2-slot
+  header 205 (`created_at` still trails; its offset is computed from `slot_count`). Also fix the stale
+  `// = 64` comment on `kSlotLen` — it is 72 (24 + 32 + 16)
 
 New seam functions (`architecture.md` §6.2, "later additions, same shape"):
 
 ```cpp
-// header/recovery — recovery_key is 32 random bytes, NOT password-derived (no Argon2)
-BytesResult pf_recovery_wrap(Session *s, const uint8_t recovery_key[32]) noexcept;  // -> new header
+// keyring/header — recovery_key is 32 CSPRNG bytes, NOT password-derived: KEK = HKDF(rk), no Argon2
+BytesResult   pf_recovery_wrap(Session *s, const uint8_t recovery_key[32]) noexcept;  // -> new header, slot_count=2
 SessionResult pf_recovery_open(const uint8_t *header, size_t hlen,
-                               const uint8_t recovery_key[32]) noexcept;            // parallel to pf_session_open
+                               const uint8_t recovery_key[32]) noexcept;              // parallel to pf_session_open
 ```
+
+Name is `pf_recovery_open`, **not** `pf_recovery_unwrap` — an earlier draft of §6.2 used both.
 
 Swift side:
 
 ```swift
 struct RecoveryKey: Sendable {
-    var raw: Data                     // 32B, from system RNG at vault creation
-    var grouped: String               // Base32, 4-char groups: "A2B4-9K7M-...". Crockford or RFC 4648 — pick, document
+    var raw: Data                     // 32B, from system CSPRNG at vault creation
+    var grouped: String               // Crockford Base32, 4-char groups: "A2B4-9K7M-..." (ADR-0007)
 }
 extension VaultSession {
     static func createWithRecovery(password: Data, params: KdfParameters) throws -> (header: Data, recovery: RecoveryKey)
@@ -467,15 +548,16 @@ extension VaultSession {
   output, already a full-strength key, so it's fed straight into HKDF (`info="pf-rk-v1"`) → a KEK that
   wraps the **same** DEK as the password slot. A recovered session is byte-identical to a password
   session because it unwraps the identical DEK.
-- **Why Base32 for the display form.** Base32 uses `A–Z` and `2–7` only — no lowercase, no `0/1/8/9`,
-  nothing that's ambiguous when handwritten or read aloud. 256 bits is 52 Base32 characters; grouping
-  them `XXXX-XXXX-…` is purely to make transcription errors visible. Pick RFC 4648 or Crockford Base32
-  and write the choice down — they differ in alphabet and checksum.
+- **Why Crockford Base32 for the display form** (ADR-0007). Base32 avoids lowercase and ambiguous
+  glyphs; Crockford's alphabet drops `I/L/O/U` on top of that, is case-insensitive on input, and
+  defines an optional check symbol that catches transcription errors — all of which matter for a key a
+  human writes on paper and types back later. 256 bits is 52 Base32 characters plus the check symbol;
+  group them `XXXX-XXXX-…`. Decoder accepts any case and treats `I/L → 1`, `O → 0`.
 
 **Checkpoint:** create a vault with recovery; open it with the password; open it with the recovery key;
 both sessions seal/open the same record identically; `recover` rotates to a new password and the old
-one stops working. Commit: `Recovery key: second DEK slot, wrap/unwrap, CLI recover (architecture
-§5.6)`.
+one stops working. Also add a tamper test: flip a byte in `slot_count` or drop slot 1 -> `AuthFailed`.
+Commit: `Recovery key: header slot_count + slot 1, wrap/open, CLI recover (ADR-0007, architecture §5.6)`.
 
 ---
 
@@ -540,8 +622,9 @@ passfort-cli verify vault.sqlite                # MUST FAIL: vault_version < hig
 ```
 
 The restore is indistinguishable from an attacker rolling the file back, and the `vault_version`
-high-water check (Phase 5) is what catches it. A *legitimate* restore requires clearing the sidecar
-high-water mark — make that an explicit `passfort-cli verify --accept-restore` so it's a conscious act.
+high-water check (Phase 5) is what catches it. **Decided:** a legitimate restore clears the sidecar
+high-water mark via an explicit `passfort-cli verify --accept-restore` — a conscious act, no separate
+`restore` subcommand.
 
 **Checkpoint:** the full sequence above runs; `verify` fails on the rolled-back file and succeeds after
 `--accept-restore`. This is the §12 M2 exit criterion. Commit: `passfort-cli: full CRUD + restore

@@ -65,12 +65,15 @@ jobs:
           git diff --exit-code Package.resolved
 
   lint:
-    runs-on: ubuntu-latest       # shellcheck + clang-format ship on the image
+    runs-on: ubuntu-latest       # shellcheck ships on the image
     steps:
       - uses: actions/checkout@v4
       - run: shellcheck scripts/*.sh
+      - name: Pin clang-format to the dev toolchain version
+        run: pipx install "clang-format==23.1.0"   # match Homebrew clang-format locally; bump deliberately
       - name: clang-format -- our C++ only, never vendor/
         run: |
+          clang-format --version
           files=$(git ls-files '*.cpp' '*.hpp' | grep -v '/vendor/' || true)
           [ -z "$files" ] || clang-format --dry-run -Werror $files
 

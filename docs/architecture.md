@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Draft (scaffolding). Nothing is built yet; this document is the plan we design against.
-**Last updated:** 2026-08-30 (rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
+**Last updated:** 2026-09-01 (rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
 
 ---
 
@@ -285,7 +285,7 @@ Starting point: `m = 512 MiB, t = 3, p = 4`. Memory-hardness is what buys resist
 
 ```
 magic            "PFV\x01"           4B
-format_version   u16
+format_version   u16                  (1)
 vault_uuid       16B
 kdf_id           u8   (1 = argon2id)
 kdf_m_kib        u32
@@ -293,12 +293,14 @@ kdf_t            u32
 kdf_p            u32
 kdf_salt         16B
 wrap_alg         u8   (1 = XChaCha20-Poly1305)
-wrap_nonce       24B
-wrapped_dek      32B + 16B tag
+slot_count       u8   (1 = password only, 2 = password + recovery key)
+slot[0]          wrap_nonce 24B ‖ wrapped_dek 32B ‖ tag 16B    — KEK from Argon2id(password)
+slot[1]          wrap_nonce 24B ‖ wrapped_dek 32B ‖ tag 16B    — KEK from HKDF(recovery_key);
+                                                                 present iff slot_count == 2
 created_at       i64
 ```
 
-**The DEK wrap uses the canonical bytes of every preceding field as AAD.** That binds the ciphertext to the KDF parameters, so an attacker cannot hand you a header claiming `m = 8 KiB` to make cracking cheap — the unwrap simply fails. Parameter-downgrade is the classic attack on this exact structure; AAD is the classic defence.
+**Every slot's DEK wrap uses the canonical bytes of every preceding field — through `slot_count` — as AAD.** That binds each wrapped DEK to the KDF parameters *and* to `slot_count`, so an attacker can neither hand you a header claiming `m = 8 KiB` to make cracking cheap nor strip `slot[1]` and rewrite `slot_count` to `1` — either edit fails the tag check. Parameter-downgrade and slot-stripping are the classic attacks on this structure; AAD is the classic defence. Both slots wrap the **identical** DEK, so a recovery-key session is byte-identical to a password session. The recovery slot ships in M2 (§5.6, ADR-0007); it was folded into format v1 rather than a v2 bump because no vault had shipped.
 
 **C++ owns both the encoding and the decoding of this header**, and Swift treats it as an opaque blob stored in one `vault_meta` row. Swift never constructs canonical bytes that something else will authenticate — that's a footgun, and keeping it inside C++ costs exactly two boundary functions.
 
@@ -341,7 +343,7 @@ This is the part most hobby password managers get wrong, and it's the most instr
 
 Losing the master password means losing everything — that is the design working correctly, and it is also how people lose their data. Provide, in M2:
 
-- a **recovery key**: 256 random bits, rendered Base32 in groups, which wraps a *second* copy of the DEK (a second `wrapped_dek` slot in the header). Shown once at vault creation, never stored.
+- a **recovery key**: 256 random bits from the system CSPRNG, rendered **Crockford Base32** in `XXXX-XXXX-…` groups, which wraps a *second* copy of the DEK in header slot 1 (`slot_count = 2`; §5.3, ADR-0007). Its KEK comes straight from `HKDF-SHA-256(recovery_key, info="pf-rk-v1")` — no Argon2id, because 256 CSPRNG bits are already a full-strength key. Shown once at vault creation, never stored. Seam: `pf_recovery_wrap` / `pf_recovery_open` (§6.2).
 - a **plaintext export** behind an explicit typed confirmation, so escaping the format is always possible.
 
 ---
@@ -387,7 +389,7 @@ pf_mac_free(Mac*)
 pf_bytes_data(Bytes*) / pf_bytes_size(Bytes*) / pf_bytes_free(Bytes*)
 ```
 
-Later additions, same shape: `pf_recovery_wrap` / `pf_recovery_unwrap` (M2), `pf_blind_index` (M5).
+Later additions, same shape: `pf_recovery_wrap` / `pf_recovery_open` (M2 — fill / read header slot 1, ADR-0007), `pf_blind_index` (M5).
 
 Note what is *not* here: no record type, no query, no collection, no string. The seam speaks bytes and integers.
 
@@ -543,7 +545,7 @@ struct AccountPayload: Codable, Sendable {
 
 **The `unknown` bag is the defence against A6 (§3.2).** When a device one schema version behind opens a record, edits it, and re-seals, the fields the newer schema added must survive the round trip. The decoder gathers unrecognised keys into `unknown`; the encoder writes them back out. This is why the payload decoder is permissive, not strict. (`JSONValue` is a small enum over the JSON value space.)
 
-**`usedAt` is a write-amplification trap.** Touching it on every clipboard copy turns a pure read into a new `version`, a fresh `sealed` blob, a manifest re-MAC, and a sync push. Either debounce it to once a day, or move "last used" to a local-only sidecar outside the sealed payload so it never syncs — see §14.11.
+**`usedAt` is a write-amplification trap.** Touching it on every clipboard copy turns a pure read into a new `version`, a fresh `sealed` blob, a manifest re-MAC, and a sync push. **Resolved (§14.11): M2 leaves `usedAt` `nil` and never writes it.** "Last used" moves to a local-only sidecar, outside the sealed payload, when the GUI in M3 first needs a recently-used list. The field stays in the schema so a future writer (or another host) can still populate it.
 
 **Only `title` is required.** A record with a title and one note is a valid secure note; a record with only `totp` is a valid authenticator entry. `category` drives presentation, not validation.
 
@@ -700,11 +702,11 @@ struct AuditFinding: Sendable {                   // computed on demand, hardeni
 
 ```swift
 struct RecoveryKey: Sendable {           // §5.6
-    var raw: Data    // 32B; shown once at vault creation, Base32 in 4-char groups, never stored
+    var raw: Data    // 32B CSPRNG; shown once at vault creation, Crockford Base32 in 4-char groups, never stored
 }
 ```
 
-Recovery is a **second `wrapped_dek` slot** in the header (§5.3) — not a record, not a Swift-side construct. C++ wraps and unwraps both slots.
+Recovery is header **slot 1** (`slot_count = 2`, §5.3; ADR-0007) — not a record, not a Swift-side construct. C++ wraps and unwraps both slots; its KEK is `HKDF(raw)`, no Argon2id.
 
 ```swift
 struct PlaintextExport: Codable {        // §1.3, §5.6 — behind a typed confirmation
@@ -1048,18 +1050,19 @@ Resolved ones link to their ADR.
 2. ~~Boundary style: opaque handles + free functions vs C ABI vs Objective-C++~~ → **ADR-0002**
 3. ~~Per-record envelope encryption vs single encrypted file vs SQLCipher~~ → **ADR-0003**
 4. ~~Does C++ own storage, or only crypto?~~ → **ADR-0004** (only crypto)
-5. **Record payload encoding: `Codable`+JSON vs CBOR.** Leaning JSON for M2 — zero dependencies, and `schema_version` in the AAD makes it swappable later. CBOR if payload size starts mattering (it probably won't; §14.7 pads anyway).
-6. **GRDB vs raw `libsqlite3` via C interop.** Leaning GRDB. Raw sqlite3 is a defensible zero-dependency choice and would be one more interop exercise, of the easy kind.
-7. **Length hiding:** pad plaintext to a bucket (e.g. next multiple of 256 B) so ciphertext size stops leaking note length? Cheap; probably yes.
+5. ~~**Record payload encoding: `Codable`+JSON vs CBOR.**~~ → **Resolved (rev 7):** `Codable`+JSON for M2 (M2 Phase 4). `schema_version` in the AAD keeps CBOR swappable later if payload size ever matters.
+6. ~~**GRDB vs raw `libsqlite3` via C interop.**~~ → **Resolved:** GRDB (M2 Phase 1, resolved to 7.11.1). Explicit SQL, real migrations, no opinion about a BLOB-shaped schema.
+7. ~~**Length hiding:**~~ → **Resolved (rev 7):** yes — `u32` length ‖ JSON ‖ zero padding to the next multiple of 256 B before sealing (M2 Phase 4).
 8. **Server auth:** derived `auth_secret` as a challenge-response verifier (simple; offline-crackable at Argon2 cost if Azure is breached — §10.4) vs OPAQUE/SRP (correct, more work). Static Web Apps' built-in login can sit in front as a free DoS gate either way. `auth_secret` for M5; OPAQUE stays deferred.
 9. **iOS target?** If yes, keep `Account` validation and formatting in `PassFortVault` rather than in view models.
 10. **Account model: one universal record vs. typed item types.** `AccountCategory` (§7.3) is a placeholder — everything is `.login` in M2. Typed items (bank account, card, identity), each with its own field set, is the 1Password model; one universal `AccountPayload` plus `customFields` is simpler and probably enough. Decide the first time a non-login item genuinely chafes.
-11. **"Last used" storage.** `usedAt` in the sealed payload (write amplification on every copy — §7.2) vs. a local-only sidecar table (no sync, doesn't survive device migration). Leaning sidecar.
+11. ~~**"Last used" storage.**~~ → **Resolved (rev 7):** M2 leaves `usedAt` `nil` and never writes it; "last used" becomes a local-only sidecar when the M3 GUI first needs it. The payload field stays for forward-compat. (§7.2)
 12. **Backend store: Table Storage vs Blob Storage.** Leaning Table for M5 — cheaper, ETag concurrency, one query per vault. Move to Blob if attachments (§7.7) arrive, or split records in Table + attachments in Blob.
 13. **Sync data path: thin Functions API vs clients direct to Storage via SAS + one token-minting Function.** Leaning the thin API — SAS can't enforce `seq` monotonicity or rate limits, and the API is the better Azure exercise. Revisit only if the Function cold-start latency actually bites.
 14. **Infra as code: Bicep vs Terraform.** Leaning Bicep — ships in `az`, no state backend, Azure-native, and practising Azure is the point. Terraform if a second cloud ever appears (it won't). Folded into ADR-0005.
 15. **Web UI framework: vanilla Web Components vs Lit (~6 KB) vs Svelte (compiles away).** Leaning Lit for M6 — smallest runtime that still gives components. Revisit if the UI outgrows a dozen components.
 16. **CI macOS runners: GitHub-hosted minutes vs a self-hosted runner.** Hosted `macos-15` is zero-setup but bills at 10× and the free tier is finite; the `swift` and `native` jobs (§13.2) are the only ones that need macOS. Leaning hosted until the monthly minutes actually bind, then a self-hosted runner on the dev Mac — at the cost of it becoming a build dependency that can rot. Decide at M3, when the app build joins CI.
+17. ~~**Recovery-key header slot: fold it into format v1 now, or bump to format v2 with a re-seal migration in M2?**~~ → **ADR-0007** — fold into v1 (`slot_count` + optional slot 1, §5.3). Justified only because no vault had shipped; the versioned-format discipline applies in full from the first release.
 
 ---
 

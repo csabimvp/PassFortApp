@@ -75,6 +75,7 @@ let package = Package(
             name: "PassFortVaultTests",
             dependencies: [
                 "PassFortVault",
+                "PassFortCrypto",  // manifest / repository tests need a live VaultSession
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             // Fixture vaults are opened by #filePath-relative path, not bundled.
