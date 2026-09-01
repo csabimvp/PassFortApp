@@ -26,9 +26,6 @@ public struct VaultDatabase {
     try Self.restrictPermissions(path: path)
     try Self.migrator.migrate(dbQueue)
   }
-
-  // Phase 3 replaces this with the real forward-only migrator + schema v1.
-  static let migrator = DatabaseMigrator()
 }
 
 // MARK: - Location and hardening

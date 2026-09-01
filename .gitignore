@@ -18,6 +18,11 @@ native-tests/build*/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+# ...except migration-fixture vaults, which are SYNTHETIC by rule (§13.4).
+!Packages/PassFortKit/Tests/PassFortVaultTests/Fixtures/**/*.sqlite
+
+# macOS Spotlight-exclusion marker VaultDatabase drops in the vault directory
+.metadata_never_index
 
 # Later milestones (Cloud/, Web/)
 node_modules/
