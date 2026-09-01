@@ -63,6 +63,13 @@ let package = Package(
             ]
         ),
 
+        // Test-only helper for the §8.2 mid-write kill test (runbook Phase 7): a
+        // real separate process that _exit()s mid-write. Not a product.
+        .executableTarget(
+            name: "pf-killtest",
+            dependencies: ["PassFortVault"]
+        ),
+
         // The one sanctioned interop exception besides PassFortCrypto: the boundary
         // fuzz suite (architecture §13) needs to call pf_* directly.
         .testTarget(

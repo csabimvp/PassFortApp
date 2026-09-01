@@ -4,6 +4,7 @@
 #include "PFCrypto/PFSession.hpp"
 #include "keyring/header.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <string>
@@ -206,6 +207,35 @@ TEST_CASE("pf_session_rewrap: new password opens, old does not, DEK is unchanged
                                        dek1, r1) == pf::Status::Ok);
     REQUIRE(dek0 == dek1);
     REQUIRE(i0.vault_uuid == i1.vault_uuid);
+}
+
+TEST_CASE("pf_session_vault_uuid matches the header field", "[session]") {
+    const auto pw = bytes_of("open sesame");
+    const auto created = pf::pf_vault_create(pw.data(), pw.size(), fast_pod_kdf());
+    REQUIRE(created.status == pf::Status::Ok);
+    const std::vector<uint8_t> header(pf::pf_bytes_data(created.handle),
+                                      pf::pf_bytes_data(created.handle) +
+                                          pf::pf_bytes_size(created.handle));
+    pf::pf_bytes_free(created.handle);
+
+    auto session = pf::pf_session_open(header.data(), header.size(), pw.data(), pw.size());
+    REQUIRE(session.status == pf::Status::Ok);
+
+    std::array<uint8_t, 16> uuid{};
+    REQUIRE(pf::pf_session_vault_uuid(session.handle, uuid.data()) == pf::Status::Ok);
+    pf::pf_session_close(session.handle);
+
+    bool nonzero = false;
+    for (auto b : uuid)
+        nonzero |= (b != 0);
+    REQUIRE(nonzero); // random at create
+
+    pf::keyring::HeaderInfo info;
+    pf::SecureBytes dek;
+    pf::keyring::RootKeys root;
+    REQUIRE(pf::keyring::header_decode(header.data(), header.size(), pw.data(), pw.size(), info,
+                                       dek, root) == pf::Status::Ok);
+    REQUIRE(std::equal(uuid.begin(), uuid.end(), info.vault_uuid.begin()));
 }
 
 TEST_CASE("pf_session_close is a no-op on nil", "[session]") {

@@ -68,6 +68,28 @@ SessionResult pf_session_open(const uint8_t *header, size_t header_len, const ui
 BytesResult pf_session_rewrap(Session *PF_NONNULL s, const uint8_t *new_pw,
                               size_t new_pw_len) noexcept;
 
+// -- recovery key (§5.6, ADR-0007) ---------------------------------------------
+// A second wrapped_dek slot in the header, keyed by 32 CSPRNG bytes (not
+// password-derived -- no Argon2). Both slots wrap the identical DEK.
+
+// Produce a new two-slot header wrapping this session's DEK under both the
+// session's password KEK and `recovery_key` (exactly 32 bytes). Requires a
+// password-opened session; a recovery-opened one returns BadInput (re-wrap to a
+// password first). A stale handle returns Locked.
+BytesResult pf_recovery_wrap(Session *PF_NONNULL s, const uint8_t *recovery_key) noexcept;
+
+// Open a session from a header + `recovery_key` (exactly 32 bytes), via slot 1.
+// A vault with no recovery slot returns NotFound; a wrong key or tampering
+// returns AuthFailed -- no oracle. The session carries no password RootKeys, so
+// the caller must pf_session_rewrap to a password before it syncs (M5).
+SessionResult pf_recovery_open(const uint8_t *header, size_t header_len,
+                               const uint8_t *recovery_key) noexcept;
+
+// Copy the vault UUID (16 bytes, plaintext §5.3 field) into `out`. Not a secret
+// -- it identifies the vault for sync (M5) and plaintext export (§7.6). A stale
+// handle returns Locked.
+Status pf_session_vault_uuid(Session *PF_NONNULL s, uint8_t *out) noexcept;
+
 // Zeroize RootKeys + DEK + DekSubkeys and free. Safe on nil (no-op).
 void pf_session_close(Session *PF_NULLABLE s) noexcept;
 

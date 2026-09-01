@@ -25,8 +25,8 @@ TEST_CASE("kat argon2id matches RFC 9106 section 5.3", "[kat][argon2]") {
     const std::vector<uint8_t> secret(8, 0x03);
     const std::vector<uint8_t> ad(12, 0x04);
 
-    const auto expected = Botan::hex_decode(
-        "0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659");
+    const auto expected =
+        Botan::hex_decode("0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659");
 
     auto fam = Botan::PasswordHashFamily::create_or_throw("Argon2id");
     auto ph = fam->from_params(/*M=*/32, /*t=*/3, /*p=*/4); // M in KiB

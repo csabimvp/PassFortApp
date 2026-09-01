@@ -1,5 +1,4 @@
 import Foundation
-
 internal import PFCrypto
 
 /// Owns the opaque C++ session handle for one unlocked vault.
@@ -68,6 +67,47 @@ public actor VaultSession {
       try consume(
         pf.pf_session_rewrap(handle, pw.bindMemory(to: UInt8.self).baseAddress, pw.count))
     }
+  }
+
+  // MARK: - Recovery key (§5.6, ADR-0007)
+
+  /// Add a recovery slot: returns a new two-slot header wrapping this session's
+  /// DEK under both the password KEK and `recoveryKey` (must be exactly 32 bytes,
+  /// from the system CSPRNG). Requires a password-opened session; a
+  /// recovery-opened one throws `.badInput` (rewrap to a password first).
+  public func addRecoverySlot(recoveryKey: Data) throws -> Data {
+    guard recoveryKey.count == 32 else { throw PassFortError.badInput }
+    return try recoveryKey.withUnsafeBytes { rk in
+      try consume(pf.pf_recovery_wrap(handle, rk.bindMemory(to: UInt8.self).baseAddress))
+    }
+  }
+
+  /// Open a session from a stored header via the recovery slot. Throws
+  /// `.notFound` if the vault has no recovery slot, `.authFailed` for a wrong
+  /// key. The session carries no password keys, so the caller must `rewrap` to a
+  /// new password before it is fully usable (sync, M5).
+  public static func openWithRecovery(header: Data, recoveryKey: Data) throws -> VaultSession {
+    guard recoveryKey.count == 32 else { throw PassFortError.badInput }
+    let handle = try header.withUnsafeBytes { h in
+      try recoveryKey.withUnsafeBytes { rk in
+        try consume(
+          pf.pf_recovery_open(
+            h.bindMemory(to: UInt8.self).baseAddress, h.count,
+            rk.bindMemory(to: UInt8.self).baseAddress))
+      }
+    }
+    return VaultSession(handle: handle)
+  }
+
+  /// The vault UUID (a plaintext §5.3 field, not a secret) -- identifies the
+  /// vault for sync and plaintext export.
+  public func vaultUUID() throws -> UUID {
+    var bytes: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    let status = withUnsafeMutableBytes(of: &bytes) { buffer in
+      pf.pf_session_vault_uuid(handle, buffer.bindMemory(to: UInt8.self).baseAddress)
+    }
+    guard status == pf.Status.Ok else { throw PassFortError(status) }
+    return UUID(uuid: bytes)
   }
 
   // MARK: - Records

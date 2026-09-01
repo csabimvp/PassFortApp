@@ -1,12 +1,16 @@
 # M2 — Vault + storage
 
-**Status:** In progress — Phases 1–6 landed (GRDB, `Database.swift`, schema v1 + fixture harness, model
+**Status:** In progress — Phases 1–8 landed (GRDB, `Database.swift`, schema v1 + fixture harness, model
 types with JSON + 256-byte padding, `VaultManifest`/`VaultMeta` + verify-at-unlock, `VaultRepository`
-CRUD + `HighWaterMark`). Phases 7–11 remain — **Phase 7, the mid-write kill test, is next and is the
-single most important test in M2.** Open decisions resolved 2026-09-01: recovery key folds into header
-format v1 (ADR-0007), `usedAt` stays `nil` in M2 (§14.11), recovery key rendered Crockford Base32,
-`verify --accept-restore` for legitimate restores. Open finding: `is_deleted` is not in the manifest
-MAC (Phase 6 note) — decide before M5.
+CRUD + `HighWaterMark`, `Vault` facades + mid-write kill test, recovery-key header slot +
+`pf_recovery_wrap`/`open`, `RecoveryKey` + Crockford Base32 + `Vault.createWithRecovery`/`recover`, plaintext export +
+`pf_session_vault_uuid`).
+**Phase 10 (`passfort-cli` full CRUD + restore-from-backup — the CLI moves from header-file to SQLite
+semantics, and the recovery/export UX lands here) is next.** Phases 10–11 remain. Open decisions
+resolved 2026-09-01:
+recovery key folds into header format v1 (ADR-0007), `usedAt` stays `nil` in M2 (§14.11), recovery key
+rendered Crockford Base32, `verify --accept-restore` for legitimate restores. Open finding:
+`is_deleted` is not in the manifest MAC (Phase 6 note) — decide before M5.
 **Spec:** `architecture.md` §7 (data models), §8 (storage), §5.6 (recovery), §7.6 (export), §13.1.
 
 ---
@@ -468,123 +472,137 @@ still verifies); `compactRemovesTombstonesAndKeepsTheManifestConsistent`; `compa
 
 ---
 
-## Phase 7 — The mid-write kill test
+## Phase 7 — The mid-write kill test — DONE (2026-09-01)
 
-`architecture.md` §8.2: *"it needs a test that kills the process mid-write."* This is the single most
-important test in M2 — the row and the manifest MAC must **never** diverge.
+`architecture.md` §8.2: *"it needs a test that kills the process mid-write."* The single most important
+test in M2 — the row and the manifest MAC must **never** diverge.
 
-Approach: a helper executable (or a `passfort-cli __faultinject` hidden subcommand) that performs one
-`update` with a `_exit(1)` forced at a chosen point.
+**What shipped:**
 
-**Why `_exit`, not `exit` or a thrown error.** `_exit(2)` terminates the process *immediately* — no
-`atexit` handlers, no stdio flush, no C++/Swift destructors, no GRDB cleanup. That's what a power cut
-or `kill -9` does, and it's the only way to test that SQLite's own crash-recovery (the WAL) plus your
-transaction boundaries actually hold. `exit()` or `throw` would run cleanup paths that don't exist in a
-real crash and would mask exactly the bug you're hunting. The fault points:
+- **`Sources/pf-killtest/`** — a real executable target (not a product), `pf-killtest <db-path>
+  <fault-point>`. It `Vault.unlock`s the vault and does **one** `repo.update`, with a `FaultHook` that
+  calls `_exit(1)` the instant the write reaches the named point. `_exit`, not `exit`/`throw`: no
+  `atexit`, no flush, no destructors, no GRDB cleanup — exactly a power cut, so the test actually
+  exercises SQLite's WAL recovery + the transaction boundary rather than a tidy unwind.
+- **`FaultPoint` / `FaultHook`** on `VaultRepository` (`public`, defaulted `nil`, reachable only by
+  whoever constructs the repo — inert in production). Three points in `commit(_:)`:
+  `.afterRowWrite` and `.afterMetaWrite` (both *inside* the `db.write` closure, before COMMIT),
+  `.afterCommit` (closure returned, COMMIT done, sidecar not yet bumped).
+- **`Vault.unlock` / `Vault.create`** facades (`Vault.swift`) — wire `VaultDatabase` + `VaultSession`
+  (header read from `vault_meta['header']`) + `VaultRepository` so the helper and the Phase 10 CLI
+  don't re-implement the dance.
+- **`MidWriteKillTests`** — parameterised over `FaultPoint.allCases`. Parent sets up a 2-record vault,
+  **releases every connection**, spawns the child, asserts `_exit(1)`, then `Vault.unlock`s fresh
+  (which runs `verifyAtUnlock`) and checks:
 
-| Kill point | After reopen, expect |
+| Kill point | Result proven |
 |---|---|
-| after `rec.update(db)`, before `manifest_mac` write, **inside the txn** | txn rolled back → old row, old MAC, consistent |
-| after the txn commits, before the sidecar bump | row + MAC consistent; sidecar one behind → unlock tolerates it, then repairs |
-| between `manifest_mac` write and `vault_version` write (if you split them) | **must be impossible** — they're in one txn; the test proves it |
+| `.afterRowWrite` | txn rolled back → `vault_version` unchanged, row still v1, notes `nil`, sidecar unchanged, manifest verifies |
+| `.afterMetaWrite` | same — `manifest_mac` + `vault_version` written but not committed, so the whole txn is discarded |
+| `.afterCommit` | txn committed → `vault_version` +1, row v2, notes set; sidecar was one behind, `Vault.unlock` repaired it forward; manifest verifies |
 
-The parent process runs the child, waits for the non-zero exit, then opens the vault with a fresh
-`VaultRepository` and asserts `VaultManifest.verifyAtUnlock` succeeds (or fails *only* in the tolerated
-sidecar-lag case, which then self-heals).
-
-**Checkpoint:** the kill test passes at every fault point. If it doesn't, that's a real bug — fix it
-and commit the fix with this test (`git-and-commits.md`). Commit: `PassFortVault: mid-write kill test —
-row and manifest never diverge (architecture §8.2)`.
+A broken transaction boundary would surface as `VaultManifest.Failure.macMismatch` on the reopen —
+the test would fail loudly. The helper is located via `PF_KILLTEST_BIN` or `<package>/.build/debug/
+pf-killtest`; `swift test` builds it automatically. Commit: `PassFortVault: mid-write kill test — row
+and manifest never diverge (architecture §8.2)`.
 
 ---
 
 ## Phase 8 — Recovery key (§5.6)
 
-**Decided — ADR-0007.** M1 shipped the header with one fixed slot and no `slot_count`. Because no
-vault has shipped (the only fixture is an empty, headerless database), M2 **redefines
-`format_version = 1`** to add `slot_count` + an optional slot 1 — *no* `format_version = 2`, *no*
-re-seal migration. First job of this phase is the `keyring/header.*` change:
+**Split:** 8a — the C++ crypto core — **DONE (2026-09-01)**. 8b — the Swift `RecoveryKey` /
+Crockford Base32 layer + CLI `recover` — **still to do**.
 
-- insert `slot_count u8` right after `wrap_alg` (§5.3 revised layout); it becomes the last AAD byte, so
-  stripping a slot fails the tag check
-- `header_encode` writes `slot_count = 1` and one slot as today; `header_decode` reads `slot_count`
-  then tries slot 0; `pf_recovery_open` tries slot 1
-- any developer vault at the old 132-byte layout is discarded and recreated — no upgrade path, none
-  needed
-- update the layout `static_assert`: fixed prefix is now 53 bytes, a 1-slot header 133, a 2-slot
-  header 205 (`created_at` still trails; its offset is computed from `slot_count`). Also fix the stale
-  `// = 64` comment on `kSlotLen` — it is 72 (24 + 32 + 16)
+### 8a — header codec + seam (DONE)
 
-New seam functions (`architecture.md` §6.2, "later additions, same shape"):
+**Decided — ADR-0007.** `format_version = 1` redefined: a 53-byte prefix (magic .. `slot_count`),
+then `slot_count` × 72-byte slots, then the 8-byte `created_at`. No v2 bump, no migration — nothing
+had shipped.
 
-```cpp
-// keyring/header — recovery_key is 32 CSPRNG bytes, NOT password-derived: KEK = HKDF(rk), no Argon2
-BytesResult   pf_recovery_wrap(Session *s, const uint8_t recovery_key[32]) noexcept;  // -> new header, slot_count=2
-SessionResult pf_recovery_open(const uint8_t *header, size_t hlen,
-                               const uint8_t recovery_key[32]) noexcept;              // parallel to pf_session_open
-```
+- **`keyring/header.{hpp,cpp}` rewritten** around `put_prefix` / `append_slot` / `unwrap_slot` /
+  `parse_prefix` helpers. `kHeaderLen = 133` (1 slot), `kHeaderLenWithRecovery = 205` (2 slots), both
+  `static_assert`ed against `header_size(slot_count)`. `parse_prefix` bounds-checks against the actual
+  `slot_count` before reading `created_at` or any slot. `HeaderInfo` gained `slot_count`.
+- **`slot_count` is the last AAD byte**, so both slots' tags authenticate it — `header_decode` on a
+  forged 1-slot header cut down from a 2-slot one returns `AuthFailed` (test: *recovery: stripping
+  slot 1 fails the tag on slot 0*).
+- **`hkdf`**: `kInfoRecoveryKek = "pf-rk-v1"`, `derive_recovery_kek(rk[32]) = HKDF-Expand(rk, that
+  label)` — no Argon2. Frozen cross-impl vector in `test_keyring.cpp`
+  (`a160d1e4…dd754d1`), cross-checked against an independent HKDF call.
+- **Seam** (`boundary/session.cpp`, `PFSession.hpp`): `pf_recovery_wrap(Session*, const uint8_t*
+  recovery_key)` → new 2-slot header (re-wraps slot 0 under the session's password KEK, no Argon2;
+  `BadInput` on a recovery-opened session with no password KEK); `pf_recovery_open(header, len, const
+  uint8_t* recovery_key)` → `SessionResult` (`NotFound` if `slot_count != 2`, `AuthFailed` for a wrong
+  key — no oracle; the session carries no password `RootKeys`).
+- **`VaultSession`** (Swift): `func addRecoverySlot(recoveryKey: Data) throws -> Data` and
+  `static func openWithRecovery(header:recoveryKey:) throws -> VaultSession` (both guard
+  `recoveryKey.count == 32`).
+- **Tests**: `test_recovery.cpp` (12 cases: keyring round-trip, wrong key, missing slot, slot-strip,
+  `pf_recovery_wrap`/`open` end to end incl. reading a password-sealed record via recovery,
+  recovery-session re-wrap rejection, null-ptr fuzz; closed-handle case `#ifndef PF_ASAN_BUILD`).
+  Native 58 / ASan-UBSan 55 green. `BoundaryTest.swift` +2. `test_tamper.cpp` `kCreatedAt` is now
+  `header.size() - 8`.
 
-Name is `pf_recovery_open`, **not** `pf_recovery_unwrap` — an earlier draft of §6.2 used both.
+### 8b — Swift RecoveryKey + Crockford — DONE (2026-09-01)
 
-Swift side:
+- **`CrockfordBase32.swift`** — `encode` / `decode(_:outputByteCount:)` / `checkSymbol(for:)` /
+  `decodeChecked`. Alphabet `0-9A-Z` minus `I L O U`; decode is tolerant (any case, `I`/`L` → `1`,
+  `O` → `0`, hyphens and spaces skipped); check symbol is the value mod 37 through the extended
+  alphabet (`…*~$=U`).
+- **`RecoveryKey.swift`** — `struct RecoveryKey { let raw: Data /* 32B */ }`. `generate()` uses
+  `SystemRandomNumberGenerator` (crypto-secure on-platform). `grouped` = 52 symbols in 13 hyphen
+  groups of 4 + `-` + check symbol. `init(grouped:)` verifies the check symbol → `.malformed` on a
+  one-symbol slip. `init(raw:)` guards `count == 32`.
+- **`Vault.createWithRecovery(...) -> (repository, RecoveryKey)`** — `create` + `addRecoverySlot`
+  before `bootstrap`, stores the two-slot header. **`Vault.recover(databasePath:recoveryKey:
+  newPassword:deviceID:)`** — `openWithRecovery` → `rewrap` to the new password → write the new
+  (password-only) header → `VaultRepository.open`. The recovery slot is consumed; rotate a fresh one
+  after.
+- **`VaultRepository.rotateRecoveryKey() -> RecoveryKey`** — `addRecoverySlot` + rewrite the stored
+  header; DEK / records / `vault_version` untouched.
+- **Tests** (`RecoveryKeyTests` 8, `VaultRecoveryTests` 4): Crockford round-trip / tolerance /
+  bad-symbol / check-symbol slip; grouped-form shape KAT (all-zero → `0000-…-0`); `recover` rotates
+  the password and keeps records, wrong key → `.authFailed`, no slot → `.notFound`; `rotateRecoveryKey`
+  invalidates the old key. Swift suite 52 green.
 
-```swift
-struct RecoveryKey: Sendable {
-    var raw: Data                     // 32B, from system CSPRNG at vault creation
-    var grouped: String               // Crockford Base32, 4-char groups: "A2B4-9K7M-..." (ADR-0007)
-}
-extension VaultSession {
-    static func createWithRecovery(password: Data, params: KdfParameters) throws -> (header: Data, recovery: RecoveryKey)
-    static func openWithRecovery(header: Data, recoveryKey: RecoveryKey) throws -> VaultSession
-}
-```
+**CLI (`passfort-cli recover` / recovery-key banner on create) is deferred to Phase 10**, where the
+whole CLI moves from header-file to SQLite-vault semantics — piecemeal SQLite commands now would be
+throwaway.
 
-- The recovery key is **shown once**, at vault creation, and never stored (§5.6). `passfort-cli init`
-  prints it with a "write this down, it will not be shown again" banner.
-- `passfort-cli recover <vault> --key <grouped>` opens via the recovery slot and immediately forces a
-  `rewrap` to a new password.
-- **Why 256 bits and no Argon2.** A password is low-entropy, so it must be stretched by an expensive
-  KDF before it's fit to be a key — that's what Argon2id buys. A recovery key *is* 256 bits of CSPRNG
-  output, already a full-strength key, so it's fed straight into HKDF (`info="pf-rk-v1"`) → a KEK that
-  wraps the **same** DEK as the password slot. A recovered session is byte-identical to a password
-  session because it unwraps the identical DEK.
-- **Why Crockford Base32 for the display form** (ADR-0007). Base32 avoids lowercase and ambiguous
-  glyphs; Crockford's alphabet drops `I/L/O/U` on top of that, is case-insensitive on input, and
-  defines an optional check symbol that catches transcription errors — all of which matter for a key a
-  human writes on paper and types back later. 256 bits is 52 Base32 characters plus the check symbol;
-  group them `XXXX-XXXX-…`. Decoder accepts any case and treats `I/L → 1`, `O → 0`.
+Commits: `PFCrypto: recovery-key header slot + pf_recovery_wrap/open (ADR-0007, §5.6)` /
+`PassFortVault: RecoveryKey + Crockford Base32 + Vault.createWithRecovery/recover (§5.6)`.
 
-**Checkpoint:** create a vault with recovery; open it with the password; open it with the recovery key;
-both sessions seal/open the same record identically; `recover` rotates to a new password and the old
-one stops working. Also add a tamper test: flip a byte in `slot_count` or drop slot 1 -> `AuthFailed`.
-Commit: `Recovery key: header slot_count + slot 1, wrap/open, CLI recover (ADR-0007, architecture §5.6)`.
+**Why 256 bits and no Argon2 / why Crockford** — see ADR-0007. A recovery key *is* 256 CSPRNG bits,
+already full-strength, so it feeds straight into HKDF; Crockford's alphabet and check symbol are
+built for a human writing a key on paper and typing it back.
 
 ---
 
-## Phase 9 — Plaintext export (§7.6)
+## Phase 9 — Plaintext export (§7.6) — DONE (2026-09-01)
 
 The escape hatch from §1.3 — "escaping the format is always possible."
 
-```swift
-struct PlaintextExport: Codable {
-    var schemaVersion: UInt16
-    var exportedAt: Date
-    var vaultUUID: UUID
-    var accounts: [ExportedAccount]        // AccountPayload + { id, version, updatedAt }
-}
-```
+- **`PlaintextExport.swift`** — `PlaintextExport { schemaVersion, exportedAt, vaultUUID, accounts }`
+  and `ExportedAccount { id, version, updatedAt, isDeleted, payload }`. `jsonData()` →
+  pretty-printed, `.sortedKeys`, `.withoutEscapingSlashes`, ISO-8601 dates, snake_case
+  (`schema_version`, `vault_uuid`, `is_deleted`, `updated_at`). Tombstones are included so an export
+  is a complete snapshot.
+- **`ExportConfirmation`** — the typed gate lives in the library, not just the CLI: `init(phrase:)`
+  throws `VaultError.exportNotConfirmed` unless `phrase == "EXPORT PLAINTEXT"` exactly (trailing space
+  rejected). `VaultRepository.exportPlaintext(confirmed:)` takes the token, so the ceremony cannot be
+  skipped by a caller. The CLI (Phase 10) reads the phrase back and constructs the token.
+- **`pf_session_vault_uuid(Session*, uint8_t out[16]) -> Status`** — a new read-only seam accessor for
+  the plaintext §5.3 vault_uuid (needed by the export and by M5 sync). `VaultSession.vaultUUID()`
+  wraps it. Native test in `test_header_codec.cpp` cross-checks it against `header_decode`.
+- The output file is `.json` (not covered by the `*.pfvault` / `*.sqlite` git-ignore), so the writer
+  must `0600` it and warn — that's a Phase 10 CLI responsibility.
 
-- Behind an **explicit typed confirmation** (§5.6). The CLI:
-  `passfort-cli export <vault> -o accounts.json` prompts *"Type EXPORT PLAINTEXT to confirm"* and reads
-  it back before writing.
-- Output is readable JSON that "a human, or a five-line import script, can actually read" (§7.6) —
-  pretty-printed, snake_case keys matching the payload format.
-- The output file is **not** git-ignored by pattern (it's `.json`), so the CLI writes it `0600` and
-  prints a reminder that it's plaintext secrets on disk.
-
-**Checkpoint:** `export` on a 3-account vault produces JSON with all payload fields decrypted plus
-envelope identity; the confirmation gate rejects anything but the exact phrase. Commit: `Plaintext
-export behind typed confirmation (architecture §1.3, §7.6)`.
+**Checkpoint (met):** `PlaintextExportTests` (3) — the gate rejects `"export plaintext"` /
+`"EXPORT PLAINTEXT "` / `""` and accepts the exact phrase; a 2-account vault (one tombstoned) exports
+every decrypted field, the JSON has the snake_case keys and round-trips back to an equal
+`PlaintextExport`; `vaultUUID` is stable across reopens. Swift suite 55, native 59 / ASan 56.
+Commit: `PassFortVault: plaintext export behind a typed confirmation + pf_session_vault_uuid
+(§1.3, §7.6)`.
 
 ---
 

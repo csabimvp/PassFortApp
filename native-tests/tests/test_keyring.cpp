@@ -4,8 +4,11 @@
 #include "keyring/hkdf.hpp"
 #include "keyring/kdf.hpp"
 
+#include <array>
 #include <cstdint>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using pf::keyring::KdfParams;
@@ -116,4 +119,29 @@ TEST_CASE("keyring derive_root KEK is stable (format regression)", "[keyring][hk
     const auto kek = pf::keyring::derive_root(argon64).kek;
     REQUIRE(Botan::hex_encode(kek, /*uppercase=*/false) ==
             "0e912dcef7615a65cff5ad95804ced476233180ecb60d942c86575f368accad7");
+}
+
+// The recovery-slot KEK (ADR-0007). Same on-disk-format contract as the vector
+// above: HKDF-Expand(SHA-256), empty salt, info = "pf-rk-v1", input = the 32-byte
+// recovery key (no Argon2). A Swift or WASM port must reproduce this exactly.
+TEST_CASE("keyring derive_recovery_kek is stable (format regression)", "[keyring][hkdf]") {
+    std::array<uint8_t, 32> rk{};
+    rk.fill(0x2A);
+
+    const auto rkek = pf::keyring::derive_recovery_kek(rk.data());
+    REQUIRE(rkek.size() == 32);
+
+    // Cross-check against an independent HKDF-Expand(SHA-256) call.
+    auto kdf = Botan::KDF::create_or_throw("HKDF-Expand(SHA-256)");
+    const std::string_view info = "pf-rk-v1";
+    const auto expected = kdf->derive_key<pf::SecureBytes>(
+        32, std::span<const uint8_t>(rk.data(), rk.size()), std::span<const uint8_t>{},
+        std::span<const uint8_t>(reinterpret_cast<const uint8_t *>(info.data()), info.size()));
+    REQUIRE(rkek == expected);
+
+    REQUIRE(Botan::hex_encode(rkek, /*uppercase=*/false) ==
+            "a160d1e46f010b2d8a0884a413de55b3f4488ae6410473c8ab21f1814dd754d1");
+
+    // Domain separation: not the KEK label, not a DEK subkey.
+    REQUIRE(rkek != pf::keyring::derive_root(pf::SecureBytes(rk.begin(), rk.end())).kek);
 }

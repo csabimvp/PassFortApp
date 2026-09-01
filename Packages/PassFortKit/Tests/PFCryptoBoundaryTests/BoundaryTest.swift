@@ -109,6 +109,51 @@ import Testing
     #expect(recovered == plaintext)  // same DEK -> the old record still opens
   }
 
+  // MARK: - Recovery key (ADR-0007)
+
+  @Test func recoverySlotOpensTheSameVault() async throws {
+    let password = Data("correct horse".utf8)
+    let session = try openFreshVault(password: password)
+
+    let id = UUID()
+    let plaintext = Data("bank pin 1234".utf8)
+    let sealed = try await session.seal(recordID: id, version: 1, schema: 1, plaintext: plaintext)
+
+    let recoveryKey = Data((0..<32).map { UInt8(($0 * 7 + 3) & 0xFF) })
+    let twoSlotHeader = try await session.addRecoverySlot(recoveryKey: recoveryKey)
+
+    // Still opens with the password.
+    _ = try VaultSession.open(header: twoSlotHeader, password: password)
+
+    // Opens with the recovery key, and reads the record sealed under the password.
+    let recovered = try VaultSession.openWithRecovery(
+      header: twoSlotHeader, recoveryKey: recoveryKey)
+    let out = try await recovered.open(recordID: id, version: 1, schema: 1, sealed: sealed)
+    #expect(out == plaintext)  // both slots wrap the identical DEK
+  }
+
+  @Test func recoveryOpenRejectsWrongKeyAndMissingSlot() async throws {
+    let password = Data("s3cret".utf8)
+    let header = try VaultSession.create(password: password, params: fastParams)
+
+    let key = Data(repeating: 0x2A, count: 32)
+
+    // No recovery slot on this vault.
+    #expect(throws: PassFortError.notFound) {
+      try VaultSession.openWithRecovery(header: header, recoveryKey: key)
+    }
+
+    let session = try VaultSession.open(header: header, password: password)
+    let twoSlot = try await session.addRecoverySlot(recoveryKey: key)
+    #expect(throws: PassFortError.authFailed) {
+      try VaultSession.openWithRecovery(
+        header: twoSlot, recoveryKey: Data(repeating: 0xFF, count: 32))
+    }
+    #expect(throws: PassFortError.badInput) {
+      try VaultSession.openWithRecovery(header: twoSlot, recoveryKey: Data(count: 8))
+    }
+  }
+
   @Test func calibrateProducesUsableParameters() throws {
     let params = try VaultSession.calibrate(targetMs: 1)
     #expect(params.kdfID == 1)

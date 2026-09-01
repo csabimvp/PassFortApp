@@ -15,6 +15,7 @@ inline constexpr std::string_view kInfoAuth = "pf-auth-v1";
 inline constexpr std::string_view kInfoRecord = "pf-rec-v1";
 inline constexpr std::string_view kInfoIndex = "pf-idx-v1";
 inline constexpr std::string_view kInfoManifest = "pf-mft-v1";
+inline constexpr std::string_view kInfoRecoveryKek = "pf-rk-v1"; // recovery-slot KEK (ADR-0007)
 
 // Expanded from the 64-byte Argon2id output. Live inside the Session handle and
 // are scrubbed on close. auth_secret is sync-only (M5): it is the only key
@@ -37,5 +38,10 @@ struct DekSubkeys {
 // Botan::Exception on failure.
 RootKeys derive_root(const SecureBytes &argon64);
 DekSubkeys derive_dek_subkeys(const SecureBytes &dek);
+
+// The recovery-slot KEK: HKDF-Expand(recovery_key, kInfoRecoveryKek) -> 32 B.
+// `recovery_key` is 32 CSPRNG bytes -- already a full-strength key, so no Argon2
+// (ADR-0007). Wraps the *same* DEK as the password slot.
+SecureBytes derive_recovery_kek(const uint8_t recovery_key[32]);
 
 } // namespace pf::keyring

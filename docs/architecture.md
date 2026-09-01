@@ -389,7 +389,7 @@ pf_mac_free(Mac*)
 pf_bytes_data(Bytes*) / pf_bytes_size(Bytes*) / pf_bytes_free(Bytes*)
 ```
 
-Later additions, same shape: `pf_recovery_wrap` / `pf_recovery_open` (M2 — fill / read header slot 1, ADR-0007), `pf_blind_index` (M5).
+Later additions, same shape: `pf_recovery_wrap` / `pf_recovery_open` (M2 — fill / read header slot 1, ADR-0007), `pf_session_vault_uuid` (M2 — copy out the plaintext §5.3 vault_uuid, for export and sync), `pf_blind_index` (M5).
 
 Note what is *not* here: no record type, no query, no collection, no string. The seam speaks bytes and integers.
 

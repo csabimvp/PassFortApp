@@ -40,6 +40,7 @@ add_executable(pfcrypto_tests
     tests/test_kat_chacha.cpp
     tests/test_kat_hkdf.cpp
     tests/test_keyring.cpp
+    tests/test_recovery.cpp
     tests/test_seal_open.cpp
     tests/test_manifest.cpp
     tests/test_tamper.cpp

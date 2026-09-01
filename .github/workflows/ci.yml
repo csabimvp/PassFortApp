@@ -74,8 +74,10 @@ jobs:
       - name: clang-format -- our C++ only, never vendor/
         run: |
           clang-format --version
-          files=$(git ls-files '*.cpp' '*.hpp' | grep -v '/vendor/' || true)
-          [ -z "$files" ] || clang-format --dry-run -Werror $files
+          # One file per invocation: clang-format 23.1.0 mangles a long argv and
+          # exits non-zero with "File name too long" before checking anything.
+          git ls-files '*.cpp' '*.hpp' | grep -v '/vendor/' \
+            | xargs -r -n1 clang-format --dry-run -Werror
 
   secrets:
     runs-on: ubuntu-latest

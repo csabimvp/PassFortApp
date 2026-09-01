@@ -8,7 +8,27 @@ public enum VaultError: Error, Equatable {
   /// `vault_version` moved under us between reading it and the write transaction
   /// -- another writer got in first. Retry.
   case staleWrite
+  /// `Vault.create` was called on a database that already holds a vault header.
+  case alreadyInitialized
+  /// `ExportConfirmation` was built with the wrong phrase.
+  case exportNotConfirmed
 }
+
+/// A crash-injection point in the write path, for the §8.2 mid-write kill test
+/// (Phase 7). A `FaultHook` is called at each point and may `_exit` the process;
+/// it is `nil` in every normal build and reachable only by the code that
+/// constructs the repository, so it is inert in production.
+public enum FaultPoint: String, Sendable, CaseIterable {
+  /// Inside the transaction, the row is written, the manifest is not.
+  case afterRowWrite
+  /// Inside the transaction, `manifest_mac` and `vault_version` are both written
+  /// -- but not yet committed.
+  case afterMetaWrite
+  /// The transaction has committed; the sidecar high-water mark is not yet bumped.
+  case afterCommit
+}
+
+public typealias FaultHook = @Sendable (FaultPoint) -> Void
 
 /// The one place the §8.2 invariant lives: **every write is a single transaction
 /// covering the row *and* the manifest MAC**. `VaultRepository` is an `actor`, so
@@ -23,14 +43,17 @@ public actor VaultRepository {
   private let session: VaultSession
   private let deviceID: UUID
   private let highWater: HighWaterMark
+  private let faultHook: FaultHook?
 
   private init(
-    database: VaultDatabase, session: VaultSession, deviceID: UUID, highWater: HighWaterMark
+    database: VaultDatabase, session: VaultSession, deviceID: UUID, highWater: HighWaterMark,
+    faultHook: FaultHook?
   ) {
     self.database = database
     self.session = session
     self.deviceID = deviceID
     self.highWater = highWater
+    self.faultHook = faultHook
   }
 
   // MARK: - Lifecycle
@@ -40,7 +63,7 @@ public actor VaultRepository {
   /// `header`.
   public static func bootstrap(
     database: VaultDatabase, session: VaultSession, header: Data, deviceID: UUID,
-    highWater: HighWaterMark
+    highWater: HighWaterMark, faultHook: FaultHook? = nil
   ) async throws -> VaultRepository {
     let builder = try await session.makeManifestBuilder(vaultVersion: 0)
     try await database.dbQueue.write { db in
@@ -51,7 +74,8 @@ public actor VaultRepository {
     }
     try highWater.write(0)
     return VaultRepository(
-      database: database, session: session, deviceID: deviceID, highWater: highWater)
+      database: database, session: session, deviceID: deviceID, highWater: highWater,
+      faultHook: faultHook)
   }
 
   /// Open an existing vault: verify the manifest and the anti-rollback mark
@@ -59,14 +83,16 @@ public actor VaultRepository {
   /// between a commit and its bump). Throws `VaultManifest.Failure` on tamper or
   /// rollback.
   public static func open(
-    database: VaultDatabase, session: VaultSession, deviceID: UUID, highWater: HighWaterMark
+    database: VaultDatabase, session: VaultSession, deviceID: UUID, highWater: HighWaterMark,
+    faultHook: FaultHook? = nil
   ) async throws -> VaultRepository {
     let mark = try highWater.read()
     let state = try await VaultManifest.verifyAtUnlock(
       session: session, database: database, highWater: mark)
     if state.vaultVersion > mark { try highWater.write(state.vaultVersion) }
     return VaultRepository(
-      database: database, session: session, deviceID: deviceID, highWater: highWater)
+      database: database, session: session, deviceID: deviceID, highWater: highWater,
+      faultHook: faultHook)
   }
 
   /// The stored header blob -- what the caller passed to `VaultSession.open` to get
@@ -76,6 +102,17 @@ public actor VaultRepository {
       guard let header = try VaultMeta.read(db, .header) else { throw VaultError.notFound }
       return header
     }
+  }
+
+  /// Replace the vault's recovery slot with a fresh key -- or add one if there is
+  /// none (§5.6). Rewrites the stored header; the DEK, records and manifest are
+  /// untouched, so `vault_version` does not move. The returned `RecoveryKey` is
+  /// shown once and never stored.
+  public func rotateRecoveryKey() async throws -> RecoveryKey {
+    let recovery = RecoveryKey.generate()
+    let newHeader = try await session.addRecoverySlot(recoveryKey: recovery.raw)
+    try await database.dbQueue.write { db in try VaultMeta.write(db, .header, newHeader) }
+    return recovery
   }
 
   // MARK: - Reads
@@ -89,6 +126,28 @@ public actor VaultRepository {
       })
     else { return nil }
     return Account(envelope: record, payload: try await decrypt(record))
+  }
+
+  /// The escape hatch (§7.6): every record decrypted into a `PlaintextExport`.
+  /// Gated on `ExportConfirmation` so it cannot run by accident. Includes
+  /// tombstones. The result is plaintext secrets -- the caller writes it `0600`.
+  public func exportPlaintext(confirmed: ExportConfirmation) async throws -> PlaintextExport {
+    _ = confirmed  // its construction was the gate
+    let vaultUUID = try await session.vaultUUID()
+    let records = try await database.dbQueue.read { db in
+      try SealedRecord.order(Column("uuid")).fetchAll(db)
+    }
+    var accounts: [ExportedAccount] = []
+    accounts.reserveCapacity(records.count)
+    for record in records {
+      accounts.append(
+        ExportedAccount(
+          id: record.id, version: record.version,
+          updatedAt: Date(timeIntervalSince1970: Double(record.updatedAt.wallMillis) / 1000),
+          isDeleted: record.isDeleted, payload: try await decrypt(record)))
+    }
+    return PlaintextExport(
+      schemaVersion: 1, exportedAt: Date(), vaultUUID: vaultUUID, accounts: accounts)
   }
 
   /// The secret-free in-memory index (§8.3): one `pf_open` per record, projected to
@@ -127,7 +186,7 @@ public actor VaultRepository {
   /// the row change and the manifest re-MAC in one transaction.
   @discardableResult
   public func update(
-    id: UUID, _ mutate: (inout AccountPayload) -> Void
+    id: UUID, _ mutate: @Sendable (inout AccountPayload) -> Void
   ) async throws -> Account {
     let current = try await liveRecord(id)
     var payload = try await decrypt(current)
@@ -185,18 +244,22 @@ public actor VaultRepository {
     let previous = try await database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) }
     let next = previous + 1
     let builder = try await session.makeManifestBuilder(vaultVersion: next)
+    let fault = faultHook
 
     try await database.dbQueue.write { db in
       guard try VaultMeta.readVaultVersion(db) == previous else { throw VaultError.staleWrite }
       try rowChange(db)
+      fault?(.afterRowWrite)
       for record in try SealedRecord.order(Column("uuid")).fetchAll(db) {
         try builder.update(recordID: record.id, version: record.version, sealed: record.sealed)
       }
       let mac = try builder.finish()
       try VaultMeta.write(db, .manifestMAC, mac)
       try VaultMeta.writeVaultVersion(db, next)
+      fault?(.afterMetaWrite)
     }
 
+    faultHook?(.afterCommit)
     try highWater.write(next)
   }
 

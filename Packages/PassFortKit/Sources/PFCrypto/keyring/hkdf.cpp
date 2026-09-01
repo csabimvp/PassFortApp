@@ -38,4 +38,8 @@ DekSubkeys derive_dek_subkeys(const SecureBytes &dek) {
     };
 }
 
+SecureBytes derive_recovery_kek(const uint8_t recovery_key[32]) {
+    return expand(SecureBytes(recovery_key, recovery_key + 32), kInfoRecoveryKek);
+}
+
 } // namespace pf::keyring

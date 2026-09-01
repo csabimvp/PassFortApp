@@ -20,12 +20,20 @@ constexpr size_t kDekLen = 32;
 constexpr size_t kNonceLen = 24;
 constexpr size_t kTagLen = 16;
 
-// Offset where slot bytes (nonce , wrapped_dek , tag) begin -- everything before
-// this is the AEAD's AAD, so the tag also authenticates the KDF parameters.
-constexpr size_t kAadLen = 4 + 2 + 16 + 1 + 4 + 4 + 4 + 16 + 1; // = 52
-constexpr size_t kSlotLen = kNonceLen + kDekLen + kTagLen;      // = 64
+// The fixed prefix -- magic .. slot_count -- is the AEAD's AAD for every slot, so
+// the tag authenticates the KDF parameters *and* slot_count (a stripped slot
+// fails to unwrap). The nonce is bound by the AEAD construction itself and is not
+// repeated in the AAD.
+constexpr size_t kPrefixLen =
+    4 + 2 + 16 + 1 + 4 + 4 + 4 + 16 + 1 + 1;               // = 53 (slot_count is byte 52)
+constexpr size_t kSlotLen = kNonceLen + kDekLen + kTagLen; // = 72
+constexpr size_t kCreatedAtLen = 8;
 
-static_assert(kAadLen + kSlotLen + 8 == kHeaderLen, "header layout drift");
+constexpr size_t header_size(uint8_t slot_count) {
+    return kPrefixLen + static_cast<size_t>(slot_count) * kSlotLen + kCreatedAtLen;
+}
+static_assert(header_size(1) == kHeaderLen, "1-slot header layout drift");
+static_assert(header_size(2) == kHeaderLenWithRecovery, "2-slot header layout drift");
 
 // Big-endian readers. Callers bounds-check the buffer first.
 uint16_t rd_u16(const uint8_t *p) { return static_cast<uint16_t>(p[0] << 8 | p[1]); }
@@ -46,15 +54,9 @@ int64_t now_epoch_seconds() {
         .count();
 }
 
-} // namespace
-
-SecureBytes header_encode(const uint8_t *pw, size_t pw_len, const KdfParams &kdf,
-                          const std::array<uint8_t, 16> &vault_uuid, const SecureBytes &dek,
-                          RootKeys &root_out) {
-    if (dek.size() != kDekLen)
-        throw Botan::Invalid_Argument("header_encode: DEK must be 32 bytes");
-
-    SecureBytes out;
+// magic .. slot_count -- kPrefixLen bytes, identical shape for encode and decode.
+void put_prefix(SecureBytes &out, const KdfParams &kdf, const std::array<uint8_t, 16> &vault_uuid,
+                uint8_t slot_count) {
     canon::put_bytes(out, kMagic, sizeof kMagic);
     canon::put_u16(out, kFormatVersion);
     canon::put_bytes(out, vault_uuid.data(), vault_uuid.size());
@@ -64,47 +66,64 @@ SecureBytes header_encode(const uint8_t *pw, size_t pw_len, const KdfParams &kdf
     canon::put_u32(out, kdf.p);
     canon::put_bytes(out, kdf.salt, sizeof kdf.salt);
     canon::put_u8(out, kWrapXChaCha);
+    canon::put_u8(out, slot_count);
+}
 
-    // AAD = every header byte up to here (magic .. wrap_alg). Binds the KDF
-    // params into the tag so a downgraded-parameter header fails to unwrap.
-    // The nonce is bound by the AEAD construction itself, so it is not repeated
-    // here -- kAadLen must stay in sync with header_decode.
-    const SecureBytes aad(out.begin(), out.end());
-
+// Append one slot -- nonce(24) , wrapped_dek(32) , tag(16) -- wrapping `dek`
+// under `kek` with `aad`.
+void append_slot(SecureBytes &out, const SecureBytes &kek, const SecureBytes &dek,
+                 std::span<const uint8_t> aad) {
     SecureBytes nonce(kNonceLen);
     Botan::system_rng().randomize(nonce);
-    canon::put_bytes(out, nonce.data(), nonce.size());
-
-    const SecureBytes argon64 = argon2id_64(pw, pw_len, kdf);
-    root_out = derive_root(argon64);
 
     auto enc = Botan::AEAD_Mode::create_or_throw("ChaCha20Poly1305", Botan::Cipher_Dir::Encryption);
-    enc->set_key(root_out.kek);
+    enc->set_key(kek);
     enc->set_associated_data(aad);
     enc->start(nonce);
     SecureBytes wrapped(dek.begin(), dek.end());
     enc->finish(wrapped); // -> ciphertext(32) , tag(16)
 
+    canon::put_bytes(out, nonce.data(), nonce.size());
     canon::put_bytes(out, wrapped.data(), wrapped.size());
-    canon::put_u64(out, static_cast<uint64_t>(now_epoch_seconds()));
-    return out;
 }
 
-Status header_decode(const uint8_t *header, size_t header_len, const uint8_t *pw, size_t pw_len,
-                     HeaderInfo &info, SecureBytes &dek_out, RootKeys &root_out) {
+// Try to unwrap the slot at `slot` (kSlotLen bytes) under `kek` with `aad`.
+// A wrong KEK or any tampering surfaces as AuthFailed -- no oracle.
+Status unwrap_slot(const uint8_t *slot, const SecureBytes &kek, std::span<const uint8_t> aad,
+                   SecureBytes &dek_out) {
+    const uint8_t *nonce = slot;
+    const uint8_t *wrapped = slot + kNonceLen; // ciphertext(32) , tag(16)
+    SecureBytes dek(wrapped, wrapped + kDekLen + kTagLen);
+    try {
+        auto dec =
+            Botan::AEAD_Mode::create_or_throw("ChaCha20Poly1305", Botan::Cipher_Dir::Decryption);
+        dec->set_key(kek);
+        dec->set_associated_data(aad);
+        dec->start(std::span<const uint8_t>(nonce, kNonceLen));
+        dec->finish(dek);
+    } catch (const Botan::Invalid_Authentication_Tag &) {
+        return Status::AuthFailed;
+    }
+    if (dek.size() != kDekLen)
+        return Status::AuthFailed;
+    dek_out = std::move(dek);
+    return Status::Ok;
+}
+
+// Parse the plaintext prefix fields into `parsed`. Returns Ok, or a status for a
+// short buffer / bad magic / unsupported constant. Does not touch the slots.
+Status parse_prefix(const uint8_t *header, size_t header_len, HeaderInfo &parsed) {
     if (header == nullptr || header_len < kHeaderLen)
         return Status::BadInput;
     if (std::memcmp(header, kMagic, sizeof kMagic) != 0)
         return Status::BadInput;
 
     size_t off = sizeof kMagic;
-    const uint16_t format_version = rd_u16(header + off);
+    parsed.format_version = rd_u16(header + off);
     off += 2;
-    if (format_version != kFormatVersion)
+    if (parsed.format_version != kFormatVersion)
         return Status::Unsupported;
 
-    HeaderInfo parsed;
-    parsed.format_version = format_version;
     std::memcpy(parsed.vault_uuid.data(), header + off, 16);
     off += 16;
 
@@ -120,44 +139,111 @@ Status header_decode(const uint8_t *header, size_t header_len, const uint8_t *pw
     off += 16;
     if (parsed.kdf.kdf_id != kKdfArgon2id)
         return Status::Unsupported;
-    // Reject a tampered / foreign header whose KDF params would make Argon2 run
-    // for hours or exhaust memory -- before we call it. A wrong-but-plausible
-    // param is still caught by the AAD tag check below; both surface as
-    // AuthFailed, so this adds no oracle.
-    if (!kdf_params_sane(parsed.kdf))
-        return Status::AuthFailed;
 
     parsed.wrap_alg = header[off];
     off += 1;
     if (parsed.wrap_alg != kWrapXChaCha)
         return Status::Unsupported;
 
-    const uint8_t *nonce = header + off;
-    off += kNonceLen;
-    const uint8_t *wrapped = header + off; // ciphertext(32) , tag(16)
-    off += kDekLen + kTagLen;
-    parsed.created_at = static_cast<int64_t>(rd_u64(header + off));
+    parsed.slot_count = header[off]; // kSlotCountOffset
+    off += 1;
+    if (parsed.slot_count != 1 && parsed.slot_count != 2)
+        return Status::Unsupported;
+    if (header_len < header_size(parsed.slot_count))
+        return Status::BadInput;
+
+    // A tampered / foreign header whose KDF params would make Argon2 run for
+    // hours or exhaust memory is rejected before we call it. A wrong-but-plausible
+    // param is still caught by the AAD tag check; both surface as AuthFailed, so
+    // this adds no oracle.
+    if (!kdf_params_sane(parsed.kdf))
+        return Status::AuthFailed;
+
+    parsed.created_at = static_cast<int64_t>(
+        rd_u64(header + kPrefixLen + static_cast<size_t>(parsed.slot_count) * kSlotLen));
+    return Status::Ok;
+}
+
+} // namespace
+
+SecureBytes header_encode(const uint8_t *pw, size_t pw_len, const KdfParams &kdf,
+                          const std::array<uint8_t, 16> &vault_uuid, const SecureBytes &dek,
+                          RootKeys &root_out) {
+    if (dek.size() != kDekLen)
+        throw Botan::Invalid_Argument("header_encode: DEK must be 32 bytes");
+
+    SecureBytes out;
+    put_prefix(out, kdf, vault_uuid, /*slot_count=*/1);
+    const SecureBytes aad(out.begin(), out.end()); // kPrefixLen bytes
+
+    const SecureBytes argon64 = argon2id_64(pw, pw_len, kdf);
+    root_out = derive_root(argon64);
+
+    append_slot(out, root_out.kek, dek, aad);
+    canon::put_u64(out, static_cast<uint64_t>(now_epoch_seconds()));
+    return out;
+}
+
+SecureBytes header_encode_with_recovery(const KdfParams &kdf,
+                                        const std::array<uint8_t, 16> &vault_uuid,
+                                        const SecureBytes &dek, const SecureBytes &password_kek,
+                                        const uint8_t recovery_key[32]) {
+    if (dek.size() != kDekLen)
+        throw Botan::Invalid_Argument("header_encode_with_recovery: DEK must be 32 bytes");
+    if (password_kek.size() != 32)
+        throw Botan::Invalid_Argument("header_encode_with_recovery: password KEK must be 32 bytes");
+
+    SecureBytes out;
+    put_prefix(out, kdf, vault_uuid, /*slot_count=*/2);
+    const SecureBytes aad(out.begin(), out.end());
+
+    append_slot(out, password_kek, dek, aad); // slot 0 -- password
+    const SecureBytes recovery_kek = derive_recovery_kek(recovery_key);
+    append_slot(out, recovery_kek, dek, aad); // slot 1 -- recovery key
+
+    canon::put_u64(out, static_cast<uint64_t>(now_epoch_seconds()));
+    return out;
+}
+
+Status header_decode(const uint8_t *header, size_t header_len, const uint8_t *pw, size_t pw_len,
+                     HeaderInfo &info, SecureBytes &dek_out, RootKeys &root_out) {
+    HeaderInfo parsed;
+    if (const Status st = parse_prefix(header, header_len, parsed); st != Status::Ok)
+        return st;
 
     const SecureBytes argon64 = argon2id_64(pw, pw_len, parsed.kdf);
-    const RootKeys root = derive_root(argon64);
+    RootKeys root = derive_root(argon64);
 
-    SecureBytes dek(wrapped, wrapped + kDekLen + kTagLen);
-    try {
-        auto dec =
-            Botan::AEAD_Mode::create_or_throw("ChaCha20Poly1305", Botan::Cipher_Dir::Decryption);
-        dec->set_key(root.kek);
-        dec->set_associated_data(std::span<const uint8_t>(header, kAadLen));
-        dec->start(std::span<const uint8_t>(nonce, kNonceLen));
-        dec->finish(dek);
-    } catch (const Botan::Invalid_Authentication_Tag &) {
-        return Status::AuthFailed; // wrong password OR tampered header -- same code
-    }
-    if (dek.size() != kDekLen)
-        return Status::AuthFailed;
+    SecureBytes dek;
+    const Status st = unwrap_slot(header + kPrefixLen, root.kek,
+                                  std::span<const uint8_t>(header, kPrefixLen), dek);
+    if (st != Status::Ok)
+        return st;
 
     info = parsed;
     dek_out = std::move(dek);
-    root_out = root;
+    root_out = std::move(root);
+    return Status::Ok;
+}
+
+Status header_decode_recovery(const uint8_t *header, size_t header_len,
+                              const uint8_t recovery_key[32], HeaderInfo &info,
+                              SecureBytes &dek_out) {
+    HeaderInfo parsed;
+    if (const Status st = parse_prefix(header, header_len, parsed); st != Status::Ok)
+        return st;
+    if (parsed.slot_count != 2)
+        return Status::NotFound; // this vault has no recovery slot
+
+    const SecureBytes recovery_kek = derive_recovery_kek(recovery_key);
+    SecureBytes dek;
+    const Status st = unwrap_slot(header + kPrefixLen + kSlotLen, recovery_kek,
+                                  std::span<const uint8_t>(header, kPrefixLen), dek); // slot 1
+    if (st != Status::Ok)
+        return st;
+
+    info = parsed;
+    dek_out = std::move(dek);
     return Status::Ok;
 }
 

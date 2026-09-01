@@ -69,7 +69,7 @@ TEST_CASE("tamper: flipping any header byte before created_at breaks the open", 
     // than a bitwise sweep; the trailing 8-byte created_at is not AAD-covered.
     constexpr size_t kKdfIntsBegin = 23;
     constexpr size_t kKdfIntsEnd = 35;
-    constexpr size_t kCreatedAt = 132 - 8;
+    const size_t kCreatedAt = header.size() - 8; // slot_count-dependent header length (ADR-0007)
 
     for (size_t byte = 0; byte < header.size(); ++byte) {
         if (byte >= kKdfIntsBegin && byte < kKdfIntsEnd)

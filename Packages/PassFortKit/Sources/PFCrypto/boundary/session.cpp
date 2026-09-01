@@ -129,6 +129,62 @@ BytesResult pf_session_rewrap(Session *s, const uint8_t *new_pw, size_t new_pw_l
     }
 }
 
+BytesResult pf_recovery_wrap(Session *s, const uint8_t *recovery_key) noexcept {
+    try {
+        if (s == nullptr || recovery_key == nullptr)
+            return {nullptr, Status::BadInput};
+        if (!s->alive())
+            return {nullptr, Status::Locked};
+        // A recovery-opened session has no password KEK; it must rewrap to a
+        // password before it can add a (new) recovery slot.
+        if (s->root.kek.size() != 32)
+            return {nullptr, Status::BadInput};
+
+        const SecureBytes header = keyring::header_encode_with_recovery(
+            s->kdf, s->vault_uuid, s->dek, s->root.kek, recovery_key);
+        return {header_bytes(header), Status::Ok};
+    } catch (...) {
+        return {nullptr, Status::Internal};
+    }
+}
+
+SessionResult pf_recovery_open(const uint8_t *header, size_t header_len,
+                               const uint8_t *recovery_key) noexcept {
+    try {
+        if (header == nullptr || header_len == 0 || recovery_key == nullptr)
+            return {nullptr, Status::BadInput};
+        if (bad_len(header_len))
+            return {nullptr, Status::BadInput};
+
+        keyring::HeaderInfo info;
+        SecureBytes dek;
+        const Status st =
+            keyring::header_decode_recovery(header, header_len, recovery_key, info, dek);
+        if (st != Status::Ok)
+            return {nullptr, st};
+
+        auto *s = new Session();
+        s->vault_uuid = info.vault_uuid;
+        s->kdf = info.kdf;
+        // No password RootKeys -- a recovery session must rewrap to a password
+        // before sync (M5). root stays default (empty SecureBytes).
+        s->dek = std::move(dek);
+        s->sub = keyring::derive_dek_subkeys(s->dek);
+        return {s, Status::Ok};
+    } catch (...) {
+        return {nullptr, Status::Internal};
+    }
+}
+
+Status pf_session_vault_uuid(Session *s, uint8_t *out) noexcept {
+    if (s == nullptr || out == nullptr)
+        return Status::BadInput;
+    if (!s->alive())
+        return Status::Locked;
+    std::memcpy(out, s->vault_uuid.data(), s->vault_uuid.size());
+    return Status::Ok;
+}
+
 void pf_session_close(Session *s) noexcept {
     if (s == nullptr)
         return;
