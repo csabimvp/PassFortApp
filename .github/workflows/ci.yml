@@ -47,6 +47,22 @@ jobs:
       - run: cmake -S native-tests -B native-tests/build
       - run: cmake --build native-tests/build
       - run: ctest --test-dir native-tests/build --output-on-failure
+      - name: Same suites under ASan + UBSan (separate, uncached build dir)
+        run: |
+          cmake -S native-tests -B native-tests/build-san \
+            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined"
+          cmake --build native-tests/build-san
+          ctest --test-dir native-tests/build-san --output-on-failure
+
+  deps:
+    runs-on: macos-15            # Swift ships with the default Xcode; no build here
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package.resolved is committed and up to date
+        working-directory: Packages/PassFortKit
+        run: |
+          swift package resolve
+          git diff --exit-code Package.resolved
 
   lint:
     runs-on: ubuntu-latest       # shellcheck + clang-format ship on the image
