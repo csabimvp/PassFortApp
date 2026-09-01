@@ -76,7 +76,9 @@ let package = Package(
             dependencies: [
                 "PassFortVault",
                 .product(name: "GRDB", package: "GRDB.swift"),
-            ]
+            ],
+            // Fixture vaults are opened by #filePath-relative path, not bundled.
+            exclude: ["Fixtures"]
         ),
     ],
     cxxLanguageStandard: .cxx20
