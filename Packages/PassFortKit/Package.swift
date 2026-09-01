@@ -14,6 +14,7 @@ let package = Package(
             name: "PFCrypto",
             cxxSettings: [
                 .headerSearchPath("include"),
+                .headerSearchPath("internal"),
                 .headerSearchPath("vendor/botan"),
             ]
         ),

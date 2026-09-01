@@ -1,30 +1,12 @@
 #include "PFCrypto/PFBytes.hpp"
 
-#include <cstring>
 #include <utility>
 #include <vector>
 
+#include "Bytes.hpp"
 #include "botan_all.h"
 
 namespace pf {
-
-// M0: a plain vector. M1 swaps this for Botan::secure_vector so wipe() is a real
-// scrub (Botan::secure_scrub_memory), not a memset the optimizer may drop.
-class Bytes {
-public:
-    explicit Bytes(std::vector<uint8_t> bytes) : bytes_(std::move(bytes)) {}
-
-    const uint8_t *data() const noexcept { return bytes_.data(); }
-    size_t size() const noexcept { return bytes_.size(); }
-
-    void wipe() noexcept {
-        if (!bytes_.empty())
-            std::memset(bytes_.data(), 0, bytes_.size());
-    }
-
-private:
-    std::vector<uint8_t> bytes_;
-};
 
 const uint8_t *pf_bytes_data(const Bytes *b) noexcept { return b ? b->data() : nullptr; }
 size_t pf_bytes_size(const Bytes *b) noexcept { return b ? b->size() : 0; }

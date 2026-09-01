@@ -871,10 +871,12 @@ every commit until M3.
   compiler-enforced.
 - **M1 scaffolding ready:** Botan linked, CMake harness live, CI green on every push
   (`swift` / `native` / `lint` / `secrets`).
-- **Next (M1 proper):** implement the real §6.2 surface — `pf_kdf_calibrate`, `pf_vault_create`,
-  `pf_session_open`, `pf_seal` / `pf_open`, `pf_mac_*` — split `boundary/` into `keyring/`, `aead/`,
-  `util/` behind a shared internal `Bytes` header, and add the RFC 9106 / 8439 / 5869 known-answer tests
-  to `native-tests/`.
+- **Next (M1 proper):** [`runbooks/m1-crypto-core.md`](runbooks/m1-crypto-core.md) — implement the real
+  §6.2 surface (`pf_kdf_calibrate`, `pf_vault_create`, `pf_session_open`, `pf_seal` / `pf_open`,
+  `pf_mac_*`), split `boundary/` into `keyring/` / `aead/` / `manifest/` behind shared `internal/`
+  headers, and add the RFC 9106 / 8439 / 5869 known-answer tests. Then
+  [`runbooks/m2-vault-storage.md`](runbooks/m2-vault-storage.md). The series index is
+  [`runbooks/README.md`](runbooks/README.md).
 
 ## Known deviation from `architecture.md` §4
 

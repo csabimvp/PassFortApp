@@ -8,6 +8,10 @@ xcuserdata/
 
 # CMake — out-of-source build dir, disposable
 native-tests/build/
+/build/
+
+# VS Code CMake Tools — local editor config, keep out of the repo
+.vscode/
 
 # Vault data — never commit anything with real secrets
 *.pfvault
