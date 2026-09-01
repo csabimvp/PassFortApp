@@ -8,6 +8,11 @@ let package = Package(
         .library(name: "PassFortVault", targets: ["PassFortVault"]),
         .executable(name: "passfort-cli", targets: ["passfort-cli"]),
     ],
+    dependencies: [
+        // Apple, first-party. First external dependency -- Package.resolved is
+        // committed and the `deps` CI job checks it does not drift (runbook Phase 10).
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
+    ],
     targets: [
         // -- C++ -- keys and byte-marshaling only. NO interop flag on this target. --
         .target(
@@ -46,7 +51,10 @@ let package = Package(
 
         .executableTarget(
             name: "passfort-cli",
-            dependencies: ["PassFortVault", "PassFortCrypto"]
+            dependencies: [
+                "PassFortVault", "PassFortCrypto",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ]
         ),
 
         // The one sanctioned interop exception besides PassFortCrypto: the boundary
