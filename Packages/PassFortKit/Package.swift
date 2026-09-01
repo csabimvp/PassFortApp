@@ -70,6 +70,14 @@ let package = Package(
             dependencies: ["PassFortCrypto", "PFCrypto"],
             swiftSettings: [.interoperabilityMode(.Cxx)]
         ),
+
+        .testTarget(
+            name: "PassFortVaultTests",
+            dependencies: [
+                "PassFortVault",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ]
+        ),
     ],
     cxxLanguageStandard: .cxx20
 )
