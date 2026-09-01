@@ -6,8 +6,8 @@ DerivedData/
 xcuserdata/
 .DS_Store
 
-# CMake — out-of-source build dir, disposable
-native-tests/build/
+# CMake — out-of-source build dirs, disposable (build, build-san, ...)
+native-tests/build*/
 /build/
 
 # VS Code CMake Tools — local editor config, keep out of the repo
