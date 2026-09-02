@@ -40,4 +40,23 @@ import Testing
     _ = try VaultDatabase(path: path)
     _ = try VaultDatabase(path: path)  // migrator is idempotent
   }
+
+  /// `passfort-cli init vault.sqlite` -- a bare filename, no directory component.
+  /// The parent is the current directory, which already exists; it must not be
+  /// treated as "" (rejected) or chmod'd.
+  @Test func bareFilenameResolvesToTheCurrentDirectory() throws {
+    let (dir, _) = try tempVaultPath()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    let originalCWD = FileManager.default.currentDirectoryPath
+    defer { FileManager.default.changeCurrentDirectoryPath(originalCWD) }
+    #expect(FileManager.default.changeCurrentDirectoryPath(dir.path(percentEncoded: false)))
+
+    _ = try VaultDatabase(path: "vault.sqlite")
+
+    let created = dir.appending(path: "vault.sqlite").path(percentEncoded: false)
+    #expect(FileManager.default.fileExists(atPath: created))
+    let perms = try FileManager.default.attributesOfItem(atPath: created)[.posixPermissions]
+    #expect((perms as? NSNumber)?.int16Value == 0o600)
+  }
 }

@@ -39,10 +39,17 @@ extension VaultDatabase {
   }
 
   private static func prepareDirectory(for path: String) throws {
-    let dir = (path as NSString).deletingLastPathComponent
-    try FileManager.default.createDirectory(
-      atPath: dir, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
+    // A bare filename ("vault.sqlite") has no directory component -- that means
+    // the current directory (which already exists), not "" (which
+    // `createDirectory` rejects). Only create-and-lock-down a parent we were
+    // actually given; never chmod an existing directory like the CWD or $HOME.
+    let parent = (path as NSString).deletingLastPathComponent
+    let dir = parent.isEmpty ? FileManager.default.currentDirectoryPath : parent
+    if !parent.isEmpty, !FileManager.default.fileExists(atPath: parent) {
+      try FileManager.default.createDirectory(
+        atPath: parent, withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700])
+    }
 
     // Keep the vault out of Spotlight (§8.2).
     let marker = (dir as NSString).appendingPathComponent(".metadata_never_index")
