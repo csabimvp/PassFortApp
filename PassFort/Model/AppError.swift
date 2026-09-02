@@ -23,4 +23,21 @@ enum AppError: Error, Equatable {
     if case .rolledBack = self { return true }
     return false
   }
+
+  /// A plain sentence for a banner. `UnlockView`'s `.rolledBack` branch builds its
+  /// own richer layout; everything else can use this.
+  var message: String {
+    switch self {
+    case .wrongPassword:
+      return "Wrong password."
+    case .notAVault:
+      return "There's no vault at that location."
+    case .tampered:
+      return "This vault was modified outside PassFort and isn't safe to open."
+    case .rolledBack(let fileVersion, let lastSeen):
+      return "This vault is v\(fileVersion); this Mac last saw v\(lastSeen). It looks rolled back."
+    case .io(let detail):
+      return "Something went wrong: \(detail)"
+    }
+  }
 }

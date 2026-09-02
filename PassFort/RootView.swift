@@ -9,9 +9,11 @@ struct RootView: View {
     Group {
       switch model.state {
       case .needsVault:
-        placeholder("No vault yet", "Create screen — Phase 4")
+        CreateVaultView()
       case .locked, .unlocking:
         UnlockView()
+      case .showingRecoveryKey(let key):
+        RecoveryKeyView(key: key)
       case .unlocked:
         placeholder("Unlocked", "\(model.summaries.count) account(s) — list is Phase 5")
       }

@@ -465,9 +465,29 @@ the "backup I restored" button clears it.
 
 ---
 
-## Phase 4 — First run: create a vault
+## Phase 4 — First run: create a vault — DONE (2026-09-02)
 
-Shown when `model.state == .needsVault`.
+Shipped as `PassFort/Features/CreateVault/{CreateVaultView,RecoveryKeyView}.swift` + `AppModel`
+`createVault` / `confirmRecoveryKeyShown` / a `.showingRecoveryKey(RecoveryKey)` state. Differences
+from the sketch:
+
+- **The recovery key is a state case, not a `pendingRecoveryKey` sidecar.**
+  `.showingRecoveryKey(RecoveryKey)` (`RecoveryKey` is `Equatable`, so `State` stays `Equatable`); the
+  open vault parks in `private var stagedRepo` — keeping "repo non-nil only in `.unlocked`" true — and
+  `confirmRecoveryKeyShown()` moves it into `adoptUnlocked`. `RecoveryKeyView` is a full screen (via
+  `RootView`), not a sheet.
+- **`createVault` returns `AppError?`** rather than flipping to `.locked`. `CreateVaultView` shows the
+  returned error inline and stays put; state only leaves `.needsVault` on success.
+- **`AppError.message`** added (a plain sentence per case) — `CreateVaultView` and `UnlockView`'s
+  simple branches both use it now.
+- Calibration runs in `Task.detached(priority: .userInitiated) { service.calibrate() }` — `service` is
+  captured as a local (it is a `nonisolated struct`, Sendable) so the ~500 ms Argon2id is genuinely
+  off the main actor.
+
+**Checkpoint:** `.needsVault` → the Create form; create-with-recovery shows the grouped key once,
+gates on "I've written it down", then lands `.unlocked` with an empty list. Cross-check with
+`passfort-cli list <container-path>/vault.sqlite` — note the app's vault lives in its **sandbox
+container**, not the CLI's default path.
 
 ```swift
 struct CreateVaultView: View {

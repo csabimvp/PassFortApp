@@ -14,6 +14,9 @@ final class AppModel {
     case locked(AppError? = nil)
     /// Argon2id in flight → a spinner.
     case unlocking
+    /// A freshly created vault's recovery key, shown once. Blocks on the user
+    /// confirming they wrote it down; `stagedRepo` holds the open vault meanwhile.
+    case showingRecoveryKey(RecoveryKey)
     /// Unlocked; `repo` and `summaries` are live.
     case unlocked
 
@@ -30,6 +33,9 @@ final class AppModel {
 
   private let service: VaultService
   private var autoLock: AutoLock?
+  /// The open vault held between `createVault` and the recovery-key confirmation
+  /// (so "repo is non-nil only in .unlocked" stays true during `.showingRecoveryKey`).
+  private var stagedRepo: VaultRepository?
 
   init(databasePath: String = VaultDatabase.defaultPath) {
     self.service = VaultService(databasePath: databasePath)
@@ -54,6 +60,44 @@ final class AppModel {
   func acceptRestoreAndRetry(password: Data) async {
     try? service.acceptRestoredBackup()
     await unlock(password: password)
+  }
+
+  /// First run: calibrate (off-main), create the vault, then either show the
+  /// recovery key once or go straight to `.unlocked`. Returns the error on
+  /// failure (state stays `.needsVault`); `nil` on success.
+  @discardableResult
+  func createVault(password: Data, recovery: Bool) async -> AppError? {
+    guard case .needsVault = state else { return nil }
+    do {
+      let service = self.service
+      let params = try await Task.detached(priority: .userInitiated) {
+        try service.calibrate()
+      }.value
+      let (repo, key) = try await service.createVault(
+        password: password, params: params, recovery: recovery)
+      if let key {
+        stagedRepo = repo
+        state = .showingRecoveryKey(key)
+      } else {
+        try await adoptUnlocked(repo)
+      }
+      return nil
+    } catch let error as AppError {
+      return error
+    } catch {
+      return .io(String(describing: error))
+    }
+  }
+
+  /// The user confirmed they wrote the recovery key down → finish unlocking.
+  func confirmRecoveryKeyShown() async {
+    guard case .showingRecoveryKey = state, let repo = stagedRepo else { return }
+    stagedRepo = nil
+    do {
+      try await adoptUnlocked(repo)
+    } catch {
+      state = .locked(.io(String(describing: error)))
+    }
   }
 
   func lock() {

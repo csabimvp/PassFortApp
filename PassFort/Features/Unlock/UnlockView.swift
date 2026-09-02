@@ -46,22 +46,9 @@ struct UnlockView: View {
   @ViewBuilder
   private func errorBanner(_ error: AppError) -> some View {
     switch error {
-    case .wrongPassword:
-      Label("Wrong password.", systemImage: "xmark.octagon")
-        .foregroundStyle(.red)
-
-    case .tampered:
-      Label(
-        "This vault was modified outside PassFort and isn't safe to open.",
-        systemImage: "exclamationmark.triangle"
-      )
-      .foregroundStyle(.red)
-
-    case .rolledBack(let fileVersion, let lastSeen):
+    case .rolledBack:
       VStack(spacing: 8) {
-        Label(
-          "This vault (v\(fileVersion)) is older than the version this Mac last saw (v\(lastSeen)).",
-          systemImage: "clock.arrow.circlepath")
+        Label(error.message, systemImage: "clock.arrow.circlepath")
         Text(
           "A restored backup and a rolled-back file look the same. "
             + "If you restored a backup on purpose, accept it:"
@@ -75,8 +62,8 @@ struct UnlockView: View {
         .disabled(password.isEmpty || model.state.isUnlocking)
       }
 
-    case .notAVault, .io:
-      Label("Couldn't open the vault.", systemImage: "xmark.octagon")
+    default:
+      Label(error.message, systemImage: "xmark.octagon")
         .foregroundStyle(.red)
     }
   }
