@@ -9,13 +9,31 @@
 /* Begin PBXBuildFile section */
 		65BAA77A30486759008338E2 /* PassFortVault in Frameworks */ = {isa = PBXBuildFile; productRef = 65BAA77930486759008338E2 /* PassFortVault */; };
 		65BAA77D30486B86008338E2 /* PassFortCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 65BAA77C30486B86008338E2 /* PassFortCrypto */; };
+		65BAA7C33048B866008338E2 /* PassFortCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 65BAA7C23048B866008338E2 /* PassFortCrypto */; };
+		65BAA7C53048B86A008338E2 /* PassFortVault in Frameworks */ = {isa = PBXBuildFile; productRef = 65BAA7C43048B86A008338E2 /* PassFortVault */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		65BAA7BB30487FC6008338E2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 65FABC7730485F2D00B23792 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 65FABC7E30485F2D00B23792;
+			remoteInfo = PassFort;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		65BAA7B730487FC6008338E2 /* PassFortTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PassFortTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		65FABC7F30485F2D00B23792 /* PassFort.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PassFort.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		65BAA7B830487FC6008338E2 /* PassFortTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PassFortTests;
+			sourceTree = "<group>";
+		};
 		65FABC8130485F2D00B23792 /* PassFort */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PassFort;
@@ -24,6 +42,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		65BAA7B430487FC6008338E2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				65BAA7C33048B866008338E2 /* PassFortCrypto in Frameworks */,
+				65BAA7C53048B86A008338E2 /* PassFortVault in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		65FABC7C30485F2D00B23792 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -47,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				65FABC8130485F2D00B23792 /* PassFort */,
+				65BAA7B830487FC6008338E2 /* PassFortTests */,
 				65BAA77B30486B86008338E2 /* Frameworks */,
 				65FABC8030485F2D00B23792 /* Products */,
 			);
@@ -56,6 +84,7 @@
 			isa = PBXGroup;
 			children = (
 				65FABC7F30485F2D00B23792 /* PassFort.app */,
+				65BAA7B730487FC6008338E2 /* PassFortTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -63,6 +92,31 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		65BAA7B630487FC6008338E2 /* PassFortTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 65BAA7BD30487FC6008338E2 /* Build configuration list for PBXNativeTarget "PassFortTests" */;
+			buildPhases = (
+				65BAA7B330487FC6008338E2 /* Sources */,
+				65BAA7B430487FC6008338E2 /* Frameworks */,
+				65BAA7B530487FC6008338E2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				65BAA7BC30487FC6008338E2 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				65BAA7B830487FC6008338E2 /* PassFortTests */,
+			);
+			name = PassFortTests;
+			packageProductDependencies = (
+				65BAA7C23048B866008338E2 /* PassFortCrypto */,
+				65BAA7C43048B86A008338E2 /* PassFortVault */,
+			);
+			productName = PassFortTests;
+			productReference = 65BAA7B730487FC6008338E2 /* PassFortTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		65FABC7E30485F2D00B23792 /* PassFort */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 65FABC8A30485F2E00B23792 /* Build configuration list for PBXNativeTarget "PassFort" */;
@@ -97,6 +151,10 @@
 				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
+					65BAA7B630487FC6008338E2 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 65FABC7E30485F2D00B23792;
+					};
 					65FABC7E30485F2D00B23792 = {
 						CreatedOnToolsVersion = 26.6;
 					};
@@ -120,11 +178,19 @@
 			projectRoot = "";
 			targets = (
 				65FABC7E30485F2D00B23792 /* PassFort */,
+				65BAA7B630487FC6008338E2 /* PassFortTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		65BAA7B530487FC6008338E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		65FABC7D30485F2D00B23792 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -135,6 +201,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		65BAA7B330487FC6008338E2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		65FABC7B30485F2D00B23792 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -144,7 +217,53 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		65BAA7BC30487FC6008338E2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 65FABC7E30485F2D00B23792 /* PassFort */;
+			targetProxy = 65BAA7BB30487FC6008338E2 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		65BAA7BE30487FC6008338E2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = csabimvp.PassFortTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PassFort.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PassFort";
+			};
+			name = Debug;
+		};
+		65BAA7BF30487FC6008338E2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = csabimvp.PassFortTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PassFort.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PassFort";
+			};
+			name = Release;
+		};
 		65FABC8830485F2E00B23792 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -326,6 +445,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		65BAA7BD30487FC6008338E2 /* Build configuration list for PBXNativeTarget "PassFortTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				65BAA7BE30487FC6008338E2 /* Debug */,
+				65BAA7BF30487FC6008338E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		65FABC7A30485F2D00B23792 /* Build configuration list for PBXProject "PassFort" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -362,6 +490,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 65BAA77830486759008338E2 /* XCLocalSwiftPackageReference "Packages/PassFortKit" */;
 			productName = PassFortCrypto;
+		};
+		65BAA7C23048B866008338E2 /* PassFortCrypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 65BAA77830486759008338E2 /* XCLocalSwiftPackageReference "Packages/PassFortKit" */;
+			productName = PassFortCrypto;
+		};
+		65BAA7C43048B86A008338E2 /* PassFortVault */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 65BAA77830486759008338E2 /* XCLocalSwiftPackageReference "Packages/PassFortKit" */;
+			productName = PassFortVault;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

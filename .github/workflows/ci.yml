@@ -63,6 +63,12 @@ jobs:
             -project PassFort.xcodeproj -scheme PassFort \
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO
+      - name: App tests
+        run: |
+          xcodebuild test \
+            -project PassFort.xcodeproj -scheme PassFort \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
 
   native:
     runs-on: macos-15            # NOT Linux -- the amalgamation is configured for
