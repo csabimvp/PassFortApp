@@ -1,15 +1,33 @@
-import Foundation
+import AppKit
 
 /// Locks the vault after a period of inactivity.
 ///
-/// **Phase 2:** a bare countdown, started when the vault unlocks and cancelled on
-/// `lock()`. **Phase 8** adds `bump()` on user activity (an `NSEvent` monitor) and
-/// a Settings-configurable interval. **M4** adds lock on sleep / screen-lock.
+/// **M3:** an idle countdown restarted on key / mouse / scroll activity while the
+/// app is frontmost, plus `PassFortApp`'s lock-on-`.background`. **M4** adds lock
+/// on system sleep (`NSWorkspace.willSleepNotification`) and screen lock.
 @MainActor
 final class AutoLock {
   private var countdown: Task<Void, Never>?
+  private var monitor: Any?
+  private let timeout: Duration
+  private let onExpire: @MainActor () -> Void
 
   init(timeout: Duration = .seconds(300), onExpire: @escaping @MainActor () -> Void) {
+    self.timeout = timeout
+    self.onExpire = onExpire
+    monitor = NSEvent.addLocalMonitorForEvents(
+      matching: [.keyDown, .mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel]
+    ) { [weak self] event in
+      self?.bump()
+      return event
+    }
+    bump()
+    // TODO(M4): also lock on NSWorkspace.willSleepNotification / screen lock.
+  }
+
+  /// Restart the countdown — called on user activity.
+  func bump() {
+    countdown?.cancel()
     countdown = Task {
       try? await Task.sleep(for: timeout)
       guard !Task.isCancelled else { return }
@@ -17,10 +35,14 @@ final class AutoLock {
     }
   }
 
-  /// Stop the countdown. `AppModel` calls this before dropping the instance so a
-  /// stale timer can't fire against a locked vault.
+  /// Stop the countdown and drop the event monitor. `AppModel` calls this before
+  /// dropping the instance so nothing fires against a locked vault.
   func invalidate() {
     countdown?.cancel()
     countdown = nil
+    if let monitor {
+      NSEvent.removeMonitor(monitor)
+      self.monitor = nil
+    }
   }
 }

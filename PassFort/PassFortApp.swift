@@ -13,5 +13,9 @@ struct PassFortApp: App {
           if phase == .background { model.lock() }
         }
     }
+
+    Settings {
+      SettingsView().environment(model)
+    }
   }
 }

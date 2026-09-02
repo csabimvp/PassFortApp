@@ -108,6 +108,30 @@ final class AppModel {
     state = .locked()
   }
 
+  // MARK: - Auto-lock
+
+  /// The idle timeout, in seconds — a `UserDefaults` preference (`SettingsView`),
+  /// not a secret. Defaults to 5 minutes.
+  var autoLockSeconds: Int {
+    let stored = UserDefaults.standard.integer(forKey: "autoLockSeconds")
+    return stored > 0 ? stored : 300
+  }
+
+  /// Re-arm the auto-lock timer after the preference changes (from `SettingsView`).
+  func autoLockSettingDidChange() {
+    guard case .unlocked = state, repo != nil else { return }
+    autoLock?.invalidate()
+    autoLock = AutoLock(timeout: .seconds(autoLockSeconds)) { [weak self] in self?.lock() }
+  }
+
+  /// Rotate the recovery key (§5.6) — show it once, then back to `.unlocked`.
+  func rotateRecoveryKey() async {
+    guard case .unlocked = state, let repo else { return }
+    guard let key = try? await repo.rotateRecoveryKey() else { return }
+    stagedRepo = repo
+    state = .showingRecoveryKey(key)
+  }
+
   /// Rebuild the summary index — call after a write.
   func refreshSummaries() async {
     guard let repo else { return }
@@ -121,7 +145,7 @@ final class AppModel {
   private(set) var writeCounter = 0
 
   func createAccount(_ payload: AccountPayload) async -> AppError? {
-    await write { try await $0.create(payload) }
+    await write { _ = try await $0.create(payload) }
   }
 
   func updateAccount(id: UUID, to payload: AccountPayload) async -> AppError? {
@@ -152,7 +176,7 @@ final class AppModel {
     self.repo = repo
     self.summaries = try await repo.summaries()
     self.autoLock?.invalidate()
-    self.autoLock = AutoLock { [weak self] in self?.lock() }
+    self.autoLock = AutoLock(timeout: .seconds(autoLockSeconds)) { [weak self] in self?.lock() }
     self.state = .unlocked
   }
 }

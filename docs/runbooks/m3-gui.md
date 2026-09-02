@@ -797,7 +797,24 @@ and the detail view reflects the change; delete tombstones it and it leaves the 
 
 ---
 
-## Phase 8 — Auto-lock
+## Phase 8 — Auto-lock — DONE (2026-09-02)
+
+`AutoLock` (Phase 2's stub) grew the `NSEvent` activity monitor + `bump()`; `PassFort/Features/Settings/
+SettingsView.swift` + a `Settings` scene added. Notes:
+
+- **`invalidate()`, no `deinit`.** The event monitor and the countdown task are both dropped in
+  `invalidate()`, which `AppModel` calls on `lock()` / before re-arming — cleaner than a `deinit` that
+  touches actor-isolated state.
+- **Timeout is `@AppStorage("autoLockSeconds")`** (a `Picker`: 1 / 5 / 15 / 60 min — discrete beats a
+  slider for this). `SettingsView.onChange` → `model.autoLockSettingDidChange()` re-arms `AutoLock`
+  with the new interval, no relaunch.
+- **`SettingsView`** also has "Lock now" and "Rotate recovery key…" (→ `AppModel.rotateRecoveryKey`,
+  which reuses `.showingRecoveryKey` / `stagedRepo` — the same one-time-shown gate as Phase 4, then
+  back to `.unlocked`). Both disabled unless unlocked.
+- Lock on system sleep / screen lock stays **M4** (`TODO(M4)` in `AutoLock`).
+
+**Checkpoint:** builds + boots. Idle past the timeout → `.locked`; ⌘-Tab away (`.background`) → locked
+on return; changing the Settings picker re-arms without a relaunch; ⌘L works from the list toolbar.
 
 ```swift
 @MainActor
