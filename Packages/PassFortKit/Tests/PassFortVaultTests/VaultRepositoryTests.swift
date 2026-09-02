@@ -172,4 +172,39 @@ import Testing
     defer { try? FileManager.default.removeItem(at: h.dir) }
     _ = try await reopen(h)  // bootstrap wrote a v0 manifest over the empty set
   }
+
+  /// The `passfort-cli verify --accept-restore` path: clearing the sidecar
+  /// high-water mark is the one sanctioned way to accept a whole-file rollback,
+  /// and the next open then repairs the mark forward to the restored file.
+  @Test func acceptingARestoredBackupClearsTheMarkThenReopens() async throws {
+    let h = try await makeHarness()
+    defer { try? FileManager.default.removeItem(at: h.dir) }
+
+    let target = try await h.repo.create(AccountPayload(title: "a")).id
+    _ = try await h.repo.create(AccountPayload(title: "b"))
+    try await h.database.dbQueue.writeWithoutTransaction { db in
+      try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+    }
+    let backup = h.dir.appending(path: "backup.sqlite")
+    try FileManager.default.copyItem(atPath: h.path, toPath: backup.path(percentEncoded: false))
+
+    _ = try await h.repo.update(id: target) { $0.notes = "moved on to v3" }
+
+    // Roll the file back to the v2 snapshot; the sidecar still says v3.
+    for suffix in ["", "-wal", "-shm"] {
+      try? FileManager.default.removeItem(atPath: h.path + suffix)
+    }
+    try FileManager.default.copyItem(atPath: backup.path(percentEncoded: false), toPath: h.path)
+
+    await #expect(throws: VaultManifest.Failure.rollbackDetected(vaultVersion: 2, highWater: 3)) {
+      _ = try await reopen(h)
+    }
+
+    // Accept the restore: clear the mark, reopen, confirm it repaired forward.
+    try h.highWater.reset()
+    let reopened = try await reopen(h)
+    let restored = try await reopened.account(id: target)
+    #expect(restored?.version == 1)  // the pre-edit v2 file
+    #expect(try h.highWater.read() == 2)
+  }
 }

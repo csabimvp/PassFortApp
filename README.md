@@ -5,9 +5,10 @@ with per-record envelope encryption and a custom Azure sync backend.
 
 ## Status
 
-Status: active hobby project. Milestone M0 (toolchain + seam + scaffolding) is complete; M1 (the crypto
-core) is in progress. CI runs on every push (`swift` / `native` / `lint` / `secrets` jobs). No release
-yet.
+Status: active hobby project. Milestones M0 (toolchain + seam + scaffolding) and M1 (the crypto core)
+are complete; M2 (vault + SQLite storage) is in progress — the storage layer and full `passfort-cli`
+CRUD are in, CI wiring (M2 Phase 11) is the remaining step. CI runs on every push
+(`swift` / `native` / `lint` / `secrets` / `deps` jobs). No release yet.
 
 ## Overview
 
@@ -124,25 +125,40 @@ ctest --test-dir native-tests/build          # run from the repo root
 
 ## Usage
 
-`passfort-cli` is the primary interface for M1 and M2. Run it from `Packages/PassFortKit/`.
+`passfort-cli` is the primary interface for M1 and M2. Run it from `Packages/PassFortKit/`
+(`swift run passfort-cli <subcommand>`), or use the built binary at `.build/debug/passfort-cli`.
 
-Today (M0 seam check):
-
-```bash
-cd Packages/PassFortKit && swift run passfort-cli
-# -> seam OK -- 19 bytes round-tripped through C++
-# -> botan 3.13.0
-```
-
-Planned subcommands (M1 Phase 10 — not wired yet):
+The vault is an encrypted SQLite database. `init` creates one and prompts for a master password
+(no echo); every other command prompts for it and runs the manifest MAC + anti-rollback checks
+(architecture §5.5) before doing anything.
 
 ```bash
-passfort-cli bench  [--target-ms 500]                    # calibrate Argon2id; print params + timing
-passfort-cli init   <vault.pfvault>                       # create a vault; prompt for password (no echo)
-passfort-cli unlock <vault.pfvault>                       # open a session; report OK / AuthFailed
-passfort-cli seal   <vault> --id <uuid> --in <file>       # seal a record; write the sealed blob
-passfort-cli open   <vault> --id <uuid> --in <sealed>     # open a record; write the plaintext
+passfort-cli bench   [--target-ms 500]                   # calibrate Argon2id; print params + timing
+passfort-cli init    <vault> [--recovery] [--force]      # create a vault; prompt for a password
+passfort-cli unlock  <vault>                             # open + verify; report account counts
+passfort-cli verify  <vault> [--accept-restore]          # manifest + anti-rollback check only
+passfort-cli add     <vault> --title T [--username U] [--prompt-password] [--url U] [--note N]
+passfort-cli list    <vault> [--search Q] [--all]        # summary index (no secrets)
+passfort-cli get     <vault> <id|title> [--json]         # one account, secrets to stdout
+passfort-cli edit    <vault> <id|title> --set password=… [--add-url U] [--prompt-password]
+passfort-cli rm      <vault> <id|title>                  # tombstone
+passfort-cli dump    <vault>                             # every record, decrypted, JSON (debug)
+passfort-cli export  <vault> -o out.json                 # decrypt the whole vault; typed phrase required
+passfort-cli recover <vault> --key <grouped-recovery-key>   # reset the master password via the recovery slot
 ```
+
+Example — create a vault, add an account, read it back:
+
+```bash
+cd Packages/PassFortKit
+swift run passfort-cli init  vault.sqlite
+swift run passfort-cli add   vault.sqlite --title github --username me --prompt-password
+swift run passfort-cli get   vault.sqlite github
+```
+
+An account reference is a record UUID or a title (exact match, else a unique substring).
+`get` / `dump` / `export` write secrets in the clear — `export` writes the file `0600`; delete it
+when done.
 
 ## Testing
 
@@ -161,7 +177,7 @@ passfort-cli open   <vault> --id <uuid> --in <sealed>     # open a record; write
 
 ```bash
 cd Packages/PassFortKit && swift build      # compile all four targets
-cd Packages/PassFortKit && swift test       # run the Swift test targets (PFCryptoBoundaryTests today)
+cd Packages/PassFortKit && swift test       # run the Swift test targets (PFCryptoBoundaryTests + PassFortVaultTests)
 swift test --filter PFCryptoBoundaryTests   # a single suite, from inside Packages/PassFortKit/
 ```
 

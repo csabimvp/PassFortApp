@@ -11,8 +11,8 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | Milestone | Runbook | Status |
 |---|---|---|
 | **M0** Toolchain spike + M1 scaffolding | [`../bootstrap.md`](../bootstrap.md) | ✅ done |
-| **M1** Crypto core + seam | [`m1-crypto-core.md`](m1-crypto-core.md) | ▶ current |
-| **M2** Vault + storage | [`m2-vault-storage.md`](m2-vault-storage.md) | drafted, starts after M1 |
+| **M1** Crypto core + seam | [`m1-crypto-core.md`](m1-crypto-core.md) | ✅ done ([retrospective](m1-retrospective.md)) |
+| **M2** Vault + storage | [`m2-vault-storage.md`](m2-vault-storage.md) | ▶ current — Phases 1–10 done, Phase 11 (CI) left |
 | **M3** GUI | — | write after M2 (folds in `bootstrap.md` Phase 6) |
 | **M4** Platform integration | — | write after M3 |
 | **M5** Sync (Azure) | — | write after M4 (do the Azure spike first, `architecture.md` §15 step 6) |

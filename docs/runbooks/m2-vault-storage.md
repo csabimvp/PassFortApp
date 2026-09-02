@@ -1,12 +1,12 @@
 # M2 — Vault + storage
 
-**Status:** In progress — Phases 1–8 landed (GRDB, `Database.swift`, schema v1 + fixture harness, model
+**Status:** In progress — Phases 1–10 landed (GRDB, `Database.swift`, schema v1 + fixture harness, model
 types with JSON + 256-byte padding, `VaultManifest`/`VaultMeta` + verify-at-unlock, `VaultRepository`
 CRUD + `HighWaterMark`, `Vault` facades + mid-write kill test, recovery-key header slot +
 `pf_recovery_wrap`/`open`, `RecoveryKey` + Crockford Base32 + `Vault.createWithRecovery`/`recover`, plaintext export +
-`pf_session_vault_uuid`).
-**Phase 10 (`passfort-cli` full CRUD + restore-from-backup — the CLI moves from header-file to SQLite
-semantics, and the recovery/export UX lands here) is next.** Phases 10–11 remain. Open decisions
+`pf_session_vault_uuid`, `passfort-cli` full CRUD + `verify --accept-restore`).
+**Phase 11 (CI: fold the migration-fixture / anti-rollback / kill-test jobs into the `swift` workflow,
+extend `deps` to guard the GRDB lockfile) is next — the last one in M2.** Open decisions
 resolved 2026-09-01:
 recovery key folds into header format v1 (ADR-0007), `usedAt` stays `nil` in M2 (§14.11), recovery key
 rendered Crockford Base32, `verify --accept-restore` for legitimate restores. Open finding:
@@ -606,47 +606,75 @@ Commit: `PassFortVault: plaintext export behind a typed confirmation + pf_sessio
 
 ---
 
-## Phase 10 — `passfort-cli` full CRUD + restore-from-backup
+## Phase 10 — `passfort-cli` full CRUD + restore-from-backup — DONE (2026-09-02)
 
-Extend the M1 CLI (`bench`/`init`/`unlock`/`seal`/`open`) with the vault-level commands:
+The CLI moved from M1's header-file semantics to the SQLite vault. `init` / `unlock` now speak
+`Vault.create` / `Vault.unlock`; the M1 `seal` / `open` primitives (raw blob in, raw blob out —
+no home once records live in the database) were **removed**. `bench` and `seam` stay as the crypto
+smoke tests. The vault-level surface, all through `VaultRepository`:
 
 ```
-passfort-cli add    <vault> --title T [--username U] [--url ...] [--note ...]   # create
-passfort-cli list   <vault> [--search Q]                                        # AccountSummary index
-passfort-cli get    <vault> <id|title>                                          # one Account, secrets to stdout
-passfort-cli edit   <vault> <id> --set password=...                             # update
-passfort-cli rm     <vault> <id>                                                # tombstone
-passfort-cli dump   <vault>                                                     # every record, decrypted (debug)
-passfort-cli export <vault> -o file.json                                        # Phase 9
-passfort-cli recover <vault> --key GROUPED                                      # Phase 8
-passfort-cli verify <vault>                                                     # manifest + vault_version check only
+passfort-cli init    <vault> [--recovery] [--force] [--target-ms N]   # Vault.create(WithRecovery)
+passfort-cli unlock  <vault>                                          # verify + report live/tombstoned counts
+passfort-cli verify  <vault> [--accept-restore]                       # manifest + anti-rollback only
+passfort-cli add     <vault> --title T [--username U] [--password V | --prompt-password]
+                             [--email E] [--url U ...] [--note N] [--category C] [--tag T ...] [--favorite]
+passfort-cli list    <vault> [--search Q] [--all]                     # AccountSummary index, no secrets
+passfort-cli get     <vault> <id|title> [--json]                      # one Account, secrets to stdout
+passfort-cli edit    <vault> <id|title> --set key=value ... [--add-url U] [--prompt-password]
+passfort-cli rm      <vault> <id|title>                               # tombstone
+passfort-cli dump    <vault>                                          # every record decrypted, JSON (debug)
+passfort-cli export  <vault> -o file.json                             # Phase 9, behind the typed phrase
+passfort-cli recover <vault> --key GROUPED                            # Phase 8; rotates a fresh key after
 ```
 
-- `list` builds the in-memory index (§8.3): one `pf_open` per record, `(id, title, username, host)`,
-  search and sort in Swift. Drop it when the command exits.
-- `get`/`dump` write secrets to stdout — fine for a CLI the user drives, but note it in `--help` and
-  never log the values (§13.1: "no secret ever reaches a log").
+**What differs from the sketch:**
+
+- **Account references** — every command that takes an account accepts a UUID *or* a title
+  (`resolveAccountID`: exact case-insensitive title first, then a unique substring, else an error
+  listing the ambiguity). `edit github --set password=…` just works.
+- **`--set key=value`** is parsed and validated (`EditOp.parse`) *before* the write transaction opens,
+  so a bad key / non-boolean `favorite` / unknown `category` fails clean. Keys: `title`, `username`,
+  `password`, `email`, `notes`, `favorite`, `category`; an empty value clears an optional field.
+- **Passwords never take a required flag.** `add` / `edit` accept an inline `--password` (with a
+  shell-history warning in `--help`) *or* `--prompt-password` (getpass, no echo, buffer scrubbed).
+- **`list` / `get` / `dump`** build the in-memory index (§8.3) with one `pf_open` per record and drop
+  it on exit. `get` / `dump` write secrets to stdout (noted in `--help`); nothing is logged.
+- **`export`** reads the exact `EXPORT PLAINTEXT` phrase back on stdin, constructs `ExportConfirmation`,
+  writes the JSON `0600`, warns on stderr. `recover` consumes the recovery slot then calls
+  `VaultRepository.rotateRecoveryKey` and prints the new key in the one-time banner.
+- **`init --recovery`** prints the recovery key to **stderr** (banner), so a piped stdout stays clean.
+- **`VaultCLI.open`** is the shared entry: prompt → `Vault.unlock` → translate `PassFortError` /
+  `VaultManifest.Failure` into a `CLIError`. A `.rollbackDetected` message spells out the
+  `verify --accept-restore` remedy verbatim.
+- **`m2DeviceID`** is the fixed zero UUID (matches `SealedRecord`'s M2 constant) — single device until
+  M5 sync.
 
 ### Restore-from-backup verification (the M2 "done when")
 
 ```bash
-passfort-cli add  vault.sqlite --title github --username me
-cp vault.sqlite vault.backup                    # a "backup"
-passfort-cli add  vault.sqlite --title gitlab --username me
-passfort-cli edit vault.sqlite <github-id> --set password=rotated
+passfort-cli init v.sqlite
+passfort-cli add  v.sqlite --title github --prompt-password
+cp v.sqlite v.backup                            # a "backup" (checkpoint the WAL first if it exists)
+passfort-cli add  v.sqlite --title gitlab
+passfort-cli edit v.sqlite github --set password=rotated
 
-cp vault.backup vault.sqlite                    # "restore" — a whole-file rollback
-passfort-cli verify vault.sqlite                # MUST FAIL: vault_version < high-water mark
+cp v.backup v.sqlite                            # "restore" — a whole-file rollback
+passfort-cli verify v.sqlite                    # MUST FAIL: vault_version < high-water mark
+passfort-cli verify v.sqlite --accept-restore   # clears the sidecar mark, re-verifies, repairs it forward
+passfort-cli verify v.sqlite                    # now passes
 ```
 
-The restore is indistinguishable from an attacker rolling the file back, and the `vault_version`
-high-water check (Phase 5) is what catches it. **Decided:** a legitimate restore clears the sidecar
-high-water mark via an explicit `passfort-cli verify --accept-restore` — a conscious act, no separate
-`restore` subcommand.
+The restore is indistinguishable from an attacker rolling the file back; the `vault_version`
+high-water check (Phase 5) catches it. A legitimate restore clears the sidecar mark via the explicit
+`verify --accept-restore` — a conscious act, no separate `restore` subcommand.
 
-**Checkpoint:** the full sequence above runs; `verify` fails on the rolled-back file and succeeds after
-`--accept-restore`. This is the §12 M2 exit criterion. Commit: `passfort-cli: full CRUD + restore
-verification`.
+**Checkpoint (met):** the sequence above is a manual check at a real terminal (getpass needs a tty).
+The mechanism it exercises is covered by a library test —
+`VaultRepositoryTests.acceptingARestoredBackupClearsTheMarkThenReopens`: a v2 file under a v3 mark
+throws `.rollbackDetected(2, 3)`; after `HighWaterMark.reset()` the reopen succeeds and repairs the
+mark forward to 2. Swift suite 56 green, `swift format lint --strict` clean. Commit:
+`passfort-cli: full CRUD over VaultRepository + restore-from-backup (runbook M2 Phase 10)`.
 
 ---
 
