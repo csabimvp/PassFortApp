@@ -81,13 +81,7 @@ struct VaultListView: View {
     }
     .frame(minWidth: 720, minHeight: 420)
     .sheet(isPresented: $showingAdd) {
-      // Phase 7 replaces this with AccountFormView(mode: .create).
-      VStack(spacing: 16) {
-        Text("Add account").font(.headline)
-        Text("Form — Phase 7").foregroundStyle(.secondary)
-        Button("Close") { showingAdd = false }.keyboardShortcut(.cancelAction)
-      }
-      .padding(40)
+      AccountFormView(mode: .create)
     }
   }
 }

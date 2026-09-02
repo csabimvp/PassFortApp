@@ -16,22 +16,31 @@ struct AccountDetailView: View {
 
   var body: some View {
     Group {
-      if let account {
+      if let account, account.isDeleted {
+        ContentUnavailableView("Account deleted", systemImage: "trash")
+      } else if let account {
         content(account)
       } else {
         ProgressView()
       }
     }
     .task(id: accountID) {
-      account = nil
       revealPassword = false
       revealHistory = false
-      account = try? await model.repo?.account(id: accountID)
+      await load()
+    }
+    .onChange(of: model.writeCounter) {
+      Task { await load() }  // an edit / delete happened — re-decrypt
     }
     .onDisappear {
       account = nil
       revealPassword = false
     }
+  }
+
+  private func load() async {
+    account = nil
+    account = try? await model.repo?.account(id: accountID)
   }
 
   @ViewBuilder
@@ -76,13 +85,7 @@ struct AccountDetailView: View {
       Button("Edit") { editing = true }
     }
     .sheet(isPresented: $editing) {
-      // Phase 7 replaces this with AccountFormView(mode: .edit(account)).
-      VStack(spacing: 16) {
-        Text("Edit account").font(.headline)
-        Text("Form — Phase 7").foregroundStyle(.secondary)
-        Button("Close") { editing = false }.keyboardShortcut(.cancelAction)
-      }
-      .padding(40)
+      AccountFormView(mode: .edit(account))
     }
   }
 

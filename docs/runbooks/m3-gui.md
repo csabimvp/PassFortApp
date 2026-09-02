@@ -692,9 +692,30 @@ everything down.
 
 ---
 
-## Phase 7 — Add, edit, delete
+## Phase 7 — Add, edit, delete — DONE (2026-09-02)
 
-One form, two modes, bound to a **draft copy** of the payload.
+Shipped as `PassFort/Features/AccountForm/AccountFormView.swift` + `AppModel`
+`createAccount` / `updateAccount` / `deleteAccount` / `writeCounter`. Notes:
+
+- **Writes go through `AppModel`, not the view.** `write(_:)` runs the `VaultRepository` call, bumps
+  `writeCounter`, refreshes `summaries`, and maps `VaultError.staleWrite` → a readable message. The
+  form just calls `model.createAccount(payload)` etc. and shows the returned `AppError?`.
+- **`AccountDetailView` reloads on `writeCounter`** (`.onChange`) so an edit is reflected without
+  re-selecting; a delete leaves it showing `account.isDeleted` → an "Account deleted" state.
+- **URLs / tags are edited as text** (newline- / comma-separated), parsed on save — keeps the form
+  simple and doesn't lose a second URL on edit. `optional(_:)` is a local `String?`↔`String` binding
+  helper (empty ⇄ nil).
+- **Generate** → `PasswordPolicy().generate()` (default policy) — the same generator as
+  `passfort-cli gen`. A policy popover is a later nicety.
+- Delete is behind a `.confirmationDialog`; edit-mode only.
+
+**Checkpoint (manual):** add → row appears (v1); edit → v2, detail reflects it; delete → row leaves
+the list; `passfort-cli list <container-path>/vault.sqlite --all` agrees at every step. The
+`repo.create` / `.update` / `.delete` paths themselves are covered by `VaultRepositoryTests` +
+`AccountHistoryTests`.
+
+```swift
+struct AccountFormView: View {
 
 ```swift
 struct AccountFormView: View {

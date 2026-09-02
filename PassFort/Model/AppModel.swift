@@ -114,6 +114,38 @@ final class AppModel {
     summaries = (try? await repo.summaries()) ?? summaries
   }
 
+  // MARK: - Account writes
+
+  /// Bumped after every account create / update / delete so a detail view knows
+  /// to re-decrypt.
+  private(set) var writeCounter = 0
+
+  func createAccount(_ payload: AccountPayload) async -> AppError? {
+    await write { try await $0.create(payload) }
+  }
+
+  func updateAccount(id: UUID, to payload: AccountPayload) async -> AppError? {
+    await write { try await $0.update(id: id) { $0 = payload } }
+  }
+
+  func deleteAccount(id: UUID) async -> AppError? {
+    await write { try await $0.delete(id: id) }
+  }
+
+  private func write(_ body: (VaultRepository) async throws -> Void) async -> AppError? {
+    guard let repo else { return .io("The vault is locked.") }
+    do {
+      try await body(repo)
+      writeCounter &+= 1
+      await refreshSummaries()
+      return nil
+    } catch VaultError.staleWrite {
+      return .io("This account changed elsewhere. Reopen it and try again.")
+    } catch {
+      return .io(String(describing: error))
+    }
+  }
+
   // MARK: - Internal
 
   private func adoptUnlocked(_ repo: VaultRepository) async throws {
