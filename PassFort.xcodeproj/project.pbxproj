@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		65BAA77A30486759008338E2 /* PassFortVault in Frameworks */ = {isa = PBXBuildFile; productRef = 65BAA77930486759008338E2 /* PassFortVault */; };
+		65BAA77D30486B86008338E2 /* PassFortCrypto in Frameworks */ = {isa = PBXBuildFile; productRef = 65BAA77C30486B86008338E2 /* PassFortCrypto */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,16 +29,25 @@
 			buildActionMask = 2147483647;
 			files = (
 				65BAA77A30486759008338E2 /* PassFortVault in Frameworks */,
+				65BAA77D30486B86008338E2 /* PassFortCrypto in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		65BAA77B30486B86008338E2 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		65FABC7630485F2D00B23792 = {
 			isa = PBXGroup;
 			children = (
 				65FABC8130485F2D00B23792 /* PassFort */,
+				65BAA77B30486B86008338E2 /* Frameworks */,
 				65FABC8030485F2D00B23792 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -71,6 +81,7 @@
 			name = PassFort;
 			packageProductDependencies = (
 				65BAA77930486759008338E2 /* PassFortVault */,
+				65BAA77C30486B86008338E2 /* PassFortCrypto */,
 			);
 			productName = PassFort;
 			productReference = 65FABC7F30485F2D00B23792 /* PassFort.app */;
@@ -346,6 +357,11 @@
 		65BAA77930486759008338E2 /* PassFortVault */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PassFortVault;
+		};
+		65BAA77C30486B86008338E2 /* PassFortCrypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 65BAA77830486759008338E2 /* XCLocalSwiftPackageReference "Packages/PassFortKit" */;
+			productName = PassFortCrypto;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
