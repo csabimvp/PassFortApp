@@ -15,14 +15,14 @@ bite), §8.3 (the in-memory index), §13.1 (the locked/unlocking/unlocked/error 
 `architecture.md` §12: *"SwiftUI unlock, list, detail, edit; auto-lock; search over the in-memory
 index. Done when GUI CRUD works against a real vault."*
 
-A macOS SwiftUI app — the `App/` target from §4 — that is a **thin shell over `PassFortVault`**. It
-adds no capability the CLI doesn't already have; it adds a window, a lock-state machine, and the
-in-memory search index made interactive. Every write still goes through `VaultRepository` and its
-one-transaction-per-write invariant (§8.2); the app never touches a key, never opens the database
-directly, never re-implements anything in `PassFortVault`.
+A macOS SwiftUI app — the `PassFort/` app target from §4 — that is a **thin shell over
+`PassFortVault`**. It adds no capability the CLI doesn't already have; it adds a window, a lock-state
+machine, and the in-memory search index made interactive. Every write still goes through
+`VaultRepository` and its one-transaction-per-write invariant (§8.2); the app never touches a key,
+never opens the database directly, never re-implements anything in `PassFortVault`.
 
 ```
-App/
+PassFort/                             the .xcodeproj's file-system-synchronized group
 ├── PassFortApp.swift              Phase 2   @main; the scene switches on AppModel.state
 ├── Model/
 │   ├── AppModel.swift             Phase 2   @Observable @MainActor — the lock-state machine
@@ -35,9 +35,9 @@ App/
 │   ├── AccountDetail/…            Phase 6   decrypt-on-demand; reveal / copy
 │   ├── AccountForm/…              Phase 7   add + edit, bound to a draft AccountPayload
 │   └── Settings/…                 Phase 8   lock now, auto-lock timeout, rotate recovery key
-└── Resources/                     Phase 1   Assets, Info.plist, PassFort.entitlements
+└── Assets.xcassets, PassFort.entitlements   Phase 1 / M4   (Info.plist is build-generated)
 
-AppTests/                          Phase 9   the state-machine tests (drive AppModel, no UI)
+PassFortTests/                     Phase 9   the state-machine tests (drive AppModel, no UI)
 ```
 
 ### What is **not** in M3 (do not build it here)
@@ -50,7 +50,7 @@ AppTests/                          Phase 9   the state-machine tests (drive AppM
 M3 auto-lock is **idle timeout + lock on backgrounding + a Lock command** — enough to tear the object
 graph down. The OS-integration parts of locking are M4 (§12 M4 row: "lock on sleep").
 
-### The M3 rule: additive in `App/`
+### The M3 rule: additive in the app target
 
 Prefer to add code in the app target only. If you find a genuine gap in `PassFortVault` — something the
 CLI got away with but the GUI can't — close it there **with a test in `PassFortVaultTests`**, in its
@@ -74,7 +74,7 @@ built with `-enable-library-evolution` (`Package.swift`), which publishes a text
 its clients compile against **without inheriting `.interoperabilityMode(.Cxx)`** (§4 note 2). So the
 app links `PassFortCrypto` for `VaultSession.calibrate` / `KdfParameters` / `PassFortError` — exactly
 as `passfort-cli` does — and no C++ type, and no Botan header, ever reaches the app compiler. The §4
-layering guarantee is intact: `App/` still cannot `import PFCrypto`.
+layering guarantee is intact: the app target still cannot `import PFCrypto`.
 
 **Checkpoint:** none — this is reading. Move on when you can state why linking `PassFortCrypto` doesn't
 make the app an interop target.
@@ -93,26 +93,40 @@ M3-specific specifics.
    - Interface: **SwiftUI**, Language: **Swift**
    - **Uncheck** "Include Tests" (add a test target separately in Phase 9 so it is a clean commit)
    - Storage: **None** (no Core Data / SwiftData — the vault *is* the store)
-2. **Save it at the repo root**, so `PassFort.xcodeproj` sits next to `Packages/` — **not** inside
-   `Packages/`. Xcode will create an `App/`-style group; move the generated `PassFortApp.swift`,
-   `Assets.xcassets`, and `Info.plist` under `App/` on disk to match §4 (new targets use file-system
-   synchronized groups, so moving files in Finder just works — no `pbxproj` edit).
-3. **Project → PassFort target → General → Frameworks, Libraries, and Embedded Content →
+2. **Save at the repo root.** Xcode *always* wraps the project in a `PassFort/` container folder
+   (`PassFort/PassFort.xcodeproj` + `PassFort/PassFort/` sources) — there is no "don't wrap" option.
+   Flatten it while the project is empty (**quit Xcode first**):
+
+   ```bash
+   cd <repo root>
+   mv PassFort/PassFort.xcodeproj PassFort.xcodeproj    # .xcodeproj -> repo root
+   mv PassFort/PassFort src-tmp && rm -rf PassFort && mv src-tmp PassFort   # sources -> repo root
+   ```
+
+   The synchronized root group's `path` is `PassFort` (relative to the `.xcodeproj`'s parent), so
+   keeping the source folder named `PassFort/` at the repo root means the group resolves as-is —
+   **no `pbxproj` edit** (`§4` shows this folder as `PassFort/`, not `App/`). Verify:
+   `xcodebuild -list -project PassFort.xcodeproj` shows target/scheme `PassFort`.
+3. **Xcode → Settings → Locations → Derived Data → Default.** A non-default setting here dumps a
+   `Build/` folder into the repo (`.gitignore` catches it, but Default keeps the tree clean).
+4. **Project → PassFort target → General → Frameworks, Libraries, and Embedded Content →
    File → Add Package Dependencies → Add Local…** → select `Packages/PassFortKit`. Add **both**
    `PassFortVault` and `PassFortCrypto` to the `PassFort` app target.
-4. **Deployment target: macOS 14** (matches `Package.swift` `platforms: [.macOS(.v14)]`).
+5. **Deployment target: macOS 14** (matches `Package.swift` `platforms: [.macOS(.v14)]`).
 
 ### 1.2 `.gitignore` and the commit
 
-`bootstrap.md` Phase 1 already ignores `xcuserdata/` and `*.xcuserstate`. Confirm, then:
+`bootstrap.md` Phase 1 already ignores `xcuserdata/` and `*.xcuserstate`; this session also added
+`Build/` (project-relative derived data). Confirm, then:
 
 ```bash
 xcodebuild -list        # confirm the scheme is exactly "PassFort"
-xcodebuild -scheme PassFort -destination 'platform=macOS' build      # unsigned, must succeed
+xcodebuild -scheme PassFort -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build   # must succeed
 ```
 
-Commit in one focused change: `Add macOS app shell (M3)` — the `.xcodeproj`, the moved
-`PassFortApp.swift` / `Assets` / `Info.plist`, nothing else.
+Commit in one focused change: `Add macOS app shell (M3)` — `PassFort.xcodeproj/` (minus xcuserdata)
+and `PassFort/` (`PassFortApp.swift`, `ContentView.swift`, `Assets.xcassets`), nothing else. No
+`Info.plist` file — it is build-generated (`GENERATE_INFOPLIST_FILE = YES`).
 
 ### 1.3 Wire it into CI
 
@@ -134,8 +148,8 @@ open decision 16 below):
 > §14.
 
 **Checkpoint:** `xcodebuild -scheme PassFort -destination 'platform=macOS' build` succeeds from a clean
-checkout; the generated empty app launches and shows the default window; `App/` cannot
-`import PFCrypto` (try it, confirm the compile error, revert). CI is green with the app-build step.
+checkout; the generated empty app launches and shows the default window; the app target
+cannot `import PFCrypto` (try it, confirm the compile error, revert). CI is green with the app-build step.
 
 ---
 
@@ -730,10 +744,10 @@ background it → locked on return; the timeout slider takes effect without a re
 
 ## Phase 9 — Tests and CI
 
-### State-machine tests (`AppTests/`)
+### State-machine tests (`PassFortTests/`)
 
-Add the test target now (`File → New → Target → Unit Testing Bundle`, name `PassFortAppTests`), its own
-commit. Drive `AppModel` directly — no UI, no `ViewInspector`:
+Add the test target now (`File → New → Target → Unit Testing Bundle`, default name `PassFortTests`),
+its own commit. Drive `AppModel` directly — no UI, no `ViewInspector`:
 
 ```swift
 @MainActor

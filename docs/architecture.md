@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Draft (scaffolding). Nothing is built yet; this document is the plan we design against.
-**Last updated:** 2026-09-02 (rev 8 — `AccountPayload` gains `revisionHistory` and `passwordHistory` / `passwordChangedAt` are now written by `VaultRepository` on every edit (§7.2, §7.3, §7.7); a new optional payload key, absorbed by the `unknown` forward-compat bag — no ADR, no migration, no schema bump; rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
+**Last updated:** 2026-09-02 (rev 8 — `AccountPayload` gains `revisionHistory` and `passwordHistory` / `passwordChangedAt` are now written by `VaultRepository` on every edit (§7.2, §7.3, §7.7); a new optional payload key, absorbed by the `unknown` forward-compat bag — no ADR, no migration, no schema bump; §4 app-source folder is `PassFort/` not `App/` (Xcode's synchronized-group folder; `.xcodeproj` still at the repo root) and its `Info.plist` is build-generated; rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
 
 ---
 
@@ -142,11 +142,11 @@ One Xcode project. The core lives in a **local Swift package** inside it, which 
 
 ```
 PassFortApp/
-├── PassFort.xcodeproj
-├── App/                                  # macOS app target (plain Swift)
+├── PassFort.xcodeproj                    # at the repo root, next to Packages/
+├── PassFort/                             # macOS app target sources (plain Swift; the .xcodeproj's synchronized group)
 │   ├── PassFortApp.swift
 │   ├── Features/{Unlock,VaultList,AccountDetail,Settings}/
-│   └── Resources/  (Assets, Info.plist, PassFort.entitlements)
+│   └── Resources/  (Assets, PassFort.entitlements; Info.plist is generated — GENERATE_INFOPLIST_FILE)
 ├── Packages/
 │   └── PassFortKit/                      # local SwiftPM package
 │       ├── Package.swift

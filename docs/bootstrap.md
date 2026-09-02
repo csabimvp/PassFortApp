@@ -845,10 +845,14 @@ every commit until M3.
 **How, when you get there:**
 
 1. **Xcode -> File -> New -> Project -> macOS -> App.** Name it `PassFort`, SwiftUI, Swift, no tests
-   bundle yet (add it as a separate target later). Save it at the repo root so `PassFort.xcodeproj`
-   sits next to `Packages/` — **not** inside `Packages/`.
+   bundle yet (add it as a separate target later). Save it at the repo root — **not** inside
+   `Packages/`. Xcode always wraps it in a `PassFort/` container folder; flatten that while the project
+   is empty (`mv PassFort/PassFort.xcodeproj .`, `mv PassFort/PassFort src-tmp && rm -rf PassFort &&
+   mv src-tmp PassFort`) so `PassFort.xcodeproj` sits next to `Packages/` with the app sources in
+   `PassFort/` beside it. Keeping the source folder named `PassFort/` matches the synchronized group's
+   `path`, so no `pbxproj` edit is needed. Then **Settings -> Locations -> Derived Data -> Default**.
 2. **File -> Add Package Dependencies -> Add Local...** -> select `Packages/PassFortKit`. Add
-   `PassFortVault` (and `PassFortCrypto` only if the app calls the session directly) to the app target.
+   `PassFortVault` **and** `PassFortCrypto` (the app calls `VaultSession.calibrate`) to the app target.
 3. New Xcode targets use **file-system synchronized groups** by default — create, rename, and delete
    files in the filesystem and Xcode picks them up. **Never hand-edit `project.pbxproj`** (`xcode.md`).
 4. The fast loop stays `swift test` in `Packages/PassFortKit`. Use Xcode to run the app and for signing
