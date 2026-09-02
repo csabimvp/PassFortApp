@@ -10,7 +10,7 @@ struct PassFortCLI: AsyncParsableCommand {
     abstract: "PassFort vault tool -- create an encrypted SQLite vault and manage accounts in it.",
     subcommands: [
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
-      Add.self, List.self, Get.self, Edit.self, Remove.self,
+      Add.self, List.self, Get.self, History.self, Edit.self, Remove.self,
       Dump.self, Export.self, Recover.self, Seam.self,
     ]
   )
@@ -235,10 +235,55 @@ struct Get: AsyncParsableCommand {
       throw CLIError("no account with id \(id.uuidString)")
     }
     if json {
-      FileHandle.standardOutput.write(try prettyJSON(account.payload))
+      FileHandle.standardOutput.write(try prettyJSON(AccountJSON(account)))
       FileHandle.standardOutput.write(Data("\n".utf8))
     } else {
       printAccount(account)
+    }
+  }
+}
+
+// MARK: - history
+
+struct History: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract: "Show an account's version timeline -- what changed, when.")
+
+  @Argument(help: "Path to the vault file.") var vault: String
+  @Argument(help: "Account id (UUID) or title.") var account: String
+  @Flag(help: "Also print the old password values (secrets, like `get`).") var passwords = false
+
+  func run() async throws {
+    let repo = try await VaultCLI.open(vault)
+    let id = try await resolveAccountID(account, in: repo)
+    guard let account = try await repo.account(id: id) else {
+      throw CLIError("no account with id \(id.uuidString)")
+    }
+    let payload = account.payload
+    let iso = ISO8601DateFormatter()
+
+    let deleted = account.isDeleted ? ", tombstoned" : ""
+    print("\(payload.title)  (\(account.id.uuidString), currently v\(account.version)\(deleted))")
+
+    if payload.revisionHistory.isEmpty {
+      print("  no recorded revisions")
+    } else {
+      for entry in payload.revisionHistory {
+        print(
+          "  v\(entry.version)  \(iso.string(from: entry.at))  "
+            + entry.changed.joined(separator: ", "))
+      }
+      if payload.revisionHistory.count >= VaultRepository.revisionHistoryLimit {
+        let cap = VaultRepository.revisionHistoryLimit
+        print("  (older revisions dropped -- the last \(cap) are kept)")
+      }
+    }
+
+    guard !payload.passwordHistory.isEmpty else { return }
+    print("\nprevious passwords (\(payload.passwordHistory.count)):")
+    for old in payload.passwordHistory {
+      let value = passwords ? old.password : "(hidden -- pass --passwords)"
+      print("  \(iso.string(from: old.replacedAt))  \(value)")
     }
   }
 }
@@ -324,27 +369,12 @@ struct Dump: AsyncParsableCommand {
 
   @Argument(help: "Path to the vault file.") var vault: String
 
-  private struct Entry: Encodable {
-    let id: UUID
-    let version: UInt64
-    let isDeleted: Bool
-    let payload: AccountPayload
-
-    enum CodingKeys: String, CodingKey {
-      case id, version, payload
-      case isDeleted = "is_deleted"
-    }
-  }
-
   func run() async throws {
     let repo = try await VaultCLI.open(vault)
-    var entries: [Entry] = []
+    var entries: [AccountJSON] = []
     for summary in try await repo.summaries() {
       guard let account = try await repo.account(id: summary.id) else { continue }
-      entries.append(
-        Entry(
-          id: account.id, version: account.version, isDeleted: account.isDeleted,
-          payload: account.payload))
+      entries.append(AccountJSON(account))
     }
     FileHandle.standardError.write(
       Data("dumping \(entries.count) record(s) -- plaintext secrets follow\n".utf8))

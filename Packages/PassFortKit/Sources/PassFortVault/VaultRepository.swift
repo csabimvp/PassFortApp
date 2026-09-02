@@ -253,8 +253,9 @@ public actor VaultRepository {
   /// Kept-password / revision-entry caps. Both arrays grow slowly (a password
   /// change / any edit that changes something), so the caps are generous; they
   /// exist so a script hammering one record can't unbound the sealed payload.
-  static let passwordHistoryLimit = 24
-  static let revisionHistoryLimit = 50
+  /// `public` so the CLI / GUI can say "keeps the last N".
+  public static let passwordHistoryLimit = 24
+  public static let revisionHistoryLimit = 50
 
   /// The field **names** that differ between two payload versions -- never the
   /// values. Ordering is stable (declaration order) so a test can assert on it.

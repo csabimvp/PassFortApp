@@ -51,6 +51,7 @@ SUBCOMMANDS:
   add                     Create an account in the vault. Prints its id.
   list                    List accounts from the in-memory summary index -- no secrets.
   get                     Show one account -- secrets included -- on stdout.
+  history                 Show an account's version timeline -- what changed, when.
   edit                    Update an account. Repeatable --set key=value; …
   rm                      Tombstone an account. The row survives until `compact` (M5).
   dump                    Print every record (tombstones included), decrypted, as JSON. Debug aid.
@@ -188,31 +189,52 @@ F227FF95-52FA-4F0A-9264-873AF8E14128  GitHub                    octocat         
 ```text
 $ passfort-cli get demo.sqlite GitHub
 Vault password:
-id             F227FF95-52FA-4F0A-9264-873AF8E14128
-version        1
+id             01E9C43F-8EE2-4BA4-ACA6-0B503573CF9E
+version        3
 title          GitHub
-username       octocat
-password       gh-s3cret-pw
-urls           https://github.com
+username       octocat-2
+password       X:YXm9&r*3;V#-z(qXL3
 category       login
-created        2026-09-02T05:04:22Z
+favorite       yes
+created        2026-09-02T13:57:17Z
+updated        2026-09-02T13:57:18Z
+pw changed     2026-09-02T13:57:18Z
+revisions      3 (latest v3: password)
+old passwords  1 kept -- `passfort-cli history … --passwords` to read
 ```
 
 `get` takes a **UUID or a title**. Title resolution is: exact case-insensitive match first, then a
 unique case-insensitive substring, else an error telling you to disambiguate. It decrypts that one
-record and prints every populated field — **including the password** — to stdout. `--json` emits the
-decrypted payload as JSON instead:
+record and prints every populated field — **including the password** — to stdout, plus the audit
+lines: `created` / `updated` (the last-write time, from the plaintext HLC column), `pw changed`, a
+`revisions` count, and how many old passwords are kept (§4.6).
+
+`--json` emits the same thing structured — the envelope identity and `updated_at` wrapped around the
+decrypted payload:
 
 ```text
 $ passfort-cli get demo.sqlite "GitHub" --json
 {
-  "category" : "login",
-  "created_at" : "2026-09-02T05:04:22Z",
-  "password" : "gh-s3cret-pw",
-  "schema_version" : 1,
-  "title" : "GitHub",
-  "urls" : [ "https://github.com" ],
-  "username" : "octocat"
+  "id" : "01E9C43F-8EE2-4BA4-ACA6-0B503573CF9E",
+  "is_deleted" : false,
+  "payload" : {
+    "category" : "login",
+    "created_at" : "2026-09-02T13:57:17Z",
+    "favorite" : true,
+    "password" : "X:YXm9&r*3;V#-z(qXL3",
+    "password_changed_at" : "2026-09-02T13:57:18Z",
+    "password_history" : [ { "password" : "first-pw", "replaced_at" : "…" } ],
+    "revision_history" : [
+      { "at" : "…", "changed" : ["password"], "version" : 3 },
+      { "at" : "…", "changed" : ["username", "favorite"], "version" : 2 },
+      { "at" : "…", "changed" : ["created"], "version" : 1 }
+    ],
+    "schema_version" : 1,
+    "title" : "GitHub",
+    "username" : "octocat-2"
+  },
+  "updated_at" : "2026-09-02T13:57:18Z",
+  "version" : 3
 }
 ```
 
@@ -299,9 +321,47 @@ updated E15CE885-8D8F-4D59-A988-A598B894A402 -> version 2
 The generated value prints to **stderr** (so `add`'s stdout stays just the UUID); the account is
 otherwise created / updated exactly as in §4.1 / §4.3.
 
-**Checkpoint for §4:** `add` then `list` shows the row; `get` shows the secret you stored; `edit`
-takes it to version 2; `rm` hides it from `list` but `list --all` still shows it flagged `[deleted]`;
-`gen` prints a password and `add --generate-password` stores one.
+### 4.6 See an account's history
+
+Every `add` / `edit` / `rm` bumps the account's `version`. `passfort-cli history` shows what changed
+at each one:
+
+```text
+$ passfort-cli history demo.sqlite GitHub
+Vault password:
+GitHub  (01E9C43F-8EE2-4BA4-ACA6-0B503573CF9E, currently v3)
+  v3  2026-09-02T13:57:18Z  password
+  v2  2026-09-02T13:57:18Z  username, favorite
+  v1  2026-09-02T13:57:17Z  created
+
+previous passwords (1):
+  2026-09-02T13:57:18Z  (hidden -- pass --passwords)
+```
+
+Two things are recorded, automatically, inside the sealed payload (so they sync and export like any
+other field):
+
+- **Revision history** — one line per version: which *field names* changed, and when. **Names only,
+  never the values** — the log stays small and doesn't scatter secrets across dozens of entries.
+  `create` writes `created`, `rm` writes `deleted`. A no-op `edit` (nothing actually changed) records
+  nothing. Capped at the last 50; older entries drop off.
+- **Password history** — the *old password values*, kept so a backup from before a rotation stays
+  openable. Hidden by default; `--passwords` prints them (a secret, gated the same way `get` is):
+
+```text
+$ passfort-cli history demo.sqlite GitHub --passwords
+…
+previous passwords (1):
+  2026-09-02T13:57:18Z  first-pw
+```
+
+Capped at the last 24. `get` shows the summary (`pw changed`, `revisions`, `old passwords`);
+`history` is the full timeline; `dump` / `export` carry both arrays in full.
+
+**Checkpoint for §4:** `add` then `list` shows the row; `get` shows the secret you stored and the
+`updated` / `revisions` lines; `edit` takes it to version 2; `history` lists v1→v2 with the changed
+fields; `rm` hides it from `list` but `list --all` still shows it flagged `[deleted]`; `gen` prints a
+password and `add --generate-password` stores one.
 
 ---
 
@@ -318,15 +378,17 @@ dumping 1 record(s) -- plaintext secrets follow
     "id" : "01A28F89-B4F0-467E-9F8E-4505E067E16D",
     "is_deleted" : false,
     "payload" : { "category" : "login", "created_at" : "…", "title" : "Bank", "username" : "me01",
+                  "revision_history" : [ { "at" : "…", "changed" : ["created"], "version" : 1 } ],
                   "schema_version" : 1 },
+    "updated_at" : "…",
     "version" : 1
   }
 ]
 ```
 
-`dump` decrypts **every** record (tombstones included) and prints a JSON array to stdout. It is a
-debugging aid — no confirmation, straight to the terminal — so use it in a scratch directory, not over
-a shared screen.
+`dump` decrypts **every** record (tombstones included) and prints a JSON array to stdout — the same
+`{id, version, updated_at, is_deleted, payload}` shape as `get --json`. It is a debugging aid — no
+confirmation, straight to the terminal — so use it in a scratch directory, not over a shared screen.
 
 ### 5.2 `export` — the sanctioned escape hatch (§7.6)
 
@@ -616,7 +678,8 @@ clean.
 | `verify <vault> [--accept-restore]` | password | `.hw` (on `--accept-restore`) | manifest + anti-rollback check only |
 | `add <vault> --title T [--prompt-password \| --generate-password] […]` | password (+ account pw if `--prompt-password`) | one row + MAC | create an account |
 | `list <vault> [--search Q] [--all]` | password | — | summary index, no secrets |
-| `get <vault> <id\|title> [--json]` | password | — | one account, secrets to stdout |
+| `get <vault> <id\|title> [--json]` | password | — | one account + audit lines; `--json` wraps `{id, version, updated_at, is_deleted, payload}` |
+| `history <vault> <id\|title> [--passwords]` | password | — | version timeline (changed fields per version); `--passwords` reveals old password values |
 | `edit <vault> <id\|title> --set k=v … [--add-url U] [--prompt-password \| --generate-password]` | password | one row + MAC | update an account |
 | `rm <vault> <id\|title>` | password | one row + MAC | tombstone an account |
 | `dump <vault>` | password | — | every record decrypted, JSON, stdout |
@@ -656,6 +719,7 @@ passfort-cli list   "$V"
 passfort-cli get    "$V" "$ID"
 passfort-cli edit   "$V" "$ID" --generate-password --set favorite=true
 passfort-cli get    "$V" Example --json
+passfort-cli history "$V" "$ID"                       # v1 created -> v2 fav -> v3 password
 passfort-cli verify "$V"
 
 mkdir -p bak && cp "$V" "$V"-wal "$V"-shm bak/ 2>/dev/null    # backup the db family at v2 (not .hw)

@@ -562,6 +562,12 @@ struct AccountDetailView: View {
 single view's lifetime — the first two mitigations in §3.4, verbatim. `dump`-style en-masse decryption
 never happens in the app.
 
+**History section.** `account.payload.revisionHistory` (newest-first `{version, at, changed}`) and
+`passwordHistory` (old password values) are already populated by `VaultRepository` on every edit
+(architecture §7.2) — a disclosure group listing "v3 · password · 2 Sep" and a "previous passwords"
+list behind a reveal, mirroring `passfort-cli history`. `account.lastUpdated` gives the "last
+modified" line. No new plumbing — it's all in the payload the view already has.
+
 **Pasteboard (`Pasteboard.copyTransient`).** M3: write the string and schedule a clear after ~20 s
 (`NSPasteboard.general.clearContents()`), best-effort. **M4 replaces this** with the concealed
 pasteboard type (`org.nspasteboard.ConcealedType`, so clipboard managers skip it) and a proper

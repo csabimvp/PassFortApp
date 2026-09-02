@@ -204,6 +204,30 @@ func prettyJSON(_ value: some Encodable) throws -> Data {
   return try encoder.encode(value)
 }
 
+/// The envelope identity + last-write time wrapped around the decrypted payload
+/// -- what `get --json` and `dump` emit (the shape `export` already uses).
+struct AccountJSON: Encodable {
+  let id: UUID
+  let version: UInt64
+  let updatedAt: Date
+  let isDeleted: Bool
+  let payload: AccountPayload
+
+  enum CodingKeys: String, CodingKey {
+    case id, version, payload
+    case updatedAt = "updated_at"
+    case isDeleted = "is_deleted"
+  }
+
+  init(_ account: Account) {
+    id = account.id
+    version = account.version
+    updatedAt = account.lastUpdated
+    isDeleted = account.isDeleted
+    payload = account.payload
+  }
+}
+
 func printSummaryTable(_ rows: [AccountSummary]) {
   guard !rows.isEmpty else {
     print("(no matching accounts)")
@@ -260,6 +284,21 @@ func printAccount(_ account: Account) {
     row("sec questions", String(payload.securityQuestions.count))
   }
   row("created", iso.string(from: payload.createdAt))
+  row("updated", iso.string(from: account.lastUpdated))
+  if let changed = payload.passwordChangedAt {
+    row("pw changed", iso.string(from: changed))
+  }
+  if let latest = payload.revisionHistory.first {
+    row(
+      "revisions",
+      "\(payload.revisionHistory.count) "
+        + "(latest v\(latest.version): \(latest.changed.joined(separator: ", ")))")
+  }
+  if !payload.passwordHistory.isEmpty {
+    row(
+      "old passwords",
+      "\(payload.passwordHistory.count) kept -- `passfort-cli history … --passwords` to read")
+  }
   if let expiresAt = payload.expiresAt { row("expires", iso.string(from: expiresAt)) }
 }
 
