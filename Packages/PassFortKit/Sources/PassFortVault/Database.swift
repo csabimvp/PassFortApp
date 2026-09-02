@@ -58,6 +58,18 @@ extension VaultDatabase {
     }
   }
 
+  /// Does an initialised vault (a §5.3 header row) already exist at `path`? Opens
+  /// the file **read-only** and runs one query — it never creates the schema, so
+  /// a non-vault file at this path is left untouched. Backs the M3 first-run
+  /// check (`Vault.exists`).
+  public static func vaultExists(atPath path: String) -> Bool {
+    guard FileManager.default.fileExists(atPath: path) else { return false }
+    var config = Configuration()
+    config.readonly = true
+    guard let queue = try? DatabaseQueue(path: path, configuration: config) else { return false }
+    return (try? queue.read { db in try VaultMeta.read(db, .header) != nil }) ?? false
+  }
+
   private static func restrictPermissions(path: String) throws {
     for suffix in ["", "-wal", "-shm"] {
       let sidecar = path + suffix

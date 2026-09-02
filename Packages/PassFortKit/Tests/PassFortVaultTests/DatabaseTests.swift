@@ -41,6 +41,23 @@ import Testing
     _ = try VaultDatabase(path: path)  // migrator is idempotent
   }
 
+  @Test func vaultExistsIsSideEffectFree() throws {
+    let (dir, path) = try tempVaultPath()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    #expect(!VaultDatabase.vaultExists(atPath: path))  // nothing there
+
+    // A bare (empty) file is not a vault, and the read-only check must not write to it.
+    let bare = dir.appending(path: "bare.sqlite").path(percentEncoded: false)
+    #expect(FileManager.default.createFile(atPath: bare, contents: Data()))
+    #expect(!VaultDatabase.vaultExists(atPath: bare))
+    #expect(try FileManager.default.attributesOfItem(atPath: bare)[.size] as? Int == 0)
+
+    // A migrated-but-headerless database is still "not a vault".
+    _ = try VaultDatabase(path: path)
+    #expect(!VaultDatabase.vaultExists(atPath: path))
+  }
+
   /// `passfort-cli init vault.sqlite` -- a bare filename, no directory component.
   /// The parent is the current directory, which already exists; it must not be
   /// treated as "" (rejected) or chmod'd.

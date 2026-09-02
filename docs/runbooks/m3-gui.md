@@ -185,8 +185,9 @@ The one place the app calls into `PassFortKit`. Keeps the device id, the KDF tar
 mapping in a single spot — the app's `VaultCLI`.
 
 ```swift
-import PassFortCrypto
-import PassFortVault
+import Foundation        // Data, UUID, Date
+import PassFortCrypto     // VaultSession, KdfParameters, PassFortError
+import PassFortVault      // Vault, VaultRepository, RecoveryKey, HighWaterMark, VaultError, VaultManifest
 
 struct VaultService {
   /// Single device until M5 sync (matches SealedRecord's M2 constant). M4/M5 issue a real one.
@@ -241,28 +242,31 @@ struct VaultService {
 }
 ```
 
-### 2.3 `Vault.exists` — the one `PassFortVault` addition
+### 2.3 `Vault.exists` — the one `PassFortVault` addition — DONE
 
 The app needs "is there a vault here yet?" before it can decide between the Unlock and Create screens.
-`Vault.unlock` throwing `.notAVault` works but forces an Argon2id-free path through a full open; a
-cheap check is cleaner.
+`Vault.unlock` throwing `.notAVault` works but forces a full open; a cheap check is cleaner.
+
+Shipped as `Vault.exists(databasePath:)` in `Vault.swift`, delegating to
+`VaultDatabase.vaultExists(atPath:)` in `Database.swift` (where GRDB already lives). It opens the file
+**read-only** — the sketch's `VaultDatabase(path:)` would have run the migrator, creating our three
+tables on a non-vault file at that path:
 
 ```swift
-// Packages/PassFortKit/Sources/PassFortVault/Vault.swift
-extension Vault {
-  /// True if `databasePath` holds an initialised vault (a §5.3 header row). Cheap:
-  /// opens the database read-only and checks one key, no crypto.
-  public static func exists(databasePath: String) -> Bool {
-    guard FileManager.default.fileExists(atPath: databasePath) else { return false }
-    guard let db = try? VaultDatabase(path: databasePath) else { return false }
-    return (try? db.dbQueue.read { try VaultMeta.read($0, .header) != nil }) ?? false
-  }
+// Database.swift
+public static func vaultExists(atPath path: String) -> Bool {
+  guard FileManager.default.fileExists(atPath: path) else { return false }
+  var config = Configuration()
+  config.readonly = true
+  guard let queue = try? DatabaseQueue(path: path, configuration: config) else { return false }
+  return (try? queue.read { db in try VaultMeta.read(db, .header) != nil }) ?? false
 }
 ```
 
-Test in `PassFortVaultTests` (`VaultLifecycleTests` or extend an existing suite): false for a missing
-path, false for an empty file, true after `Vault.create`. Its own commit: `PassFortVault: Vault.exists
-for the M3 first-run check`.
+`VaultService.exists()` is the one-line wrapper. Tests: `DatabaseTests.vaultExistsIsSideEffectFree`
+(missing / bare / migrated-but-headerless → false, and a bare file stays 0 bytes) and
+`VaultRecoveryTests.vaultExistsReflectsWhetherAVaultIsThere` (false, then true after `Vault.create`).
+Commit: `PassFortVault: Vault.exists for the M3 first-run check`.
 
 ### 2.4 `Model/AppModel.swift`
 

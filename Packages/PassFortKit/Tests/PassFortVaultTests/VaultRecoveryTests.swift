@@ -76,6 +76,16 @@ import Testing
       databasePath: path, recoveryKey: second, newPassword: Data("y".utf8), deviceID: device)
   }
 
+  @Test func vaultExistsReflectsWhetherAVaultIsThere() async throws {
+    let (dir, path) = try tempPath()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    #expect(!Vault.exists(databasePath: path))
+    _ = try await Vault.create(
+      databasePath: path, password: Data("pw".utf8), params: fastParams, deviceID: device)
+    #expect(Vault.exists(databasePath: path))
+  }
+
   @Test func createWithoutRecoveryHasNoSlotToRecoverFrom() async throws {
     let (dir, path) = try tempPath()
     defer { try? FileManager.default.removeItem(at: dir) }

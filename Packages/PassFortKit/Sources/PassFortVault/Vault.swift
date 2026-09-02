@@ -10,6 +10,14 @@ import PassFortCrypto
 /// header-in-`vault_meta` dance.
 public enum Vault {
 
+  /// True if `databasePath` already holds an initialised vault (a §5.3 header).
+  /// Cheap and side-effect-free — a read-only open and one query, no crypto, no
+  /// migration. Lets the M3 GUI pick the Unlock vs. Create screen without a full
+  /// `unlock` attempt.
+  public static func exists(databasePath: String) -> Bool {
+    VaultDatabase.vaultExists(atPath: databasePath)
+  }
+
   /// Create a new vault at `databasePath`: seal a §5.3 header under `password`,
   /// initialise storage, verify. The database file must not already hold a vault.
   public static func create(
