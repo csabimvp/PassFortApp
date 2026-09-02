@@ -379,7 +379,23 @@ path is `.needsVault`; on an existing vault it is `.locked`; `unlock` with the w
 
 ---
 
-## Phase 3 — The Unlock screen
+## Phase 3 — The Unlock screen — DONE (2026-09-02)
+
+Shipped as `PassFort/Features/Unlock/UnlockView.swift`, wired into `RootView` for the `.locked` **and**
+`.unlocking` states (it shows its own spinner). Differences from the sketch:
+
+- **The password is cleared on success, not on submit.** `.onChange(of: model.state)` clears it when
+  `state == .unlocked`; keeping it on a failure lets the user fix a typo — or the rollback banner
+  reuse it — without retyping. The `String` is unwipeable regardless (§3.4).
+- **`AppModel.unlock` gained `guard !state.isUnlocking`** — `.keyboardShortcut(.defaultAction)` plus a
+  focused `SecureField` can fire twice in one tick; without the guard that's two concurrent Argon2id
+  runs racing on `repo`. (`.onSubmit` was dropped; the default-action button is the single trigger.)
+- The rollback banner's button is `.disabled` while the password is empty or a retry is in flight.
+
+**Checkpoint:** wrong password → red banner, stays on the screen; right password → `.unlocked`. The
+rollback path's mechanism is covered by
+`VaultRepositoryTests.acceptingARestoredBackupClearsTheMarkThenReopens`; exercising it through the app
+means manipulating the sandboxed container vault by hand (M4 territory).
 
 ```swift
 struct UnlockView: View {

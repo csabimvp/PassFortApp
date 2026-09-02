@@ -39,6 +39,7 @@ final class AppModel {
   // MARK: - Transitions
 
   func unlock(password: Data) async {
+    guard !state.isUnlocking else { return }  // the Unlock screen can double-submit
     state = .unlocking
     do {
       try await adoptUnlocked(service.unlock(password: password))
