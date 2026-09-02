@@ -878,88 +878,89 @@ background it → locked on return; the timeout slider takes effect without a re
 
 ---
 
-## Phase 9 — Tests and CI
+## Phase 9 — Tests and CI — IN PROGRESS
 
-### State-machine tests (`PassFortTests/`)
+The test *file* is written — `PassFortTests/AppModelTests.swift` (9 tests, drive `AppModel` directly,
+no UI). Creating the **target** is a manual Xcode step (a unit-test bundle is ~10 interlinked
+`pbxproj` objects + a scheme `TestAction` — not safe to hand-write):
 
-Add the test target now (`File → New → Target → Unit Testing Bundle`, default name `PassFortTests`),
-its own commit. Drive `AppModel` directly — no UI, no `ViewInspector`:
+1. **File → New → Target → macOS → Unit Testing Bundle.** Name it **`PassFortTests`**, Testing System
+   **Swift Testing**, Target to be Tested **PassFort**. Xcode creates a `PassFortTests/` synchronized
+   folder (it picks up the already-present `AppModelTests.swift`) and adds a `TestAction` to the
+   shared `PassFort.xcscheme`.
+2. Delete the template `PassFortTests.swift` Xcode adds alongside.
+3. **PassFortTests target → General → Frameworks and Libraries → add `PassFortVault` and
+   `PassFortCrypto`** — the tests `import` them directly (for `KdfParameters` / `Vault` /
+   `HighWaterMark`). `@testable import PassFort` reaches `AppModel` etc.
+4. `xcodebuild test -scheme PassFort -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO` green
+   locally.
+5. **CI:** add the step to the `swift` job, right after "App builds (unsigned)":
 
-```swift
-@MainActor
-struct AppModelTests {
-  private func tempVaultPath() -> String { /* temp dir + "vault.sqlite" */ }
+   ```yaml
+         - name: App tests
+           run: |
+             xcodebuild test \
+               -project PassFort.xcodeproj -scheme PassFort \
+               -destination 'platform=macOS' \
+               CODE_SIGNING_ALLOWED=NO
+   ```
 
-  @Test func freshPathNeedsAVault() {
-    let model = AppModel(databasePath: tempVaultPath())
-    #expect(model.state == .needsVault)
-  }
+6. Commit: the new target + the updated `PassFort.xcscheme` + `project.pbxproj` + the CI step, as
+   `m3: Phase 9 — AppModel state-machine tests + CI`.
 
-  // A cheap KDF for tests -- same shape the PassFortVaultTests suites use.
-  private let fastParams = KdfParameters(
-    kdfID: 1, memoryKiB: 8 * 1024, iterations: 1, parallelism: 1, salt: Data(count: 16))
+### The tests (`PassFortTests/AppModelTests.swift`)
 
-  @Test func wrongPasswordStaysLockedWithNoRepo() async throws {
-    let path = tempVaultPath()
-    _ = try await Vault.create(databasePath: path, password: Data("right".utf8),
-                               params: fastParams, deviceID: VaultService.deviceID)
-    let model = AppModel(databasePath: path)
-    await model.unlock(password: Data("wrong".utf8))
-    #expect(model.state == .locked(.wrongPassword))
-    #expect(model.repo == nil)
-  }
+Nine tests, `@MainActor struct AppModelTests`, driving `AppModel` directly (no UI):
 
-  @Test func unlockThenLockTearsDown() async throws {
-    // create + unlock -> .unlocked, repo non-nil, summaries populated
-    // lock() -> .locked, repo nil, summaries empty
-  }
+| Test | Asserts |
+|---|---|
+| `freshPathNeedsAVault` | missing path → `.needsVault` |
+| `existingVaultStartsLocked` | a real vault → `.locked()` |
+| `wrongPasswordStaysLockedWithNoRepo` | `.locked(.wrongPassword)`, `repo == nil` |
+| `rightPasswordUnlocks` | `.unlocked`, `repo != nil`, empty index |
+| `unlockThenLockTearsDown` | after `lock()`: `.locked`, `repo == nil`, `summaries == []` |
+| `createWithoutRecoveryGoesStraightToUnlocked` | `.needsVault` → `createVault(recovery: false)` → `.unlocked` |
+| `createWithRecoveryShowsTheKeyThenUnlocks` | → `.showingRecoveryKey` (`repo` still parked), then `confirmRecoveryKeyShown()` → `.unlocked` |
+| `accountWritesRefreshTheIndexAndBumpTheCounter` | `createAccount` / `deleteAccount` update `summaries` and `writeCounter` |
+| `aRolledBackVaultOffersRestoreThenUnlocks` | force `HighWaterMark` ahead → `.locked(.rolledBack(0, 5))`; `acceptRestoreAndRetry` → `.unlocked` |
 
-  @Test func rolledBackVaultOffersRestore() async throws {
-    // create at v2, snapshot, write v3, restore snapshot -> unlock -> .locked(.rolledBack(2, 3))
-    // acceptRestoreAndRetry -> .unlocked
-  }
-}
-```
+The create-flow tests run real Argon2id (via `model.createVault`); the rest use the `fastParams`
+8-MiB KDF. The file-level rollback detection stays covered by `VaultRepositoryTests` — the app test
+just forces the sidecar mark and checks the `AppModel` transition.
 
-These are the §13.1 "UI state machines (locked/unlocking/unlocked/error)" tests.
-
-### CI
-
-The app-build step from Phase 1.3 is already in `ci.yml`. Add the test run:
-
-```yaml
-      - name: App tests
-        run: xcodebuild test -scheme PassFort -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
-```
-
-**Checkpoint:** `xcodebuild test -scheme PassFort -destination 'platform=macOS'` green locally and in
-CI; `swift test` (the package suites) still green.
+**Checkpoint:** once the target exists — `xcodebuild test -project PassFort.xcodeproj -scheme PassFort
+-destination 'platform=macOS'` green locally and in CI; `swift test` (the package suites) still green.
 
 ---
 
-## Phase 10 — "Last used" (optional, decide here)
+## Phase 10 — "Last used" — DEFERRED past M3 (2026-09-02)
 
-`architecture.md` §14 open decision 11: the `usedAt` payload field is a write-amplification trap
-(every open would re-seal the record), so M2 leaves it `nil`. **"Last used" becomes a local-only
-sidecar when the M3 GUI first needs it** — i.e. if the list grows a "recent" sort.
+`architecture.md` §14 open decision 11: `usedAt` is a write-amplification trap, so "last used" would
+be a **local-only, un-synced, not-in-the-manifest-MAC** sidecar — a schema-v2 migration + a new
+fixture (§13.4), or a sibling `usage.sqlite`.
 
-If you build it: a **separate, un-synced, not-in-the-manifest-MAC** table — either a `usage(account_uuid
-PRIMARY KEY, last_used_at INTEGER)` table added by a schema migration `v2` (tested against a new
-fixture, §13.4), or a sibling `usage.sqlite`. It records a timestamp on detail-view open. It is
-device-local by design; it never crosses the sync wire (M5). Do **not** touch the `usedAt` payload
-field.
+**Decision: not built.** The M3 list sorts by title and that is enough; a "recent" sort doesn't earn
+a storage-layer change and a new migration right now. `usedAt` stays `nil`; open decision 11 stays
+open, re-scoped as "M4+ if a recent/frequent sort is added". Recorded in §14.
 
-Skip this phase unless the UI actually calls for it. Note the decision either way in §14.
+If it is built later: it records a timestamp on detail-view open, device-local, and **never** touches
+the `usedAt` payload field.
 
 ---
 
 ## Where this leaves you
 
-- **A working macOS app** doing full CRUD against a real encrypted vault — the M3 exit criterion.
+- **A working macOS app** doing full CRUD against a real encrypted vault — the M3 exit criterion
+  (Phase 7). Phases 2–8 shipped; Phase 9 is written and waits on the test target (a manual Xcode
+  step); Phase 10 is deferred.
 - **The lock-state machine** is the spine: a key or a decrypted title exists only while
   `state == .unlocked`, and `lock()` (idle, background, or ⌘L) tears the whole graph down.
 - **Everything still goes through `VaultRepository`** — the app added a window and a search box, not
   capability. The CLI and the GUI are two front ends onto one storage layer.
+- **Deviations logged in each phase's "DONE" block:** `PassFort/` not `App/` (Phase 1); every type
+  `@MainActor` by default so `VaultService` is `nonisolated` (Phase 2); `Vault.exists` read-only
+  (Phase 2.3); `PassFortCrypto` made a `.library` product; `AppError.message`; writes centralized in
+  `AppModel.write(_:)`.
 - **Next:** M4 — platform integration. Keychain-backed high-water mark and password, Touch ID unlock,
   hardened runtime + entitlements + a notarization dry-run in `release.yml`, the concealed pasteboard
   type, and lock-on-sleep/screen-lock. Ask for `m4-platform.md` when you get here.

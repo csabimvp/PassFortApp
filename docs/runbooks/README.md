@@ -13,7 +13,7 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | **M0** Toolchain spike + M1 scaffolding | [`../bootstrap.md`](../bootstrap.md) | ✅ done |
 | **M1** Crypto core + seam | [`m1-crypto-core.md`](m1-crypto-core.md) | ✅ done ([retrospective](m1-retrospective.md)) |
 | **M2** Vault + storage | [`m2-vault-storage.md`](m2-vault-storage.md) | ✅ done |
-| **M3** GUI | [`m3-gui.md`](m3-gui.md) | ▶ next (folds in `bootstrap.md` Phase 6) |
+| **M3** GUI | [`m3-gui.md`](m3-gui.md) | ▶ current — Phases 1–8 done, Phase 9 (test target) manual, Phase 10 deferred |
 | **M4** Platform integration | — | write after M3 |
 | **M5** Sync (Azure) | — | write after M4 (do the Azure spike first, `architecture.md` §15 step 6) |
 | **M6** Web client | — | write after M5 (or pull forward — §12 note 3) |
