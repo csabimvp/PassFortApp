@@ -1,17 +1,17 @@
-//
-//  PassFortApp.swift
-//  PassFort
-//
-//  Created by Csaba Keller on 02/09/2026.
-//
-
 import SwiftUI
 
 @main
 struct PassFortApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
+  @State private var model = AppModel()
+  @Environment(\.scenePhase) private var scenePhase
+
+  var body: some Scene {
+    WindowGroup {
+      RootView()
+        .environment(model)
+        .onChange(of: scenePhase) { _, phase in
+          if phase == .background { model.lock() }
         }
     }
+  }
 }

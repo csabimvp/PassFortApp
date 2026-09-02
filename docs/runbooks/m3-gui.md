@@ -155,9 +155,30 @@ cannot `import PFCrypto` (try it, confirm the compile error, revert). CI is gree
 
 ---
 
-## Phase 2 — The lock-state machine
+## Phase 2 — The lock-state machine — DONE (2026-09-02)
 
 The spine of the app. Everything else hangs off `AppModel.state`.
+
+**Shipped** as `PassFort/Model/{AppError,VaultService,AppModel,AutoLock}.swift` +
+`PassFort/RootView.swift`, with `PassFortApp.swift` rewired and `ContentView.swift` deleted. The app
+builds (`xcodebuild -scheme PassFort … build`) and runs, showing a placeholder per state; Phases 3–5
+replace those. What differs from the sketches below:
+
+- **The project defaults every type to `@MainActor`** (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`,
+  Xcode 26's "approachable concurrency"). So `VaultService` is marked **`nonisolated struct`** — the
+  blocking Argon2id in `calibrate` and the async `Vault.*` calls have to run off the main actor. The
+  explicit `@MainActor` on `AppModel` / `AutoLock` is redundant but kept for clarity.
+- **`SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES`** — every file imports the module of every
+  member it names. `VaultService`: `Foundation` + `PassFortCrypto` + `PassFortVault`. `AppModel`:
+  `Foundation` + `Observation` + `PassFortVault`. `AppError`: none (all stdlib).
+- **`AutoLock`** has an explicit `invalidate()` (called by `lock()` and before re-creating it) rather
+  than a `deinit` that touches isolated state. Phase 2 = a bare countdown; Phase 8 adds the `NSEvent`
+  activity monitor and the Settings interval.
+- **`RootView`** is a `switch model.state` with placeholder views. `PassFortApp.swift` owns the
+  `AppModel` as `@State`, injects it with `.environment(model)`, and locks on `scenePhase ==
+  .background` (the Phase 8 scene line, folded in here).
+- The app target is **sandboxed** (template default), so `VaultDatabase.defaultPath` resolves inside
+  the app container, not the path the CLI uses — they converge in M5 (sync).
 
 ### 2.1 `Model/AppError.swift`
 
