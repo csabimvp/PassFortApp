@@ -2,6 +2,7 @@
 .build/
 .swiftpm/
 DerivedData/
+Build/                 # Xcode build output when the build location is project-relative (M3+ app target)
 *.xcuserstate
 xcuserdata/
 .DS_Store
