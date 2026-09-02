@@ -47,7 +47,7 @@ struct VaultListView: View {
       }
       .searchable(text: $query, prompt: "Search")
       .navigationTitle("PassFort")
-      .frame(minWidth: 240)
+      .navigationSplitViewColumnWidth(min: 220, ideal: 280)
       .overlay {
         if rows.isEmpty {
           ContentUnavailableView(
@@ -79,7 +79,6 @@ struct VaultListView: View {
         ContentUnavailableView("Select an account", systemImage: "key")
       }
     }
-    .frame(minWidth: 720, minHeight: 420)
     .sheet(isPresented: $showingAdd) {
       AccountFormView(mode: .create)
     }

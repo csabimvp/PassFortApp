@@ -17,6 +17,7 @@ struct PassFortApp: App {
           PasswordGeneratorView()
         }
     }
+    .defaultSize(width: 860, height: 540)
     .commands {
       CommandMenu("Tools") {
         Button("Generate Password…") { showingGenerator = true }
