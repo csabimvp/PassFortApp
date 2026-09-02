@@ -53,6 +53,17 @@ jobs:
         working-directory: Packages/PassFortKit
         run: swift format lint --strict --recursive Sources Tests
 
+      # The M3 app compiles, unsigned (architecture.md §13.4). Needs the PassFort
+      # scheme shared into xcshareddata/. This resolves + builds the local package
+      # through Xcode (a second Botan compile), so it is the slow step -- see
+      # architecture.md §14 open decision 16 (hosted vs self-hosted runner).
+      - name: App builds (unsigned)
+        run: |
+          xcodebuild build \
+            -project PassFort.xcodeproj -scheme PassFort \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
   native:
     runs-on: macos-15            # NOT Linux -- the amalgamation is configured for
     steps:                       # macos/arm64 in Phase 3 (build_botan.sh)
