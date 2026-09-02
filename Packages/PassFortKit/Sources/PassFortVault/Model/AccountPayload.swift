@@ -29,6 +29,7 @@ public struct AccountPayload: Sendable, Equatable {
   public var createdAt: Date
   public var passwordChangedAt: Date?
   public var passwordHistory: [PasswordHistoryEntry]
+  public var revisionHistory: [RevisionEntry]  // which fields changed, per version (§7.2 / §7.7)
   public var usedAt: Date?  // see the write-amplification note (§7.2)
   public var expiresAt: Date?
 
@@ -65,6 +66,7 @@ public struct AccountPayload: Sendable, Equatable {
     createdAt: Date = Date(),
     passwordChangedAt: Date? = nil,
     passwordHistory: [PasswordHistoryEntry] = [],
+    revisionHistory: [RevisionEntry] = [],
     usedAt: Date? = nil,
     expiresAt: Date? = nil,
     category: AccountCategory = .login,
@@ -92,6 +94,7 @@ public struct AccountPayload: Sendable, Equatable {
     self.createdAt = createdAt
     self.passwordChangedAt = passwordChangedAt
     self.passwordHistory = passwordHistory
+    self.revisionHistory = revisionHistory
     self.usedAt = usedAt
     self.expiresAt = expiresAt
     self.category = category
@@ -125,6 +128,7 @@ extension AccountPayload: Codable {
     case createdAt = "created_at"
     case passwordChangedAt = "password_changed_at"
     case passwordHistory = "password_history"
+    case revisionHistory = "revision_history"
     case usedAt = "used_at"
     case expiresAt = "expires_at"
     case category
@@ -156,6 +160,8 @@ extension AccountPayload: Codable {
     passwordChangedAt = try container.decodeIfPresent(Date.self, forKey: .passwordChangedAt)
     passwordHistory =
       try container.decodeIfPresent([PasswordHistoryEntry].self, forKey: .passwordHistory) ?? []
+    revisionHistory =
+      try container.decodeIfPresent([RevisionEntry].self, forKey: .revisionHistory) ?? []
     usedAt = try container.decodeIfPresent(Date.self, forKey: .usedAt)
     expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
     category = try container.decodeIfPresent(AccountCategory.self, forKey: .category) ?? .login
@@ -196,6 +202,7 @@ extension AccountPayload: Codable {
     try container.encode(createdAt, forKey: .createdAt)
     try container.encodeIfPresent(passwordChangedAt, forKey: .passwordChangedAt)
     if !passwordHistory.isEmpty { try container.encode(passwordHistory, forKey: .passwordHistory) }
+    if !revisionHistory.isEmpty { try container.encode(revisionHistory, forKey: .revisionHistory) }
     try container.encodeIfPresent(usedAt, forKey: .usedAt)
     try container.encodeIfPresent(expiresAt, forKey: .expiresAt)
     try container.encode(category, forKey: .category)

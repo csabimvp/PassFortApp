@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Draft (scaffolding). Nothing is built yet; this document is the plan we design against.
-**Last updated:** 2026-09-01 (rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
+**Last updated:** 2026-09-02 (rev 8 — `AccountPayload` gains `revisionHistory` and `passwordHistory` / `passwordChangedAt` are now written by `VaultRepository` on every edit (§7.2, §7.3, §7.7); a new optional payload key, absorbed by the `unknown` forward-compat bag — no ADR, no migration, no schema bump; rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
 
 ---
 
@@ -516,7 +516,8 @@ struct AccountPayload: Codable, Sendable {
     // MARK: lifecycle — encrypted metadata, deliberately not envelope columns
     var createdAt: Date                        // created_time
     var passwordChangedAt: Date?              // feeds the stale-password audit and rotation (§9.5)
-    var passwordHistory: [PasswordHistoryEntry]   // keep the last N; still fully secret
+    var passwordHistory: [PasswordHistoryEntry]   // last N old password *values*; still fully secret
+    var revisionHistory: [RevisionEntry]     // last M edits: which field *names* changed, per version
     var usedAt: Date?                         // last autofill/copy — see the write-amplification note
     var expiresAt: Date?                      // credentials with a hard expiry
 
@@ -540,6 +541,8 @@ struct AccountPayload: Codable, Sendable {
 ```
 
 **Why the lifecycle timestamps sit in the payload, not in columns.** `updatedAt` has to be plaintext — sync needs it. `createdAt`, `passwordChangedAt` and the rest do not; nothing outside a live session reads them, so they stay encrypted. Creation and rotation dates are precisely the "metadata leak is a real leak" case from §3.1.
+
+**`passwordHistory` and `revisionHistory` are written by `VaultRepository`, not the caller.** Every `update` diffs the pre- and post-mutation payload: a changed password pushes the *old value* onto `passwordHistory` and stamps `passwordChangedAt`; any change at all prepends a `RevisionEntry` naming the fields that moved (names only — no values, so the log stays small and doesn't scatter secrets). `create` seeds a `["created"]` entry, `delete` a `["deleted"]` one. Both arrays are newest-first and capped (24 password values, 50 revisions) so a script hammering one record can't unbound the sealed blob. This is the minimal version of §7.7's "per-field history" — deliberately not a full field-level audit log.
 
 **The JSON keys are part of the on-disk format.** The wire form is snake_case (`memorable_word`, `security_questions`, `password_history`), pinned by an explicit `CodingKeys`. Renaming a Swift property costs nothing; renaming its key is a format change — schema bump, ADR, re-seal migration.
 
@@ -582,8 +585,14 @@ struct SecurityQuestion: Codable, Sendable {
 }
 
 struct PasswordHistoryEntry: Codable, Sendable {
-    var password: String
+    var password: String             // an old value, kept so an old backup stays openable
     var replacedAt: Date
+}
+
+struct RevisionEntry: Codable, Sendable {   // one line of the per-account change log (§7.2)
+    var version: UInt64
+    var at: Date
+    var changed: [String]            // field *names* only — "password", "tags", "created", "deleted"
 }
 
 struct CustomField: Codable, Sendable, Identifiable {
@@ -723,7 +732,7 @@ The export mirrors `AccountPayload` field-for-field plus the envelope identity. 
 
 - **Attachments.** A record pointing at a separately-sealed blob (`attachmentUUID → sealed file`, its own row) is the obvious M5+ extension; `AccountPayload` gains `attachments: [AttachmentRef]`. Not before then — file handling is its own pile of problems.
 - **Passkeys / WebAuthn.** A private key you sign with and never disclose is a different storage shape from a password. Parked with the browser-extension non-goal (§1.2).
-- **Per-field history beyond the password.** `passwordHistory` exists because rotation is a real workflow; a general per-field audit log is YAGNI until something needs it.
+- **Per-field history beyond the password.** `passwordHistory` (old password values) and `revisionHistory` (which field *names* changed, per version) exist and are written on every edit (§7.2). A *full* field-level audit log — old and new values for every field, every version — stays YAGNI: the name-only log answers "when did I last touch this?" without duplicating secrets across dozens of entries or unbounding the payload.
 
 ---
 

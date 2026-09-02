@@ -167,10 +167,19 @@ public actor VaultRepository {
 
   // MARK: - Writes
 
-  /// Create a record at version 1.
+  /// Create a record at version 1. Seeds a `["created"]` revision entry and stamps
+  /// `passwordChangedAt` if a password is present (§7.2).
   public func create(_ payload: AccountPayload) async throws -> Account {
     var payload = payload
     payload.schemaVersion = 1
+    if payload.revisionHistory.isEmpty {
+      payload.revisionHistory = [
+        RevisionEntry(version: 1, at: payload.createdAt, changed: ["created"])
+      ]
+    }
+    if payload.password?.isEmpty == false, payload.passwordChangedAt == nil {
+      payload.passwordChangedAt = payload.createdAt
+    }
 
     let id = UUID()
     let record = SealedRecord(
@@ -182,19 +191,22 @@ public actor VaultRepository {
     return Account(envelope: record, payload: payload)
   }
 
-  /// Decrypt, apply `mutate`, bump `version`, restamp `updatedAt`, re-seal, write --
-  /// the row change and the manifest re-MAC in one transaction.
+  /// Decrypt, apply `mutate`, bump `version`, restamp `updatedAt`, record what
+  /// changed (§7.2), re-seal, write -- the row change and the manifest re-MAC in
+  /// one transaction.
   @discardableResult
   public func update(
     id: UUID, _ mutate: @Sendable (inout AccountPayload) -> Void
   ) async throws -> Account {
     let current = try await liveRecord(id)
     var payload = try await decrypt(current)
+    let before = payload
     mutate(&payload)
 
     var next = current
     next.version += 1
     next.updatedAt = .now(device: deviceID)
+    Self.recordHistory(before: before, into: &payload, version: next.version, at: Date())
     next.sealed = try await seal(id: id, version: next.version, payload: payload)
 
     let row = next
@@ -205,15 +217,18 @@ public actor VaultRepository {
   /// Tombstone a record: `is_deleted = 1`, `version` bumped, payload re-sealed at
   /// the new version so the row and its blob stay consistent and the transition is
   /// covered by the manifest (via the version bump -- `is_deleted` itself is *not*
-  /// in the MAC, §5.5). The row survives until `compact`.
+  /// in the MAC, §5.5). The row survives until `compact`. Records a `["deleted"]`
+  /// revision entry.
   public func delete(id: UUID) async throws {
     let current = try await liveRecord(id)
-    let payload = try await decrypt(current)
+    var payload = try await decrypt(current)
 
     var tombstone = current
     tombstone.isDeleted = true
     tombstone.version += 1
     tombstone.updatedAt = .now(device: deviceID)
+    Self.recordHistory(
+      before: payload, into: &payload, version: tombstone.version, at: Date(), extra: "deleted")
     tombstone.sealed = try await seal(id: id, version: tombstone.version, payload: payload)
 
     let row = tombstone
@@ -231,6 +246,67 @@ public actor VaultRepository {
     try await commit { db in
       try db.execute(sql: "DELETE FROM records WHERE is_deleted = 1")
     }
+  }
+
+  // MARK: - History (§7.2 / §7.7)
+
+  /// Kept-password / revision-entry caps. Both arrays grow slowly (a password
+  /// change / any edit that changes something), so the caps are generous; they
+  /// exist so a script hammering one record can't unbound the sealed payload.
+  static let passwordHistoryLimit = 24
+  static let revisionHistoryLimit = 50
+
+  /// The field **names** that differ between two payload versions -- never the
+  /// values. Ordering is stable (declaration order) so a test can assert on it.
+  /// Audit/derived fields (`strength`, `breach`, the history arrays themselves,
+  /// `usedAt`, `unknown`) are deliberately excluded.
+  static func changedFields(from old: AccountPayload, to new: AccountPayload) -> [String] {
+    var changed: [String] = []
+    func mark(_ name: String, _ differs: Bool) { if differs { changed.append(name) } }
+    mark("title", old.title != new.title)
+    mark("username", old.username != new.username)
+    mark("password", old.password != new.password)
+    mark("email", old.email != new.email)
+    mark("notes", old.notes != new.notes)
+    mark("urls", old.urls != new.urls)
+    mark("totp", old.totp != new.totp)
+    mark("security questions", old.securityQuestions != new.securityQuestions)
+    mark("memorable word", old.memorableWord != new.memorableWord)
+    mark("pin", old.pin != new.pin)
+    mark("recovery codes", old.recoveryCodes != new.recoveryCodes)
+    mark("expiry", old.expiresAt != new.expiresAt)
+    mark("category", old.category != new.category)
+    mark("tags", old.tags != new.tags)
+    mark("favorite", old.favorite != new.favorite)
+    mark("icon", old.iconHint != new.iconHint)
+    mark("custom fields", old.customFields != new.customFields)
+    return changed
+  }
+
+  /// Fold history into `payload` in place: keep the previous password value (if it
+  /// changed and there was one), stamp `passwordChangedAt`, and prepend a revision
+  /// entry naming what changed. Newest-first, both capped. A genuine no-op edit
+  /// (nothing changed, no `extra`) records nothing.
+  static func recordHistory(
+    before: AccountPayload, into payload: inout AccountPayload, version: UInt64, at now: Date,
+    extra: String? = nil
+  ) {
+    if before.password != payload.password {
+      if let old = before.password, !old.isEmpty {
+        payload.passwordHistory.insert(
+          PasswordHistoryEntry(password: old, replacedAt: now), at: 0)
+        payload.passwordHistory = Array(payload.passwordHistory.prefix(passwordHistoryLimit))
+      }
+      if payload.password?.isEmpty == false { payload.passwordChangedAt = now }
+    }
+
+    var changed = changedFields(from: before, to: payload)
+    if let extra { changed.append(extra) }
+    guard !changed.isEmpty else { return }
+
+    payload.revisionHistory.insert(
+      RevisionEntry(version: version, at: now, changed: changed), at: 0)
+    payload.revisionHistory = Array(payload.revisionHistory.prefix(revisionHistoryLimit))
   }
 
   // MARK: - The §8.2 core

@@ -59,6 +59,22 @@ public struct PasswordHistoryEntry: Codable, Sendable, Equatable {
   }
 }
 
+/// One entry in an account's revision history (§7.2 / §7.7): which fields changed
+/// at a given `version`, and when. **Field names only, never the old values** — so
+/// the log stays small and doesn't scatter secrets across entries. The password's
+/// old *values* live in `passwordHistory`.
+public struct RevisionEntry: Codable, Sendable, Equatable {
+  public var version: UInt64
+  public var at: Date
+  public var changed: [String]
+
+  public init(version: UInt64, at: Date, changed: [String]) {
+    self.version = version
+    self.at = at
+    self.changed = changed
+  }
+}
+
 public struct CustomField: Codable, Sendable, Identifiable, Equatable {
   public var id: UUID
   public var label: String

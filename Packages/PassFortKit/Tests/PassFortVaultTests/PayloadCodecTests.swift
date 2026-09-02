@@ -28,6 +28,13 @@ import Testing
         PasswordHistoryEntry(
           password: "old-one", replacedAt: Date(timeIntervalSince1970: 1_695_000_000))
       ],
+      revisionHistory: [
+        RevisionEntry(
+          version: 2, at: Date(timeIntervalSince1970: 1_710_000_000),
+          changed: ["password", "notes"]),
+        RevisionEntry(
+          version: 1, at: Date(timeIntervalSince1970: 1_700_000_000), changed: ["created"]),
+      ],
       category: .login,
       tags: ["dev", "work"],
       favorite: true,
@@ -46,6 +53,24 @@ import Testing
   @Test func minimalPayloadRoundTrips() throws {
     let payload = AccountPayload(title: "just a note", createdAt: Date(timeIntervalSince1970: 1))
     #expect(try PayloadCodec.decode(try PayloadCodec.encode(payload)) == payload)
+  }
+
+  /// A record written before `revision_history` existed still decodes -- the key
+  /// is absent, the field defaults to `[]` (the forward-compat contract, §7.2).
+  @Test func aPayloadWithoutHistoryKeysDecodes() throws {
+    let json = """
+      {"schema_version":1,"title":"legacy","created_at":1700000000000,"category":"login"}
+      """
+    var framed = Data()
+    var length = UInt32(json.utf8.count).bigEndian
+    withUnsafeBytes(of: &length) { framed.append(contentsOf: $0) }
+    framed.append(Data(json.utf8))
+    framed.append(Data(count: 256 - framed.count % 256))
+
+    let decoded = try PayloadCodec.decode(framed)
+    #expect(decoded.title == "legacy")
+    #expect(decoded.revisionHistory.isEmpty)
+    #expect(decoded.passwordHistory.isEmpty)
   }
 
   @Test func unknownKeysArePreserved() throws {

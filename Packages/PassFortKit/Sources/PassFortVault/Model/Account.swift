@@ -28,6 +28,12 @@ public struct Account: Sendable, Identifiable, Equatable {
 }
 
 extension Account {
+  /// Wall-clock time of the last write to this record, read off the HLC envelope
+  /// column (§7.4) — what a UI or `passfort-cli get` shows as "last updated".
+  public var lastUpdated: Date {
+    Date(timeIntervalSince1970: Double(updatedAt.wallMillis) / 1000)
+  }
+
   /// The secret-free row for the in-memory index (§7.5).
   public var summary: AccountSummary {
     AccountSummary(
