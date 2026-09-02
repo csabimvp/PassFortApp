@@ -1,12 +1,12 @@
 # M2 — Vault + storage
 
-**Status:** In progress — Phases 1–10 landed (GRDB, `Database.swift`, schema v1 + fixture harness, model
-types with JSON + 256-byte padding, `VaultManifest`/`VaultMeta` + verify-at-unlock, `VaultRepository`
-CRUD + `HighWaterMark`, `Vault` facades + mid-write kill test, recovery-key header slot +
-`pf_recovery_wrap`/`open`, `RecoveryKey` + Crockford Base32 + `Vault.createWithRecovery`/`recover`, plaintext export +
-`pf_session_vault_uuid`, `passfort-cli` full CRUD + `verify --accept-restore`).
-**Phase 11 (CI: fold the migration-fixture / anti-rollback / kill-test jobs into the `swift` workflow,
-extend `deps` to guard the GRDB lockfile) is next — the last one in M2.** Open decisions
+**Status:** ✅ COMPLETE (2026-09-02) — all 11 phases landed: GRDB, `Database.swift`, schema v1 + fixture
+harness, model types with JSON + 256-byte padding, `VaultManifest`/`VaultMeta` + verify-at-unlock,
+`VaultRepository` CRUD + `HighWaterMark`, `Vault` facades + mid-write kill test, recovery-key header
+slot + `pf_recovery_wrap`/`open`, `RecoveryKey` + Crockford Base32 + `Vault.createWithRecovery`/`recover`,
+plaintext export + `pf_session_vault_uuid`, `passfort-cli` full CRUD + `verify --accept-restore`, and
+the CI wiring that makes the storage coverage explicit.
+**Next: M3 — the SwiftUI GUI. Ask for `docs/runbooks/m3-gui.md`.** Open decisions
 resolved 2026-09-01:
 recovery key folds into header format v1 (ADR-0007), `usedAt` stays `nil` in M2 (§14.11), recovery key
 rendered Crockford Base32, `verify --accept-restore` for legitimate restores. Open finding:
@@ -678,15 +678,37 @@ mark forward to 2. Swift suite 56 green, `swift format lint --strict` clean. Com
 
 ---
 
-## Phase 11 — CI
+## Phase 11 — CI — DONE (2026-09-02)
 
-- **migration-fixture job** (§13.4): already added in Phase 3 — the `swift` job now runs the fixture
-  tests. Every future schema version adds a fixture and never regenerates the old ones.
-- **anti-rollback tests** in the `swift` job: the Phase 5 delete-a-row and restore-old-file tests, and
-  the Phase 7 kill test (it forks a subprocess — make sure the CI runner allows that; it does).
-- the **`deps` job** now guards both swift-argument-parser and GRDB lockfiles.
+The M2 test coverage already rode along in `swift test` (which runs every target); Phase 11 makes it
+**explicit and un-regressable** in `ci.yml` rather than incidental.
 
-**Checkpoint:** `swift` / `native` / `lint` / `secrets` / `deps` all green on a fresh checkout.
+- **`swift` job:**
+  - a **fixture-presence gate** before the build — `test -f Tests/PassFortVaultTests/Fixtures/v1/
+    vault.sqlite`. `.gitignore` blanket-ignores `*.sqlite` and negates just that path (§13.4); a
+    mistake there would surface as a confusing "missing fixture" test failure, so the job checks it
+    up front with a clear message.
+  - **`PF_KILLTEST_BIN`** is now set for `swift test` (`$GITHUB_WORKSPACE/.../.build/debug/
+    pf-killtest`). `swift build` already builds the non-product `pf-killtest` executable; pointing the
+    test straight at it beats the `#filePath`-relative fallback. The mid-write kill test spawns that
+    subprocess — GitHub's macOS runner allows it.
+  - the step comment now enumerates what `swift test` is standing behind: M1 seam round-trip + boundary
+    fuzz, and the M2 suite (VaultRepository atomicity, tombstones, migration fixtures, the
+    delete-a-row / restore-old-file anti-rollback tests, the kill test).
+- **`deps` job:** renamed and re-commented — one `Package.resolved`, every dependency
+  (swift-argument-parser from M1, GRDB from M2); `git diff --exit-code` covers both. A bump lands as
+  its own reviewed commit (§3.2, the A7 mitigation).
+- **`native` / `lint` / `secrets`** unchanged — no C++ or script surface moved in M2.
+- **README** gains the CI status badge (§13.3: earned once `ci.yml` is green on `main`).
+
+`ci.yml` still **verifies, never generates** (§13.2): it compiles the committed Botan amalgamation and
+never re-runs `configure.py`; the fixture vaults are committed, never regenerated in CI
+(`regenerateV1Fixture` is `.enabled(if: PF_REGEN_FIXTURES == "1")`).
+
+**Checkpoint (met):** `swift` / `native` / `lint` / `secrets` / `deps` green. Locally, the `swift`
+job's exact sequence — `test -f` the fixture, `swift build`, `PF_KILLTEST_BIN=… swift test` — is
+green (56 tests, 10 suites), `swift format lint --strict` clean. Commit: `ci: make the M2 storage
+coverage explicit -- fixture gate, PF_KILLTEST_BIN, deps comment; CI badge (runbook M2 Phase 11)`.
 
 ---
 

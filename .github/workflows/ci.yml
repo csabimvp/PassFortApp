@@ -21,13 +21,31 @@ jobs:
         with:
           xcode-version: latest-stable           # or pin exactly: '26.6' (architecture.md §4.1)
       - run: swift --version
-      - name: Cache SwiftPM build (holds the slow Botan compile)
+      - name: Cache SwiftPM build (holds the slow Botan compile + the pf-killtest helper)
         uses: actions/cache@v4
         with:
           path: Packages/PassFortKit/.build
           key: spm-${{ runner.os }}-${{ hashFiles('Packages/PassFortKit/Package.swift', 'Packages/PassFortKit/Package.resolved') }}
+
+      # A fresh checkout must carry the migration-fixture vaults (§13.4): .gitignore
+      # blanket-ignores *.sqlite and then negates this one path. Break that and
+      # `checkedInV1FixtureStillMigrates` fails with a confusing "missing fixture" --
+      # catch it here, up front, with a clear message.
+      - name: Migration fixtures present in the checkout
+        run: test -f Packages/PassFortKit/Tests/PassFortVaultTests/Fixtures/v1/vault.sqlite
+
       - name: Build and test
         working-directory: Packages/PassFortKit
+        # `swift build` builds every target, including the non-product `pf-killtest`
+        # executable the §8.2 mid-write kill test spawns; PF_KILLTEST_BIN points the
+        # test straight at it instead of having it guess a path.
+        #
+        # `swift test` covers, over Packages/PassFortKit: the M1 seam round-trip and
+        # boundary fuzz, and the whole M2 storage suite -- VaultRepository transaction
+        # atomicity, tombstones, the migration-fixture tests (§13.4), the anti-rollback
+        # delete-a-row / restore-old-file tests, and the mid-write kill test.
+        env:
+          PF_KILLTEST_BIN: ${{ github.workspace }}/Packages/PassFortKit/.build/debug/pf-killtest
         run: |
           swift build
           swift test
@@ -58,8 +76,11 @@ jobs:
     runs-on: macos-15            # Swift ships with the default Xcode; no build here
     steps:
       - uses: actions/checkout@v4
-      - name: Package.resolved is committed and up to date
+      - name: Package.resolved is committed and has not drifted
         working-directory: Packages/PassFortKit
+        # One lockfile, every dependency: swift-argument-parser (M1) and GRDB (M2). A
+        # version bump must land as its own reviewed commit (§3.2, the A7 mitigation),
+        # never as a silent resolve on a contributor's machine.
         run: |
           swift package resolve
           git diff --exit-code Package.resolved

@@ -1,14 +1,17 @@
 # PassFort
 
+[![CI](https://github.com/csabimvp/PassFortApp/actions/workflows/ci.yml/badge.svg)](https://github.com/csabimvp/PassFortApp/actions/workflows/ci.yml)
+
 macOS-first SwiftUI password manager built around a deliberately tiny Swift↔C++ crypto core (Botan 3),
 with per-record envelope encryption and a custom Azure sync backend.
 
 ## Status
 
-Status: active hobby project. Milestones M0 (toolchain + seam + scaffolding) and M1 (the crypto core)
-are complete; M2 (vault + SQLite storage) is in progress — the storage layer and full `passfort-cli`
-CRUD are in, CI wiring (M2 Phase 11) is the remaining step. CI runs on every push
-(`swift` / `native` / `lint` / `secrets` / `deps` jobs). No release yet.
+Status: active hobby project. Milestones M0 (toolchain + seam + scaffolding), M1 (the crypto core), and
+M2 (vault + SQLite storage) are complete — a fully working `passfort-cli` creates a vault, does CRUD
+against an encrypted SQLite database, and survives a mid-write kill and a whole-file rollback. M3 (the
+SwiftUI GUI) is next. CI runs on every push (`swift` / `native` / `lint` / `secrets` / `deps` jobs).
+No release yet.
 
 ## Overview
 
