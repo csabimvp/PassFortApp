@@ -545,7 +545,22 @@ shows the key exactly once, requires the confirmation, then lands unlocked with 
 
 ---
 
-## Phase 5 — The vault list
+## Phase 5 — The vault list — DONE (2026-09-02)
+
+Shipped as `PassFort/Features/VaultList/VaultListView.swift`, wired into `RootView` for `.unlocked`.
+Close to the sketch; notes:
+
+- **Sorted, not just filtered** — `rows` sorts by title (`localizedCaseInsensitiveCompare`) after the
+  substring filter, matching `passfort-cli list`.
+- **`detail:` and the add sheet are inline placeholders** — Phase 6 drops in `AccountDetailView`,
+  Phase 7 `AccountFormView`. Selecting a row already works (`selection: AccountSummary.ID?`).
+- Empty / no-match state via `ContentUnavailableView` in an `.overlay`; a `favorite` star in the row.
+- `.frame(minWidth: 720, minHeight: 420)` on the split view — the window grows on first unlock (the
+  lock / create screens are compact). ⌘L on the Lock toolbar button.
+
+**Checkpoint (met):** builds and runs; the app boots to `CreateVaultView` (no vault in the sandbox
+container yet), and after a create → `VaultListView` with an empty list. Search + sort are pure
+Swift over `model.summaries`; ⌘L → `model.lock()` → back to `UnlockView`, `summaries` emptied.
 
 ```swift
 struct VaultListView: View {

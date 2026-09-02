@@ -15,7 +15,7 @@ struct RootView: View {
       case .showingRecoveryKey(let key):
         RecoveryKeyView(key: key)
       case .unlocked:
-        placeholder("Unlocked", "\(model.summaries.count) account(s) — list is Phase 5")
+        VaultListView()
       }
     }
     .frame(minWidth: 360, minHeight: 260)
