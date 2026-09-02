@@ -961,6 +961,11 @@ the `usedAt` payload field.
   `@MainActor` by default so `VaultService` is `nonisolated` (Phase 2); `Vault.exists` read-only
   (Phase 2.3); `PassFortCrypto` made a `.library` product; `AppError.message`; writes centralized in
   `AppModel.write(_:)`.
+- **Post-plan UI polish** (not phases, landed after the checkpoint):
+  `Features/PasswordGenerator/PasswordGeneratorView.swift` — the `passfort-cli gen` knobs (length,
+  the four classes, exclude-look-alikes, `@AppStorage`-persisted), reachable from the **Tools** menu
+  (⌘⌥G) and the account form's "Generate…". Detail view: copy buttons on username / email, URLs as
+  browser `Link`s.
 - **Next:** M4 — platform integration. Keychain-backed high-water mark and password, Touch ID unlock,
   hardened runtime + entitlements + a notarization dry-run in `release.yml`, the concealed pasteboard
   type, and lock-on-sleep/screen-lock. Ask for `m4-platform.md` when you get here.
