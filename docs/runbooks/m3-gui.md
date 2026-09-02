@@ -111,7 +111,9 @@ M3-specific specifics.
    `Build/` folder into the repo (`.gitignore` catches it, but Default keeps the tree clean).
 4. **Project → PassFort target → General → Frameworks, Libraries, and Embedded Content →
    File → Add Package Dependencies → Add Local…** → select `Packages/PassFortKit`. Add **both**
-   `PassFortVault` and `PassFortCrypto` to the `PassFort` app target.
+   `PassFortVault` and `PassFortCrypto` to the `PassFort` app target. (Xcode's picker only lists
+   *library products*; `PassFortCrypto` was made a `.library` product for exactly this — the app
+   needs it for `VaultSession.calibrate` / `KdfParameters` / `PassFortError` in Phase 2.)
 5. **Deployment target: macOS 14** (matches `Package.swift` `platforms: [.macOS(.v14)]`).
 
 ### 1.2 `.gitignore` and the commit

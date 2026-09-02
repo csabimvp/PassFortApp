@@ -6,6 +6,11 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "PassFortVault", targets: ["PassFortVault"]),
+        // The app target links this too, for VaultSession.calibrate / KdfParameters /
+        // PassFortError (architecture.md §4 note 2, m3-gui.md Phase 0). It is built with
+        // -enable-library-evolution precisely so a client can import it without inheriting
+        // C++ interop -- exposing it as a product does not weaken the §4 layering.
+        .library(name: "PassFortCrypto", targets: ["PassFortCrypto"]),
         .executable(name: "passfort-cli", targets: ["passfort-cli"]),
     ],
     dependencies: [
