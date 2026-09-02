@@ -13,11 +13,17 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | **M0** Toolchain spike + M1 scaffolding | [`../bootstrap.md`](../bootstrap.md) | ✅ done |
 | **M1** Crypto core + seam | [`m1-crypto-core.md`](m1-crypto-core.md) | ✅ done ([retrospective](m1-retrospective.md)) |
 | **M2** Vault + storage | [`m2-vault-storage.md`](m2-vault-storage.md) | ✅ done |
-| **M3** GUI | — | ▶ next — write it now (folds in `bootstrap.md` Phase 6) |
+| **M3** GUI | [`m3-gui.md`](m3-gui.md) | ▶ next (folds in `bootstrap.md` Phase 6) |
 | **M4** Platform integration | — | write after M3 |
 | **M5** Sync (Azure) | — | write after M4 (do the Azure spike first, `architecture.md` §15 step 6) |
 | **M6** Web client | — | write after M5 (or pull forward — §12 note 3) |
 | **M7** Hardening | — | write after M6 |
+
+## Not a milestone runbook
+
+| Doc | What it is |
+|---|---|
+| [`cli-guide.md`](cli-guide.md) | A hands-on walkthrough of everything `passfort-cli` can do after M2 — create a vault, full CRUD, the restore-from-backup drill, recovery, and how to run every test suite. Real transcripts. Read it to exercise the M0–M2 stack by hand. |
 
 ## How these relate to the other docs
 
