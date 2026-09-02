@@ -49,13 +49,22 @@ struct AccountDetailView: View {
     Form {
       Section {
         LabeledContent("Title", value: payload.title)
-        row("Username", payload.username)
+        copyableRow("Username", payload.username)
         passwordRow(payload.password)
-        row("Email", payload.email)
-        if !payload.urls.isEmpty {
-          LabeledContent("URLs", value: payload.urls.map(\.absoluteString).joined(separator: "\n"))
-        }
+        copyableRow("Email", payload.email)
         row("Notes", payload.notes)
+      }
+
+      if !payload.urls.isEmpty {
+        Section("URLs") {
+          ForEach(payload.urls, id: \.self) { url in
+            Link(destination: url) {
+              Label(url.absoluteString, systemImage: "safari")
+            }
+            .lineLimit(1)
+            .truncationMode(.middle)
+          }
+        }
       }
 
       Section("Details") {
@@ -135,6 +144,23 @@ struct AccountDetailView: View {
   private func row(_ label: String, _ value: String?) -> some View {
     if let value, !value.isEmpty {
       LabeledContent(label, value: value)
+    }
+  }
+
+  /// A row with a copy button — for the non-concealed identity fields.
+  @ViewBuilder
+  private func copyableRow(_ label: String, _ value: String?) -> some View {
+    if let value, !value.isEmpty {
+      LabeledContent(label) {
+        HStack(spacing: 6) {
+          Text(value).textSelection(.enabled)
+          Button("Copy \(label.lowercased())", systemImage: "doc.on.doc") {
+            Pasteboard.copy(value)
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderless)
+        }
+      }
     }
   }
 
