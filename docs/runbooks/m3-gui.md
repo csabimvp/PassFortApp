@@ -612,7 +612,27 @@ and sort happen in Swift over it, exactly as the CLI's `list` does and exactly a
 
 ---
 
-## Phase 6 — Account detail (decrypt on demand)
+## Phase 6 — Account detail (decrypt on demand) — DONE (2026-09-02)
+
+Shipped as `PassFort/Features/AccountDetail/AccountDetailView.swift` +
+`PassFort/Support/Pasteboard.swift`, wired into `VaultListView`'s `detail:`. Notes:
+
+- **`.task(id: accountID)` clears `account` first, then loads.** In a
+  `NavigationSplitView` the detail view keeps identity when the selection changes, so the guard
+  matters — otherwise the previous account's plaintext flashes while the next one decrypts.
+  `.onDisappear` drops it on lock / deselect.
+- **`Pasteboard`** (`copy` / `copyTransient`) is its own file — `copyTransient` clears after 20 s
+  unless `changeCount` moved. `RecoveryKeyView` now uses `Pasteboard.copy` (no auto-clear). Both carry
+  the `TODO(M4): concealed pasteboard type`.
+- **History section** — `revisionHistory` as `v3 · password · date` rows, `passwordHistory` behind a
+  `DisclosureGroup`, straight off `account.payload` (§7.2, populated by `VaultRepository`). No new
+  plumbing.
+- The **Edit** toolbar button opens a placeholder sheet — Phase 7 wires `AccountFormView`.
+
+**Checkpoint:** builds and boots. Selecting a row → `repo.account(id:)` (one `pf_open`) → the form;
+Reveal toggles the password; switching rows re-decrypts; ⌘L mid-view tears it down. The one
+`pf_open`-per-selection path is what `VaultRepositoryTests.createRoundTripsThroughAccount` covers at
+the library level.
 
 ```swift
 struct AccountDetailView: View {

@@ -74,10 +74,7 @@ struct VaultListView: View {
       }
     } detail: {
       if let id = selection {
-        // Phase 6 replaces this with AccountDetailView(accountID: id).
-        ContentUnavailableView(
-          "Account", systemImage: "doc.text",
-          description: Text("\(id.uuidString)\nDetail view — Phase 6"))
+        AccountDetailView(accountID: id)
       } else {
         ContentUnavailableView("Select an account", systemImage: "key")
       }

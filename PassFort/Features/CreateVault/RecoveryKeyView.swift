@@ -1,4 +1,3 @@
-import AppKit
 import PassFortVault
 import SwiftUI
 
@@ -27,8 +26,11 @@ struct RecoveryKeyView: View {
         .frame(maxWidth: .infinity)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
 
-      Button(copied ? "Copied" : "Copy") { copy(key.grouped) }
-        .buttonStyle(.bordered)
+      Button(copied ? "Copied" : "Copy") {
+        Pasteboard.copy(key.grouped)
+        copied = true
+      }
+      .buttonStyle(.bordered)
 
       Button("I've written it down — continue") {
         Task { await model.confirmRecoveryKeyShown() }
@@ -38,13 +40,6 @@ struct RecoveryKeyView: View {
     }
     .padding(32)
     .frame(width: 440)
-  }
-
-  private func copy(_ string: String) {
-    // TODO(M4): concealed pasteboard type + auto-clear.
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(string, forType: .string)
-    copied = true
   }
 }
 
