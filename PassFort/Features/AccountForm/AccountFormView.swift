@@ -21,6 +21,7 @@ struct AccountFormView: View {
   @State private var saving = false
   @State private var error: String?
   @State private var confirmingDelete = false
+  @State private var showingGenerator = false
 
   init(mode: Mode) {
     self.mode = mode
@@ -45,7 +46,7 @@ struct AccountFormView: View {
           TextField("Username", text: optional($draft.username))
           HStack {
             SecureField("Password", text: optional($draft.password))
-            Button("Generate") { draft.password = try? PasswordPolicy().generate() }
+            Button("Generate…") { showingGenerator = true }
           }
           TextField("Email", text: optional($draft.email))
         }
@@ -90,6 +91,9 @@ struct AccountFormView: View {
       Button("Delete", role: .destructive) { Task { await delete() } }
     } message: {
       Text("It's tombstoned — recoverable until the vault is compacted (M5).")
+    }
+    .sheet(isPresented: $showingGenerator) {
+      PasswordGeneratorView { draft.password = $0 }
     }
   }
 
