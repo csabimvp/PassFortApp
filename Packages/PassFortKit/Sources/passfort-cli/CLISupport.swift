@@ -97,6 +97,58 @@ func parseCategory(_ raw: String) throws -> AccountCategory {
   return category
 }
 
+// MARK: - Password generation
+
+/// Shared flags for the random password generator -- composed into `gen`, `add`,
+/// and `edit` via `@OptionGroup`.
+struct PasswordGenOptions: ParsableArguments {
+  @Option(help: "Generated password length (1-1024).") var length: Int = 20
+  @Flag(name: .customLong("no-lowercase"), help: "Exclude a-z.") var noLowercase = false
+  @Flag(name: .customLong("no-uppercase"), help: "Exclude A-Z.") var noUppercase = false
+  @Flag(name: .customLong("no-digits"), help: "Exclude 0-9.") var noDigits = false
+  @Flag(name: .customLong("no-symbols"), help: "Exclude punctuation.") var noSymbols = false
+  @Flag(name: .customLong("allow-ambiguous"), help: "Allow the look-alikes 0 O 1 l I.")
+  var allowAmbiguous = false
+
+  var policy: PasswordPolicy {
+    PasswordPolicy(
+      length: length,
+      lowercase: !noLowercase, uppercase: !noUppercase, digits: !noDigits, symbols: !noSymbols,
+      excludeAmbiguous: !allowAmbiguous,
+      // Only require a class we're actually including.
+      minLowercase: noLowercase ? 0 : 1, minUppercase: noUppercase ? 0 : 1,
+      minDigits: noDigits ? 0 : 1, minSymbols: noSymbols ? 0 : 1)
+  }
+}
+
+/// Generate a password, turning a `PasswordPolicy.Failure` into a `CLIError`.
+func generatedPassword(from policy: PasswordPolicy) throws -> String {
+  do { return try policy.generate() } catch { throw CLIError(describePolicyFailure(error)) }
+}
+
+func passwordEntropyBits(_ policy: PasswordPolicy) throws -> Int {
+  do {
+    return Int(try policy.entropyBits().rounded())
+  } catch {
+    throw CLIError(describePolicyFailure(error))
+  }
+}
+
+private func describePolicyFailure(_ error: Error) -> String {
+  switch error {
+  case PasswordPolicy.Failure.noCharacterClasses:
+    return "every character class is disabled -- drop one of the --no-* flags"
+  case PasswordPolicy.Failure.emptyAlphabet:
+    return "a character class has no usable characters (empty symbol set, or all filtered out)"
+  case PasswordPolicy.Failure.lengthTooShortForMinimums:
+    return "--length is too short to fit one character from each enabled class"
+  case PasswordPolicy.Failure.invalidLength:
+    return "--length must be between 1 and 1024"
+  default:
+    return "invalid password policy: \(error)"
+  }
+}
+
 func parseBool(_ raw: String) throws -> Bool {
   switch raw.lowercased() {
   case "true", "yes", "y", "1", "on": return true

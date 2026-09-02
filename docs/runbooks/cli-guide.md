@@ -44,6 +44,7 @@ USAGE: passfort-cli <subcommand>
 
 SUBCOMMANDS:
   bench                   Calibrate Argon2id for this machine and print the parameters.
+  gen                     Generate random password(s). No vault needed; prints to stdout.
   init                    Create a new vault (an encrypted SQLite database) and prompt for its password.
   unlock                  Open a vault, run the manifest + anti-rollback checks, report what's inside.
   verify                  Check the manifest MAC and the anti-rollback mark, nothing else.
@@ -125,7 +126,7 @@ Flags:
 | Flag | Effect |
 |---|---|
 | `--target-ms <n>` | KDF calibration target in milliseconds (default 500). Lower it (`--target-ms 50`) for a throwaway test vault so unlock is snappy; leave it at 500+ for anything real. |
-| `--recovery` | also generate a **recovery key** and write a two-slot header (§5.6) — see §7.3 below |
+| `--recovery` | also generate a **recovery key** and write a two-slot header (§5.6) — see §6.3 below |
 | `--force` | delete an existing vault at this path first (`demo.sqlite`, `-wal`, `-shm`, `.hw`) before creating |
 
 **Checkpoint:** `ls demo.sqlite*` shows the vault and its `.hw` sidecar; `passfort-cli unlock
@@ -147,10 +148,10 @@ F227FF95-52FA-4F0A-9264-873AF8E14128
 ```
 
 `add` prints the new record's UUID on stdout (so a script can capture it). The account password was
-entered at a no-echo prompt because you passed `--prompt-password`. If you instead pass
-`--password <value>` the value is taken inline — convenient, but it lands in your shell history, and
-`--help` says so. With neither flag, the account simply has no password field (fine for a secure
-note).
+entered at a no-echo prompt because you passed `--prompt-password`. Three ways to set the password,
+pick one: `--prompt-password` (no echo), `--password <value>` (inline — convenient, but it lands in
+your shell history, and `--help` says so), or `--generate-password` (a fresh random one, printed to
+stderr — §4.5). With none of them, the account simply has no password field (fine for a secure note).
 
 Everything `add` accepts:
 
@@ -159,7 +160,8 @@ Everything `add` accepts:
 | `--title <t>` | **required** — the one always-present field |
 | `--username <u>` | |
 | `--email <e>` | |
-| `--password <v>` / `--prompt-password` | inline value (shell-history caveat) or no-echo prompt; not both |
+| `--password <v>` / `--prompt-password` / `--generate-password` | inline value / no-echo prompt / fresh random one; pick one |
+| `--length`, `--no-symbols`, `--no-digits`, `--no-uppercase`, `--no-lowercase`, `--allow-ambiguous` | shape `--generate-password` (§4.5) |
 | `--url <u>` | repeatable — `--url https://a --url https://b` |
 | `--note <text>` | free-text note |
 | `--category <c>` | one of `login` (default), `bankAccount`, `paymentCard`, `identity`, `secureNote`, `wifi`, `softwareLicense`, `server`, `database`, `apiCredential`, `other` |
@@ -228,7 +230,10 @@ optional field. Bad keys and bad values are rejected **before** the write transa
 typo never half-applies. Also here:
 
 - `--prompt-password` — set a new password at a no-echo prompt
+- `--generate-password` — rotate to a fresh random password (§4.5); the new value prints to stderr
 - `--add-url <u>` — append a URL (repeatable)
+
+`--set password=…`, `--prompt-password`, and `--generate-password` are mutually exclusive — pick one.
 
 Every edit **bumps the version** (1 → 2), restamps `updated_at`, re-seals the payload at the new
 version, and re-MACs the vault. Old version, old ciphertext: gone.
@@ -246,8 +251,57 @@ tombstoned F227FF95-52FA-4F0A-9264-873AF8E14128
 future `compact` purges it. M2 has no `compact` subcommand yet — tombstones just accumulate, which is
 harmless at this scale and correct for M5 sync, where "deleted" has to mean "deleted on every device".
 
+### 4.5 Generate a password
+
+`passfort-cli gen` is a standalone generator — no vault, straight to stdout:
+
+```text
+$ passfort-cli gen
+~126 bits of entropy each
+q4(^:o%!GP2RTYvwDUiG
+
+$ passfort-cli gen --length 32 --no-symbols --count 3
+~187 bits of entropy each
+uEzMAePpPerACoRb79cXT7Gx3WaYy9AK
+2E6taA53NEaX7EBC3jwYqPMxw85Q8AfJ
+yyrTwh3SD32XSQS7AGG6m2iQpYNTmxbL
+```
+
+Defaults: length 20, all four character classes (lowercase, uppercase, digits, symbols), at least one
+of each, and the look-alikes `0 O 1 l I` excluded. Flags:
+
+| Flag | Effect |
+|---|---|
+| `--length <n>` | 1–1024, default 20 |
+| `--count <n>` / `-c` | how many to print (default 1) |
+| `--no-lowercase` / `--no-uppercase` / `--no-digits` / `--no-symbols` | drop a character class |
+| `--allow-ambiguous` | keep `0 O 1 l I` |
+
+The entropy line (`~N bits`) goes to **stderr**, so `passfort-cli gen | pbcopy` copies only the
+password. An impossible policy (every class off, `--length` too short to fit one of each class, an
+empty symbol set) fails with a message rather than a bad password.
+
+The same generator backs `add --generate-password` and `edit --generate-password`, with the same
+shaping flags:
+
+```text
+$ passfort-cli add demo.sqlite --title Router --generate-password --length 28 --no-symbols
+generated password: sZno8fgUpVHHX7iH6NMDqccfyF8m
+Vault password:
+E15CE885-8D8F-4D59-A988-A598B894A402
+
+$ passfort-cli edit demo.sqlite Router --generate-password --length 40
+generated password: cqBJ4U@,Dyg)PvVS,Cz28k!WwL@PxrPL&eT?EpPg
+Vault password:
+updated E15CE885-8D8F-4D59-A988-A598B894A402 -> version 2
+```
+
+The generated value prints to **stderr** (so `add`'s stdout stays just the UUID); the account is
+otherwise created / updated exactly as in §4.1 / §4.3.
+
 **Checkpoint for §4:** `add` then `list` shows the row; `get` shows the secret you stored; `edit`
-takes it to version 2; `rm` hides it from `list` but `list --all` still shows it flagged `[deleted]`.
+takes it to version 2; `rm` hides it from `list` but `list --all` still shows it flagged `[deleted]`;
+`gen` prints a password and `add --generate-password` stores one.
 
 ---
 
@@ -556,13 +610,14 @@ clean.
 |---|---|---|---|
 | `bench [--target-ms N]` | — | — | calibrate Argon2id, time one unlock |
 | `seam` | — | — | M0 + M1 seam smoke test |
+| `gen [--length N] [--count K] [--no-symbols …]` | — | — | print random password(s), no vault |
 | `init <vault> [--recovery] [--force] [--target-ms N]` | new password ×2 | vault + `.hw` | create a vault |
 | `unlock <vault>` | password | `.hw` (repair only) | open + verify + report counts |
 | `verify <vault> [--accept-restore]` | password | `.hw` (on `--accept-restore`) | manifest + anti-rollback check only |
-| `add <vault> --title T […]` | password (+ account pw if `--prompt-password`) | one row + MAC | create an account |
+| `add <vault> --title T [--prompt-password \| --generate-password] […]` | password (+ account pw if `--prompt-password`) | one row + MAC | create an account |
 | `list <vault> [--search Q] [--all]` | password | — | summary index, no secrets |
 | `get <vault> <id\|title> [--json]` | password | — | one account, secrets to stdout |
-| `edit <vault> <id\|title> --set k=v … [--add-url U] [--prompt-password]` | password | one row + MAC | update an account |
+| `edit <vault> <id\|title> --set k=v … [--add-url U] [--prompt-password \| --generate-password]` | password | one row + MAC | update an account |
 | `rm <vault> <id\|title>` | password | one row + MAC | tombstone an account |
 | `dump <vault>` | password | — | every record decrypted, JSON, stdout |
 | `export <vault> -o FILE` | phrase, then password | `FILE` (0600) | plaintext snapshot of the whole vault |
@@ -583,20 +638,23 @@ clean.
 
 ## 10. A clean-room script for the whole thing
 
-Drop this in a scratch directory to exercise every path in one go (it uses `--password` inline and a
-low KDF cost for speed — never do that with a real vault):
+Drop this in a scratch directory to exercise every path in one go (low KDF cost for speed — never do
+that with a real vault):
 
 ```bash
 set -e
 V=scratch.sqlite
 rm -f "$V"*
 
+passfort-cli gen --length 24                          # standalone generator, no vault
+
 # You will be prompted for the master password on each line below.
 passfort-cli init   "$V" --target-ms 50
-ID=$(passfort-cli add "$V" --title "Example" --username alice --password "hunter2" --url https://example.com --tag demo)
+ID=$(passfort-cli add "$V" --title "Example" --username alice --generate-password \
+       --url https://example.com --tag demo)          # generated pw -> stderr; UUID -> $ID
 passfort-cli list   "$V"
 passfort-cli get    "$V" "$ID"
-passfort-cli edit   "$V" "$ID" --set password=hunter3 --set favorite=true
+passfort-cli edit   "$V" "$ID" --generate-password --set favorite=true
 passfort-cli get    "$V" Example --json
 passfort-cli verify "$V"
 

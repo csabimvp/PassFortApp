@@ -9,7 +9,7 @@ struct PassFortCLI: AsyncParsableCommand {
     commandName: "passfort-cli",
     abstract: "PassFort vault tool -- create an encrypted SQLite vault and manage accounts in it.",
     subcommands: [
-      Bench.self, Init.self, Unlock.self, Verify.self,
+      Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
       Add.self, List.self, Get.self, Edit.self, Remove.self,
       Dump.self, Export.self, Recover.self, Seam.self,
     ]
@@ -42,6 +42,26 @@ struct Bench: AsyncParsableCommand {
     print("parallelism  \(params.parallelism)")
     print("calibration  \(calibration)")
     print("one unlock   \(oneHash)")
+  }
+}
+
+// MARK: - gen
+
+struct Gen: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract: "Generate random password(s). No vault needed; prints to stdout.")
+
+  @OptionGroup var options: PasswordGenOptions
+  @Option(name: [.short, .long], help: "How many to generate.") var count: Int = 1
+
+  func run() throws {
+    guard count >= 1 else { throw CLIError("--count must be at least 1") }
+    let policy = options.policy
+    let bits = try passwordEntropyBits(policy)
+    FileHandle.standardError.write(Data("~\(bits) bits of entropy each\n".utf8))
+    for _ in 0..<count {
+      print(try generatedPassword(from: policy))
+    }
   }
 }
 
@@ -131,6 +151,10 @@ struct Add: AsyncParsableCommand {
   @Option(help: "Password value (ends up in shell history -- prefer --prompt-password).")
   var password: String?
   @Flag(help: "Prompt for the account password with no echo.") var promptPassword = false
+  @Flag(help: "Generate a random password (shaped by the generation options); printed to stderr.")
+  var generatePassword = false
+  @OptionGroup(title: "Password generation (with --generate-password)")
+  var passwordGen: PasswordGenOptions
   @Option(name: .customLong("url"), help: "A URL for the account (repeatable).")
   var urls: [String] = []
   @Option(help: "Free-text note.") var note: String?
@@ -139,13 +163,20 @@ struct Add: AsyncParsableCommand {
   @Flag(help: "Mark as a favorite.") var favorite = false
 
   func run() async throws {
-    if password != nil && promptPassword {
-      throw CLIError("pass either --password or --prompt-password, not both")
+    let sources = [password != nil, promptPassword, generatePassword].filter { $0 }.count
+    guard sources <= 1 else {
+      throw CLIError("choose one of --password, --prompt-password, --generate-password")
     }
-    let secret =
-      promptPassword
-      ? String(decoding: try Password.prompt("Account password: "), as: UTF8.self)
-      : password
+    let secret: String?
+    if generatePassword {
+      let generated = try generatedPassword(from: passwordGen.policy)
+      FileHandle.standardError.write(Data("generated password: \(generated)\n".utf8))
+      secret = generated
+    } else if promptPassword {
+      secret = String(decoding: try Password.prompt("Account password: "), as: UTF8.self)
+    } else {
+      secret = password
+    }
     let parsedURLs = try urls.map(parseURL)
     let cat = try category.map(parseCategory) ?? .login
 
@@ -225,19 +256,36 @@ struct Edit: AsyncParsableCommand {
   @Argument(help: "Account id (UUID) or title.") var account: String
   @Option(name: .customLong("set"), help: "key=value (repeatable).") var sets: [String] = []
   @Flag(help: "Prompt for a new account password with no echo.") var promptPassword = false
+  @Flag(help: "Set the password to a fresh random one (see generation options); printed to stderr.")
+  var generatePassword = false
+  @OptionGroup(title: "Password generation (with --generate-password)")
+  var passwordGen: PasswordGenOptions
   @Option(name: .customLong("add-url"), help: "Append a URL (repeatable).")
   var addURLs: [String] = []
 
   func run() async throws {
+    let setsPassword = sets.contains { $0.hasPrefix("password=") }
+    let passwordSources = [setsPassword, promptPassword, generatePassword].filter { $0 }.count
+    guard passwordSources <= 1 else {
+      throw CLIError(
+        "set the password one way: --set password=..., --prompt-password, or --generate-password")
+    }
+
     var parsed = try sets.map(EditOp.parse)
     if promptPassword {
       let entered = String(decoding: try Password.prompt("New account password: "), as: UTF8.self)
       parsed.append(.set(.password, entered))
     }
+    if generatePassword {
+      let generated = try generatedPassword(from: passwordGen.policy)
+      FileHandle.standardError.write(Data("generated password: \(generated)\n".utf8))
+      parsed.append(.set(.password, generated))
+    }
     let ops = parsed
     let appended = try addURLs.map(parseURL)
     guard !ops.isEmpty || !appended.isEmpty else {
-      throw CLIError("nothing to change -- pass --set, --add-url, or --prompt-password")
+      throw CLIError(
+        "nothing to change -- pass --set, --add-url, --prompt-password, or --generate-password")
     }
 
     let repo = try await VaultCLI.open(vault)

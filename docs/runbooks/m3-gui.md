@@ -600,7 +600,10 @@ struct AccountFormView: View {
     Form {
       TextField("Title", text: $draft.title)
       TextField("Username", text: Binding($draft.username, default: ""))
-      SecureField("Password", text: Binding($draft.password, default: ""))
+      HStack {
+        SecureField("Password", text: Binding($draft.password, default: ""))
+        Button("Generate") { draft.password = try? PasswordPolicy().generate() }   // + a policy popover
+      }
       // email, url list, notes, category picker, tags, favorite toggle …
       HStack {
         if case .edit(let account) = mode {
@@ -640,6 +643,11 @@ decrypt → mutate → bump version → re-seal → re-MAC dance in one transact
 detached `AccountPayload`; the closure assigns it wholesale. Same semantics as
 `passfort-cli edit --set`. The `unknown` forward-compat bag rides along untouched because it is part of
 the payload value being assigned.
+
+**The "Generate" button** calls `PasswordPolicy.generate()` from `PassFortVault` — the same generator
+`passfort-cli gen` / `add --generate-password` use. M3 can start with the default policy and add a
+small popover (length slider, class toggles) later; the policy is `Codable`, so a per-vault default in
+`vault_meta` is a cheap follow-up if you want one.
 
 **After every write, `refreshSummaries()`** — the in-memory index is a snapshot, not a live query, so
 it needs an explicit rebuild. Cheap (§8.3).

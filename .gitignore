@@ -18,6 +18,7 @@ native-tests/build*/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+*.hw
 # ...except migration-fixture vaults, which are SYNTHETIC by rule (§13.4).
 !Packages/PassFortKit/Tests/PassFortVaultTests/Fixtures/**/*.sqlite
 
