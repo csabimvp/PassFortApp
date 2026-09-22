@@ -14,8 +14,8 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | **M1** Crypto core + seam | [`m1-crypto-core.md`](m1-crypto-core.md) | ✅ done ([retrospective](m1-retrospective.md)) |
 | **M2** Vault + storage | [`m2-vault-storage.md`](m2-vault-storage.md) | ✅ done |
 | **M3** GUI | [`m3-gui.md`](m3-gui.md) | ▶ current — Phases 1–8 done, Phase 9 (test target) manual, Phase 10 deferred |
-| **M4** Platform integration | — | write after M3 |
-| **M5** Sync (Azure) | — | write after M4 (do the Azure spike first, `architecture.md` §15 step 6) |
+| **M4** Platform integration | [`m4-platform.md`](m4-platform.md) | ▶ drafted — two Phase 0 decisions open (ADR-0008; the notarization membership) |
+| **M5** Sync (Azure) | [`m5-sync.md`](m5-sync.md) | ✎ sketch — written ahead of cadence; only Phase 0 (the Azure spike, `architecture.md` §15 step 6) is actionable, the rest is a plan to validate |
 | **M6** Web client | — | write after M5 (or pull forward — §12 note 3) |
 | **M7** Hardening | — | write after M6 |
 

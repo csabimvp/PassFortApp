@@ -33,6 +33,7 @@ struct UnlockView: View {
       }
     }
     .padding(40)
+    .pfBackground()
     .animation(.default, value: model.state)
     .onChange(of: model.state) { _, state in
       if state == .unlocked { password = "" }  // keep it on failure so a retry works

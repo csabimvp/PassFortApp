@@ -10,11 +10,12 @@ struct PassFortApp: App {
     WindowGroup {
       RootView()
         .environment(model)
+        .tint(Palette.primary)
         .onChange(of: scenePhase) { _, phase in
           if phase == .background { model.lock() }
         }
         .sheet(isPresented: $showingGenerator) {
-          PasswordGeneratorView()
+          PasswordGeneratorView().tint(Palette.primary)
         }
     }
     .defaultSize(width: 860, height: 540)
@@ -26,7 +27,7 @@ struct PassFortApp: App {
     }
 
     Settings {
-      SettingsView().environment(model)
+      SettingsView().environment(model).tint(Palette.primary)
     }
   }
 }

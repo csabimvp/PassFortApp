@@ -10,50 +10,73 @@ struct VaultListView: View {
   @State private var selection: AccountSummary.ID?
   @State private var query = ""
   @State private var showingAdd = false
+  @State private var grouping: SidebarGrouping = .flat
 
-  private var rows: [AccountSummary] {
-    let live = model.summaries.filter { !$0.isDeleted }
-    let matched: [AccountSummary]
-    if query.isEmpty {
-      matched = live
-    } else {
-      let needle = query.lowercased()
-      matched = live.filter { row in
-        row.title.lowercased().contains(needle)
-          || (row.username?.lowercased().contains(needle) ?? false)
-          || (row.host?.lowercased().contains(needle) ?? false)
-          || row.tags.contains { $0.lowercased().contains(needle) }
-      }
-    }
-    return matched.sorted {
-      $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-    }
+  private var sections: [SidebarSection] {
+    sidebarSections(from: model.summaries, query: query, grouping: grouping)
   }
 
   var body: some View {
     NavigationSplitView {
-      List(rows, selection: $selection) { row in
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(spacing: 4) {
-            if row.favorite {
-              Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow)
+      List(selection: $selection) {
+        ForEach(sections) { section in
+          if let title = section.title {
+            Section(title) {
+              ForEach(section.rows) { row in
+                rowLabel(row).tag(row.id)
+              }
             }
-            Text(row.title)
-          }
-          if let subtitle = row.username ?? row.host {
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+          } else {
+            // No header — keeps the plain flat list plain when grouping is off.
+            Section {
+              ForEach(section.rows) { row in
+                rowLabel(row).tag(row.id)
+              }
+            }
           }
         }
       }
+      .listStyle(.sidebar)
+      .scrollContentBackground(.hidden)
+      .background(.ultraThinMaterial)
       .searchable(text: $query, prompt: "Search")
       .navigationTitle("PassFort")
       .navigationSplitViewColumnWidth(min: 220, ideal: 280)
       .overlay {
-        if rows.isEmpty {
+        if sections.isEmpty {
           ContentUnavailableView(
             query.isEmpty ? "No accounts yet" : "No matches",
             systemImage: query.isEmpty ? "key" : "magnifyingglass")
         }
+      }
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        VStack(spacing: 0) {
+          Divider()
+          HStack {
+            Menu {
+              Picker("Group by", selection: $grouping) {
+                ForEach(SidebarGrouping.allCases) { mode in
+                  Text(mode.rawValue).tag(mode)
+                }
+              }
+              .pickerStyle(.inline)
+            } label: {
+              Label(
+                "Group By",
+                systemImage: grouping == .flat
+                  ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill"
+              )
+              .labelStyle(.titleAndIcon)
+              .font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            Spacer()
+          }
+          .padding(.horizontal, 10)
+          .padding(.vertical, 6)
+        }
+        .background(.ultraThinMaterial)
       }
       .toolbar {
         ToolbarItem {
@@ -79,8 +102,24 @@ struct VaultListView: View {
         ContentUnavailableView("Select an account", systemImage: "key")
       }
     }
+    .pfBackground()
     .sheet(isPresented: $showingAdd) {
       AccountFormView(mode: .create)
+    }
+  }
+
+  @ViewBuilder
+  private func rowLabel(_ row: AccountSummary) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 4) {
+        if row.favorite {
+          Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow)
+        }
+        Text(row.title)
+      }
+      if let subtitle = row.username ?? row.host {
+        Text(subtitle).font(.caption).foregroundStyle(.secondary)
+      }
     }
   }
 }

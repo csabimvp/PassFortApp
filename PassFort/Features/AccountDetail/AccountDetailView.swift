@@ -13,6 +13,7 @@ struct AccountDetailView: View {
   @State private var revealPassword = false
   @State private var revealHistory = false
   @State private var editing = false
+  @State private var togglingFavorite = false
 
   var body: some View {
     Group {
@@ -91,11 +92,32 @@ struct AccountDetailView: View {
     .formStyle(.grouped)
     .navigationTitle(payload.title)
     .toolbar {
+      Button {
+        Task { await toggleFavorite(account) }
+      } label: {
+        Label(
+          payload.favorite ? "Remove Favorite" : "Mark as Favorite",
+          systemImage: payload.favorite ? "star.fill" : "star"
+        )
+        .foregroundStyle(payload.favorite ? .yellow : .primary)
+      }
+      .disabled(togglingFavorite)
+      .help(payload.favorite ? "Remove from Favorites" : "Add to Favorites")
+
       Button("Edit") { editing = true }
     }
     .sheet(isPresented: $editing) {
       AccountFormView(mode: .edit(account))
     }
+  }
+
+  private func toggleFavorite(_ account: Account) async {
+    guard !togglingFavorite else { return }
+    togglingFavorite = true
+    defer { togglingFavorite = false }
+    var payload = account.payload
+    payload.favorite.toggle()
+    _ = await model.updateAccount(id: account.id, to: payload)
   }
 
   @ViewBuilder

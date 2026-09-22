@@ -183,12 +183,14 @@ public struct AccountSummary: Sendable, Identifiable, Equatable {
   public var host: String?
   public var tags: [String]
   public var favorite: Bool
+  public var category: AccountCategory
   public var isConflict: Bool
   public var isDeleted: Bool
 
   public init(
     id: UUID, title: String, username: String? = nil, host: String? = nil, tags: [String] = [],
-    favorite: Bool = false, isConflict: Bool = false, isDeleted: Bool = false
+    favorite: Bool = false, category: AccountCategory = .login, isConflict: Bool = false,
+    isDeleted: Bool = false
   ) {
     self.id = id
     self.title = title
@@ -196,6 +198,7 @@ public struct AccountSummary: Sendable, Identifiable, Equatable {
     self.host = host
     self.tags = tags
     self.favorite = favorite
+    self.category = category
     self.isConflict = isConflict
     self.isDeleted = isDeleted
   }

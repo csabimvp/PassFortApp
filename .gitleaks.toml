@@ -1,0 +1,15 @@
+# gitleaks configuration -- backstop scan in CI (.github/workflows/ci.yml) and
+# the pre-commit hook. Extends the stock ruleset; only adds allowlisting.
+
+[extend]
+useDefault = true
+
+# docs/runbooks/cli-guide.md is a walkthrough built almost entirely out of
+# copy-pasted `passfort-cli` session transcripts: demo vault UUIDs, and sample
+# `passfort-cli gen` output (high-entropy by construction). The stock
+# `generic-api-key` rule flags these on entropy alone. They are illustrative
+# output for a vault that never existed -- not credentials. Scope the allowlist
+# to that one file so a real secret pasted anywhere else still trips the scan.
+[allowlist]
+description = "Example CLI transcripts in the runbook guide -- demo UUIDs and generated-sample passwords, not real secrets"
+paths = ['''docs/runbooks/cli-guide\.md''']

@@ -43,6 +43,7 @@ extension Account {
       host: payload.urls.first?.host(),
       tags: payload.tags,
       favorite: payload.favorite,
+      category: payload.category,
       isConflict: payload.conflictOf != nil,
       isDeleted: isDeleted)
   }
