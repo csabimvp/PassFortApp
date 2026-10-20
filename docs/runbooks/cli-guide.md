@@ -494,8 +494,9 @@ verify OK -- manifest and vault_version consistent
 
 `--accept-restore` deletes the `.hw` sidecar, then re-runs the open — which passes the rollback check
 (the mark is now `0`) and, having verified the MAC, **repairs the mark forward** to the restored
-file's version. It is a deliberate, one-line act; there is no separate `restore` subcommand precisely
-because accepting a rollback should feel deliberate.
+file's version. It is a deliberate, one-line act. The `restore` subcommand (§6.4) puts a backup in
+place but deliberately stops short of this step: accepting the rollback stays a separate, explicit
+`verify --accept-restore`.
 
 ### 6.3 `recover` — you forgot the master password
 
@@ -543,6 +544,40 @@ Error: AuthFailed -- wrong password or corrupt vault
 The key input is forgiving: case-insensitive, hyphens and spaces optional, `I`/`L` read as `1` and
 `O` as `0`. A one-symbol slip fails the check symbol and is rejected as malformed, not silently
 mis-decoded.
+
+### 6.4 `backup` and `restore` — off-machine copies, no password
+
+`backup` writes a consistent single-file snapshot of the vault into a folder. It works on the sealed
+file, so it needs no password, and it reads through the write-ahead log: a plain `cp vault.sqlite`
+would silently miss every record not yet checkpointed.
+
+```text
+$ passfort-cli backup v.sqlite /Volumes/nas/PassFort --keep 10
+backup written: /Volumes/nas/PassFort/passfort-vault-669a9f4f-2ad5-4cb9-bbe9-233269f9044a-20261020T205804Z.sqlite
+vault_version 7
+```
+
+The name carries the vault UUID and a UTC timestamp, so several vaults can share a folder and names sort
+chronologically. `--keep N` afterwards deletes all but the newest N backups **of this vault** (never
+another vault's, never other files). A backup is as sensitive as the vault: sealed records plus the
+plaintext header. It never carries the `.hw` mark.
+
+`restore` replaces the vault with a backup. Close anything using the vault first. The current files are
+moved aside (`v.sqlite.pre-restore-<time>`, plus `-wal`/`-shm`), never deleted:
+
+```text
+$ passfort-cli restore /Volumes/nas/PassFort/passfort-vault-669a9f4f-…-20261020T205804Z.sqlite v.sqlite
+Restore vault_version 7 over vault_version 9 at v.sqlite.
+Changes made after the backup will be lost from the active vault.
+Type "yes" to continue:yes
+previous vault kept at: v.sqlite.pre-restore-20261020T210112Z
+restored. Next: passfort-cli verify v.sqlite --accept-restore
+```
+
+Because the backup is older than this machine's `.hw` mark, the next unlock reports a rollback (§6.2);
+`verify --accept-restore` is the deliberate "yes, I meant that" step. `restore` refuses a backup that is
+not a vault, and a backup of a *different* vault unless you pass `--allow-different-vault`. `--yes`
+skips the prompt.
 
 ---
 
@@ -685,6 +720,8 @@ clean.
 | `dump <vault>` | password | — | every record decrypted, JSON, stdout |
 | `export <vault> -o FILE` | phrase, then password | `FILE` (0600) | plaintext snapshot of the whole vault |
 | `recover <vault> --key GROUPED` | new password ×2 | header + fresh recovery slot | reset the master password via the recovery key |
+| `backup <vault> <folder> [--keep N]` | none | one new file in `<folder>` | snapshot the vault (WAL-safe, single file) |
+| `restore <backup> <vault> [--allow-different-vault] [--yes]` | confirmation | vault files (old ones moved aside) | replace the vault with a backup; then `verify --accept-restore` |
 
 ### Error messages you may hit
 

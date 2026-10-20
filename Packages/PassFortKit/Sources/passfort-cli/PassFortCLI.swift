@@ -11,7 +11,7 @@ struct PassFortCLI: AsyncParsableCommand {
     subcommands: [
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
       Add.self, List.self, Get.self, History.self, Edit.self, Remove.self,
-      Dump.self, Export.self, Recover.self, Seam.self,
+      Dump.self, Export.self, Backup.self, Restore.self, Recover.self, Seam.self,
     ]
   )
 }
@@ -415,6 +415,99 @@ struct Export: AsyncParsableCommand {
       "wrote \(export.accounts.count) account(s) to \(output) (mode 0600). "
       + "Delete it when you are done.\n"
     FileHandle.standardError.write(Data(done.utf8))
+  }
+}
+
+// MARK: - backup
+
+struct Backup: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract: "Write a consistent single-file snapshot of the vault into a folder (no password).",
+    discussion: """
+      The snapshot is taken through SQLite's backup API, so records still in the write-ahead \
+      log are included. The file is named passfort-vault-<vault-uuid>-<UTC time>.sqlite and is \
+      as sensitive as the vault itself: sealed records plus the plaintext header.
+      """)
+
+  @Argument(help: "Path to the vault file.") var vault: String
+  @Argument(help: "Folder to write the backup into (created if missing).") var folder: String
+  @Option(help: "Afterwards, keep only the newest N backups of this vault in the folder.")
+  var keep: Int?
+
+  func run() async throws {
+    guard let live = VaultBackup.inspect(URL(fileURLWithPath: vault)) else {
+      throw CLIError("\(vault) is not a PassFort vault")
+    }
+    let directory = URL(fileURLWithPath: folder, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+    let destination = directory.appending(
+      path: VaultBackup.fileName(vaultID: live.vaultID, at: .now))
+    do {
+      let info = try VaultBackup.create(databasePath: vault, to: destination)
+      print("backup written: \(destination.path(percentEncoded: false))")
+      print("vault_version \(info.vaultVersion)")
+    } catch VaultBackup.Failure.destinationExists {
+      throw CLIError("a backup with this timestamp already exists -- wait a second and retry")
+    }
+
+    if let keep {
+      let removed = try VaultBackup.prune(in: directory, vaultID: live.vaultID, keep: keep)
+      if !removed.isEmpty {
+        FileHandle.standardError.write(Data("pruned \(removed.count) older backup(s)\n".utf8))
+      }
+    }
+  }
+}
+
+// MARK: - restore
+
+struct Restore: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract: "Replace the vault with a backup. The current vault is moved aside, not deleted.",
+    discussion: """
+      Close every app using the vault first. The previous files are kept next to it as \
+      vault.sqlite.pre-restore-<time>. The anti-rollback mark is left alone, so the next unlock \
+      reports a rollback; confirm it was deliberate with `verify <vault> --accept-restore`.
+      """)
+
+  @Argument(help: "Path to the backup file.") var backup: String
+  @Argument(help: "Path to the vault file to replace.") var vault: String
+  @Flag(help: "Allow replacing a vault with a backup of a different vault.")
+  var allowDifferentVault = false
+  @Flag(name: .shortAndLong, help: "Skip the confirmation prompt.") var yes = false
+
+  func run() async throws {
+    guard let incoming = VaultBackup.inspect(URL(fileURLWithPath: backup)) else {
+      throw CLIError("\(backup) is not a usable PassFort vault backup")
+    }
+    let current = VaultBackup.inspect(URL(fileURLWithPath: vault))
+
+    if !yes {
+      let replacing = current.map { "vault_version \($0.vaultVersion)" } ?? "(no vault there)"
+      FileHandle.standardError.write(
+        Data(
+          """
+          Restore vault_version \(incoming.vaultVersion) over \(replacing) at \(vault).
+          Changes made after the backup will be lost from the active vault.
+          Type "yes" to continue:
+          """.utf8))
+      guard readLine(strippingNewline: true) == "yes" else {
+        throw CLIError("not confirmed -- nothing changed")
+      }
+    }
+
+    do {
+      let aside = try VaultBackup.restore(
+        from: URL(fileURLWithPath: backup), toDatabasePath: vault,
+        allowDifferentVault: allowDifferentVault)
+      if let aside { print("previous vault kept at: \(aside.path(percentEncoded: false))") }
+      print("restored. Next: passfort-cli verify \(vault) --accept-restore")
+    } catch VaultBackup.Failure.differentVault {
+      throw CLIError(
+        "the backup belongs to a different vault than \(vault) -- pass --allow-different-vault if that is intended"
+      )
+    }
   }
 }
 
