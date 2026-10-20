@@ -1,6 +1,6 @@
 # M3 addendum — Vault backup & restore
 
-**Status:** In progress — Phases 0 and 1 done (2026-10-20); Phase 2 next. Follow top to bottom.
+**Status:** In progress — Phases 0–2 done (2026-10-20); Phase 3 next. Follow top to bottom.
 **Prerequisite:** M3 Phases 1–8 done (the app runs, unlocks, edits, auto-locks). Independent of M4/M5, but
 Phase 0 below says where it touches each.
 **Spec:** `architecture.md` §5.5 (manifest / anti-rollback), §8.2 (WAL, `0600`, one live file), §9–§10
@@ -141,7 +141,7 @@ several vaults apart in one folder, and `prune` only ever touches the given vaul
 
 ---
 
-## Phase 2 — Destination + sandbox plumbing (app target)
+## Phase 2 — Destination + sandbox plumbing (app target) — DONE (2026-10-20)
 
 - `Backup/BackupDestination.swift`: `protocol BackupDestination { var name: String { get }; func
   store(_ file: URL) async throws; func list() async throws -> [URL]; func prune(keep: Int) async throws }`.
@@ -155,6 +155,31 @@ several vaults apart in one folder, and `prune` only ever touches the given vaul
 
 **Checkpoint:** unit-test `FolderDestination` against a temp dir; manual: unplug/unmount the share →
 clear error, app keeps working.
+
+### What shipped (deviations from the sketch above)
+
+- `PassFort/Backup/BackupDestination.swift`: `store(_:) -> name`, `list(vaultID:) -> [names]`,
+  `prune(vaultID:keep:) -> [removed]`, all `@concurrent` (the project's default-MainActor setting plus
+  approachable concurrency would otherwise run blocking SMB I/O on the main actor). `list` returns
+  names, not URLs: a URL inside a security scope is useless once the scope closes.
+- `PassFort/Backup/FolderDestination.swift` + `BookmarkStore` (`UserDefaults` in the app, in-memory in
+  tests). `isConfigured` and `displayName` for the Phase 3 status line. Choosing the folder (the
+  `NSOpenPanel`) is UI and lands in Phase 3; Phase 2 only has `makeBookmark(for:)`.
+- Two new `AppError` cases: `backupNotConfigured`, `backupDestinationUnavailable(folderName)`.
+- **Read-back verification:** after the rename, `store` byte-compares the stored file with the local
+  one and removes it if they differ. Deliberately plain bytes, not SQLite: file locking over SMB/NFS is
+  not reliable.
+- **The destination folder is never created.** A missing path reads as "unavailable"; recreating it
+  would put a "backup" on the wrong volume when the share is unmounted.
+- `startAccessingSecurityScopedResource() == false` is not treated as fatal (it also means "no scope
+  needed"); real permission problems surface as file errors, mapped to `AppError.io`.
+- Package addition (own commit): `VaultBackup.backups(in:vaultID:)`, newest first; `prune` builds on it.
+- Tests (`PassFortTests/FolderDestinationTests.swift`, 8): intact store with no `.partial` left,
+  never overwrites, missing source, stale partial replaced, not configured, **unmounted share**
+  (folder deleted -> unavailable, not recreated), **moved folder** (bookmark follows and is refreshed,
+  which exercises the stale path), list/prune scoped to one vault.
+- Still manual: a real unmount of the NAS during a copy. Deleting a folder is the closest unit test;
+  check this by hand in Phase 3 when Back Up Now exists.
 
 ---
 

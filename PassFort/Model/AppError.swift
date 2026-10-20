@@ -14,6 +14,11 @@ enum AppError: Error, Equatable {
   /// backup or a rolled-back file. The versions drive the Unlock screen's
   /// "this was a backup I restored" prompt (Phase 3).
   case rolledBack(fileVersion: UInt64, lastSeen: UInt64)
+  /// Backups have no destination folder yet (Settings ▸ Backup ▸ Choose Folder).
+  case backupNotConfigured
+  /// The destination folder can't be reached — typically the NAS isn't mounted, or the folder was
+  /// deleted. The associated value is the folder's name, for the message.
+  case backupDestinationUnavailable(String)
   /// Anything else — I/O, an unexpected status.
   case io(String)
 
@@ -36,6 +41,10 @@ enum AppError: Error, Equatable {
       return "This vault was modified outside PassFort and isn't safe to open."
     case .rolledBack(let fileVersion, let lastSeen):
       return "This vault is v\(fileVersion); this Mac last saw v\(lastSeen). It looks rolled back."
+    case .backupNotConfigured:
+      return "Choose a backup folder first."
+    case .backupDestinationUnavailable(let folder):
+      return "The backup folder “\(folder)” isn't available. Is the NAS connected?"
     case .io(let detail):
       return "Something went wrong: \(detail)"
     }
