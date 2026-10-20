@@ -7,6 +7,9 @@ import Foundation
 /// about vaults, keys or SQLite. Every method does blocking file I/O, possibly over a network
 /// share, so each is `@concurrent` -- it must never run on the main actor.
 nonisolated protocol BackupDestination: Sendable {
+  /// Whether a place to put backups has been chosen. Says nothing about whether it is reachable.
+  var isConfigured: Bool { get }
+
   /// A short name for the status line, e.g. "PassFort" for `/Volumes/nas/Zeus/PassFort`.
   var displayName: String { get }
 

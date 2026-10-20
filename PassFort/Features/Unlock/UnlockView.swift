@@ -6,6 +6,8 @@ import SwiftUI
 /// user can take themselves — the GUI's `verify --accept-restore`.
 struct UnlockView: View {
   @Environment(AppModel.self) private var model
+  /// Optional so previews that only inject `AppModel` keep working.
+  @Environment(BackupModel.self) private var backup: BackupModel?
   @State private var password = ""
 
   var body: some View {
@@ -30,6 +32,14 @@ struct UnlockView: View {
 
       if model.state.isUnlocking {
         ProgressView("Deriving key…")
+      }
+
+      // A failed automatic backup happens while locked, with nobody watching -- say so here.
+      if let failure = backup?.failureMessage {
+        Label("Last backup failed. \(failure)", systemImage: "exclamationmark.triangle")
+          .font(.caption)
+          .foregroundStyle(.orange)
+          .frame(maxWidth: 320)
       }
     }
     .padding(40)

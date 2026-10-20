@@ -1,6 +1,6 @@
 # M3 addendum — Vault backup & restore
 
-**Status:** In progress — Phases 0–2 done (2026-10-20); Phase 3 next. Follow top to bottom.
+**Status:** In progress — Phases 0–2 done, Phase 3 built (2026-10-20) and awaiting its by-hand checkpoint; Phase 4 next. Follow top to bottom.
 **Prerequisite:** M3 Phases 1–8 done (the app runs, unlocks, edits, auto-locks). Independent of M4/M5, but
 Phase 0 below says where it touches each.
 **Spec:** `architecture.md` §5.5 (manifest / anti-rollback), §8.2 (WAL, `0600`, one live file), §9–§10
@@ -183,7 +183,7 @@ clear error, app keeps working.
 
 ---
 
-## Phase 3 — Settings UI: Backup section
+## Phase 3 — Settings UI: Backup section — BUILT (2026-10-20), manual checkpoint pending
 
 In `SettingsView` (new `Section("Backup")`, works while locked too — backup needs no key):
 
@@ -200,6 +200,40 @@ not block locking.
 
 **Checkpoint:** Back Up Now writes a file on the NAS; edit an account, lock → a second file appears; edit
 nothing, lock → no new file.
+
+### What shipped (deviations from the sketch above)
+
+- **A Settings *tab*, not a section in `SettingsView`.** `PassFortApp` wraps the Settings scene in a
+  `TabView` (General | Backup). Done so `SettingsView` and `AppModel` stayed untouched while they had
+  unrelated uncommitted work; the Backup state lives in its own `BackupModel`, injected from
+  `PassFortApp`, not in `AppModel`.
+- `Backup/BackupModel.swift`: `BackupJob` (nonisolated, `@concurrent`: inspect -> snapshot to a local
+  temp dir -> `destination.store` -> prune -> clean up) and `@Observable BackupModel` (folder name,
+  `Status` = idle | running | succeeded(date, version) | failed(message), the on-lock and keep
+  settings, persisted last-success/last-failure in `UserDefaults`).
+- `Features/Settings/BackupSettingsView.swift`: folder (NSOpenPanel), Back Up Now with a spinner, a
+  status line, the on-lock toggle (default **on**, inert until a folder is chosen), keep 5/10/30.
+- **The lock hook** is `.onChange(of: model.state)` in `PassFortApp`, firing only for
+  `.unlocked -> .locked`. A wrong-password retry (`.unlocking -> .locked`) never triggers a backup.
+- **Skip rule:** an automatic backup is skipped when the live vault is exactly the version (and vault
+  id) last backed up; Back Up Now always writes. A *failed* run records nothing as "backed up", so the
+  next lock retries even if the vault is unchanged.
+- **Failures are never thrown at the lock.** They are recorded and persisted (`backup.lastFailure`),
+  shown orange in the Backup tab and as one line on the Unlock screen (`UnlockView`, via an optional
+  `BackupModel` environment so previews still work). A later success clears it.
+- A prune failure after a good store is swallowed on purpose: it must not turn a good backup into a
+  failed one.
+- `BackupDestination` gained `isConfigured`.
+- Tests (`PassFortTests/BackupModelTests.swift`, 12): filename carries the vault id, keep reaches
+  prune, overlapping presses run one backup, skip-when-unchanged and re-backup-after-change, the
+  toggle, no-folder (manual says so, automatic is silent), unavailable destination persists across a
+  relaunch, success clears it, a failed lock backup is retried, no vault.
+- **Not covered by tests, check by hand:** the NSOpenPanel flow, the TabView layout, and a real NAS.
+  Checklist: (1) Settings ▸ Backup ▸ Choose Folder… on the share; (2) Back Up Now -> a file appears;
+  (3) edit an account, lock -> a second file; (4) lock again with no edit -> no new file; (5) quit,
+  relaunch, Back Up Now still works without re-choosing the folder; (6) disconnect the NAS, Back Up
+  Now -> an orange "isn't available" message, app unaffected; lock -> the same note on the Unlock
+  screen.
 
 ---
 
