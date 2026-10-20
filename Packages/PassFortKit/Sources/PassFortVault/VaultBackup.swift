@@ -182,7 +182,8 @@ public enum VaultBackup {
     let staging = URL(fileURLWithPath: databasePath + ".restoring")
     try? fm.removeItem(at: staging)
     try fm.copyItem(at: backup, to: staging)
-    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: staging.path(percentEncoded: false))
+    try fm.setAttributes(
+      [.posixPermissions: 0o600], ofItemAtPath: staging.path(percentEncoded: false))
 
     var movedAside: URL?
     let aside = databasePath + ".pre-restore-\(timestamp(now))"

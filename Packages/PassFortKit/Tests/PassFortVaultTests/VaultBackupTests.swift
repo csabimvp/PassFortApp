@@ -23,7 +23,8 @@ import Testing
   }
 
   private func makeScratch() throws -> Scratch {
-    let dir = FileManager.default.temporaryDirectory.appending(path: "pf-backup-\(UUID().uuidString)")
+    let dir = FileManager.default.temporaryDirectory.appending(
+      path: "pf-backup-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     return Scratch(dir: dir)
   }
@@ -103,6 +104,31 @@ import Testing
     let session = try VaultSession.open(header: try await repo.header(), password: password)
     #expect(try await session.vaultUUID() == info.vaultID)
     #expect(VaultBackup.inspect(s.url("b.sqlite")) == info)
+  }
+
+  @Test func aBackupContainsNoPlaintextAndNoAntiRollbackMark() async throws {
+    let s = try makeScratch()
+    defer { s.remove() }
+    let live = s.path("vault.sqlite")
+    let repo = try await Vault.create(
+      databasePath: live, password: password, params: fastParams, deviceID: device)
+    _ = try await repo.create(
+      AccountPayload(
+        title: "ZZ-distinctive-title", username: "ZZ-distinctive-user",
+        password: "ZZ-distinctive-secret"))
+    let folder = s.url("out")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+    try VaultBackup.create(databasePath: live, to: folder.appending(path: "b.sqlite"))
+
+    let bytes = try Data(contentsOf: folder.appending(path: "b.sqlite"))
+    for needle in ["ZZ-distinctive-title", "ZZ-distinctive-user", "ZZ-distinctive-secret"] {
+      #expect(bytes.range(of: Data(needle.utf8)) == nil, "\(needle) leaked into the backup")
+    }
+    #expect(bytes.range(of: Data("correct horse".utf8)) == nil)  // nor the master password
+    // The high-water mark is local state and must not travel with a backup.
+    #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path()) == ["b.sqlite"])
+    _ = repo
   }
 
   @Test func neverOverwritesAnExistingBackup() async throws {
@@ -221,7 +247,8 @@ import Testing
     #expect(VaultBackup.date(inFileName: name) == taken)
     #expect(VaultBackup.date(inFileName: "vault.sqlite") == nil)
     #expect(VaultBackup.date(inFileName: "passfort-vault-\(id.uuidString)-nonsense.sqlite") == nil)
-    #expect(VaultBackup.date(inFileName: "passfort-vault-\(id.uuidString)-20231114T221320Z.txt") == nil)
+    #expect(
+      VaultBackup.date(inFileName: "passfort-vault-\(id.uuidString)-20231114T221320Z.txt") == nil)
   }
 
   @Test func pruneKeepsTheNewestAndTouchesOnlyThisVaultsBackups() throws {
@@ -236,7 +263,8 @@ import Testing
       mineNames.append(name)
       try Data().write(to: s.url(name))
     }
-    let otherName = VaultBackup.fileName(vaultID: other, at: Date(timeIntervalSince1970: 1_700_000_000))
+    let otherName = VaultBackup.fileName(
+      vaultID: other, at: Date(timeIntervalSince1970: 1_700_000_000))
     try Data().write(to: s.url(otherName))
     try Data().write(to: s.url("notes.txt"))
 
