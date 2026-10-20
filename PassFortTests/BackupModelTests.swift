@@ -209,6 +209,28 @@ struct BackupModelTests {
     #expect(f.destination.stored.count == 1)
   }
 
+  @Test func onlyARealLockCountsAsALock() {
+    let key = RecoveryKey.generate()
+    #expect(BackupModel.isLock(from: .unlocked, to: .locked()))
+    #expect(BackupModel.isLock(from: .unlocked, to: .locked(.io("x"))))
+    #expect(!BackupModel.isLock(from: .unlocking, to: .locked(.wrongPassword)))  // failed unlock
+    #expect(!BackupModel.isLock(from: .locked(), to: .locked()))
+    #expect(!BackupModel.isLock(from: .locked(), to: .unlocking))
+    #expect(!BackupModel.isLock(from: .unlocked, to: .unlocking))
+    #expect(!BackupModel.isLock(from: .showingRecoveryKey(key), to: .unlocked))
+    #expect(!BackupModel.isLock(from: .needsVault, to: .locked()))
+  }
+
+  @Test func latestOnlyIsTheDefaultAndPrunesToOne() async throws {
+    let f = try await makeFixture()
+    defer { f.cleanUp() }
+    #expect(f.model.keep == 1)
+
+    await f.model.backUpNow()
+
+    #expect(f.destination.pruneKeeps == [1])
+  }
+
   // MARK: - No folder / failures
 
   @Test func withoutAFolderManualSaysSoAndAutomaticStaysSilent() async throws {

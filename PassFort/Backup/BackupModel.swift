@@ -84,7 +84,9 @@ final class BackupModel {
     static let lastFailure = "backup.lastFailure"
   }
 
-  static let defaultKeep = 10
+  /// Latest only: each run stores and verifies the new file *before* pruning the old one, so there
+  /// is never a moment without a good copy -- but there is no history either.
+  static let defaultKeep = 1
 
   private(set) var status: Status
   private(set) var folderName: String?
@@ -154,6 +156,13 @@ final class BackupModel {
 
   /// "Back Up Now". Always writes a new file, and reports every failure.
   func backUpNow() async { await run(manual: true) }
+
+  /// Is `old -> new` a real lock -- the vault was open and now is not? A failed unlock attempt
+  /// (`.unlocking -> .locked(error)`) and a repeated `.locked` are not.
+  static func isLock(from old: AppModel.State, to new: AppModel.State) -> Bool {
+    guard old == .unlocked, case .locked = new else { return false }
+    return true
+  }
 
   /// The vault just locked. Backs up only if the setting is on, a folder is chosen, and the vault
   /// changed since the last backup. Failures are recorded, never thrown: locking must not wait.

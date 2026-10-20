@@ -14,8 +14,7 @@ struct PassFortApp: App {
         .environment(backup)
         .tint(Palette.primary)
         .onChange(of: model.state) { old, new in
-          // Only a real lock counts -- not a failed unlock attempt (.unlocking -> .locked).
-          if old == .unlocked, case .locked = new { Task { await backup.vaultDidLock() } }
+          if BackupModel.isLock(from: old, to: new) { Task { await backup.vaultDidLock() } }
         }
         .onChange(of: scenePhase) { _, phase in
           if phase == .background { model.lock() }

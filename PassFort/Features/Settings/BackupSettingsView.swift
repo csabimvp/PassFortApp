@@ -33,12 +33,17 @@ struct BackupSettingsView: View {
 
         Toggle("Back up automatically when locking", isOn: $backsUpOnLock)
           .disabled(!backup.hasFolder)
-        Picker("Keep the newest", selection: $keep) {
-          Text("5 backups").tag(5)
-          Text("10 backups").tag(10)
-          Text("30 backups").tag(30)
+        Picker("Keep", selection: $keep) {
+          Text("Latest only").tag(1)
+          Text("Newest 5").tag(5)
+          Text("Newest 10").tag(10)
+          Text("Newest 30").tag(30)
         }
         .disabled(!backup.hasFolder)
+        if keep == 1 {
+          Text("Each backup replaces the previous one, so there is no history to go back to.")
+            .font(.caption).foregroundStyle(.secondary)
+        }
       }
 
       Section("Restore") {
