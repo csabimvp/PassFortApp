@@ -1,6 +1,6 @@
 # M3 addendum — Vault backup & restore
 
-**Status:** In progress — Phases 0–2 done, Phases 3–4 built (2026-10-20), both awaiting their by-hand checkpoints; Phase 5 next. Follow top to bottom.
+**Status:** In progress — Phases 0–5 done or built (2026-10-20); Phases 3–4 await their by-hand checkpoints. Phase 6 (Azure) is blocked on M5; Phase 7 (vault location) is a plan awaiting two decisions.
 **Prerequisite:** M3 Phases 1–8 done (the app runs, unlocks, edits, auto-locks). Independent of M4/M5, but
 Phase 0 below says where it touches each.
 **Spec:** `architecture.md` §5.5 (manifest / anti-rollback), §8.2 (WAL, `0600`, one live file), §9–§10
@@ -212,7 +212,7 @@ nothing, lock → no new file.
   `Status` = idle | running | succeeded(date, version) | failed(message), the on-lock and keep
   settings, persisted last-success/last-failure in `UserDefaults`).
 - `Features/Settings/BackupSettingsView.swift`: folder (NSOpenPanel), Back Up Now with a spinner, a
-  status line, the on-lock toggle (default **on**, inert until a folder is chosen), keep 5/10/30.
+  status line, the on-lock toggle (default **on**, inert until a folder is chosen), keep **Latest only (default)** / 5 / 10 / 30. Latest-only still stores and verifies the new file *before* pruning the old one, so there is never a moment without a good copy; it just keeps no history.
 - **The lock hook** is `.onChange(of: model.state)` in `PassFortApp`, firing only for
   `.unlocked -> .locked`. A wrong-password retry (`.unlocking -> .locked`) never triggers a backup.
 - **Skip rule:** an automatic backup is skipped when the live vault is exactly the version (and vault
@@ -289,7 +289,7 @@ pre-restore files exist, and unlock works after accept-restore.
 
 ---
 
-## Phase 5 — Tests and CI
+## Phase 5 — Tests and CI — DONE (2026-10-20)
 
 - `PassFortTests`: `BackupModel` with a fake `BackupDestination` (success, unavailable, stale bookmark,
   prune); `AppModel` restore transition; auto-backup-on-lock skips when version unchanged.
@@ -297,6 +297,30 @@ pre-restore files exist, and unlock works after accept-restore.
   explicit-coverage list the storage job prints (see `ci.yml`).
 - Audit deliberately: no master password, key, or record plaintext in any log line or error string
   produced by this feature (project rule: no secret reaches a log).
+
+### What shipped (and what the audit found)
+
+- **CI would have failed.** `ci.yml` runs `swift format lint --strict --recursive Sources Tests` on the
+  package; four lines in `VaultBackup.swift` / `VaultBackupTests.swift` exceeded the length limit
+  (nobody had run the linter). Fixed with `swift format format --in-place` on those two files only;
+  lint is clean. **Run `swift format lint --strict --recursive Sources Tests` from
+  `Packages/PassFortKit` before committing package code.**
+- **App tests unsigned.** CI runs `xcodebuild test … CODE_SIGNING_ALLOWED=NO` (no sandbox, no
+  entitlements). Run locally with that flag: all green, including the security-scoped-bookmark tests.
+- **Secrets-in-logs audit: clean.** There is no `print` / `NSLog` / `os_log` / `Logger` / `dump` call
+  anywhere in `PassFort/` or `PassFortVault`'s sources (the CLI's `print` output is its UI, to the
+  user's terminal). Backup/restore error text carries file names and `localizedDescription` only,
+  never keys, passwords or record contents.
+- **Test: a backup contains no plaintext** (`aBackupContainsNoPlaintextAndNoAntiRollbackMark`): a
+  vault with distinctive title/username/password is backed up; none of them, nor the master password,
+  appears in the bytes, and the backup folder holds only the one file (no `.hw`).
+- **Test: what counts as a lock** (`BackupModel.isLock(from:to:)`, now what `PassFortApp` calls): only
+  `.unlocked -> .locked`; a wrong-password retry, a repeated `.locked`, `.unlocking`, the recovery-key
+  screen and `.needsVault` never trigger a backup. This was previously a comment in `PassFortApp`.
+- `ci.yml` needs no new step: `swift test` already runs `VaultBackupTests` and `xcodebuild test` runs
+  the app suites. Its comment listing what `swift test` covers now mentions the backup suite.
+- Already covered in Phases 3–4 and not repeated: `BackupModel` with a fake destination, the
+  `AppModel` restore transition, skip-when-unchanged.
 
 ---
 
@@ -318,6 +342,74 @@ phases don't paint us into a corner:
 - Needs `com.apple.security.network.client` in `PassFort.entitlements`.
 - UI: a second "Destinations" row in the Backup section; both destinations run on Back Up Now / on lock.
 - Open: bring Azure backup under ADR-0005 as an amendment, or a new ADR — decide when M5 auth lands.
+
+---
+
+## Phase 7 — Choose where the live vault lives (PLAN, not started)
+
+The backup folder is chosen in Settings; the same choice for the **live** vault ("put it on my
+external drive / in a folder I pick") reverses the first decision in this document ("one live vault,
+always local"), so it is planned here and not built until the two decisions at the end are made.
+
+### What the live vault can and can't live on
+
+| Location | Verdict | Why |
+|---|---|---|
+| A folder on an internal or external **local** volume | allowed | SQLite + WAL are fine on a local filesystem |
+| A mounted **network** share (SMB/NFS: the NAS) | refused | WAL needs shared memory and reliable locks; that is how a vault gets corrupted. Detect with `URLResourceKey.volumeIsLocalKey == false`. The NAS stays a *backup* destination. |
+| A **cloud-synced** folder (iCloud Drive, Dropbox, OneDrive, Google Drive: `~/Library/CloudStorage/…`, `~/Library/Mobile Documents/…`) | refused | A sync client rewriting `-wal`/`-shm`/the main file under a live SQLite connection corrupts it. Refuse with a plain explanation rather than warn. |
+
+### Design
+
+1. **Moving is a copy-verify-switch, never a bare pointer change.** Two vault files with a stored
+   pointer between them diverge silently. "Move Vault…" runs: lock -> `VaultBackup.create` into a
+   local temp dir (WAL-safe) -> `VaultBackup.restore(from:toDatabasePath:)` onto
+   `<chosen>/PassFort/vault.sqlite` (already tested; moves anything already there aside, refuses a
+   *different* vault) -> `inspect` the result and require the same vault id, `vault_version` and
+   manifest MAC -> only then save the new location -> move the old files aside as
+   `vault.sqlite.pre-move-<time>` (kept, never deleted) -> ask the user to quit and reopen. "Use
+   Default Location" is the same operation in the other direction.
+2. **The location is a security-scoped bookmark** in `UserDefaults` (same entitlements as the backup
+   folder, nothing new). It is resolved **once at launch**, before `AppModel` is created, and its scope
+   is held open for the whole session (the `-wal`/`-shm` files live in that folder). A new
+   `VaultLocation` type owns resolve / scope / move.
+3. **Takes effect after a relaunch.** `AppModel`, `BackupModel` and `RestoreModel` all take their
+   `databasePath` at construction. Rebuilding them live is a larger and riskier change than one
+   "Quit PassFort" button, so the move finishes with that button.
+4. **A configured-but-unreachable location is its own screen**, never "Create a vault". Today
+   `.needsVault` means "no file": if the external drive is unplugged and the app fell through to
+   Create, it would make a second, empty vault in the default location. A `VaultLocationUnavailable`
+   screen (Retry / Choose Another Location / Use Default Location) is shown instead, decided before
+   `RootView` in `PassFortApp`.
+5. **The anti-rollback mark stays on this Mac.** Today it is `<db>.hw` beside the vault; in a chosen
+   folder that would travel with the folder, and a restored old folder would restore an old mark with
+   it, defeating the check. For a non-default location the mark lives in the app container keyed by
+   vault UUID (`HighWaterMark(url:)` already exists). This needs `Vault.create/unlock/…` to accept an
+   optional `highWater:` (default unchanged), a small `PassFortVault` change with tests, and a one-time
+   copy of the current mark on a move. M4 Phase 3 moves the mark to the Keychain anyway; this is
+   compatible with it.
+6. Backup and restore follow the location automatically (they already take `databasePath`); a backup
+   made from the live vault in a custom folder is identical to one from the default.
+
+### Phases
+
+- 7a `VaultLocation` + local-volume / cloud-folder checks + tests (temp dirs; a fake "remote" volume
+  check behind a protocol).
+- 7b `PassFortVault`: optional `highWater:` on `Vault.create/createWithRecovery/recover/unlock` + tests.
+- 7c Launch wiring in `PassFortApp` and the unavailable-location screen.
+- 7d Settings ▸ General ▸ "Vault location": show the path, **Move Vault…**, **Use Default Location**,
+  the quit-and-reopen step.
+- 7e Tests for the move (round trip, different-vault refusal, same-version/MAC verification failure
+  leaves the old vault active, interrupted move) and a by-hand checklist (external drive unplugged at
+  launch; moving there and back).
+
+### Decisions needed before 7a
+
+1. **Is "local folders only" what you want?** The NAS and cloud-synced folders would be refused for the
+   live vault (they stay valid *backup* destinations). If the aim was the NAS as the live location, this
+   plan does not give you that, and I would advise against it.
+2. **Is "takes effect after relaunch" acceptable?** (Alternative: rebuild the models live; more code,
+   more risk, no extra capability.)
 
 ---
 

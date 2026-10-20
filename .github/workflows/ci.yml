@@ -47,7 +47,8 @@ jobs:
         # `swift test` covers, over Packages/PassFortKit: the M1 seam round-trip and
         # boundary fuzz, and the whole M2 storage suite -- VaultRepository transaction
         # atomicity, tombstones, the migration-fixture tests (§13.4), the anti-rollback
-        # delete-a-row / restore-old-file tests, and the mid-write kill test.
+        # delete-a-row / restore-old-file tests, and the mid-write kill test -- plus VaultBackup
+        # (WAL-safe snapshot, restore, retention, and that a backup carries no plaintext).
         env:
           PF_KILLTEST_BIN: ${{ github.workspace }}/Packages/PassFortKit/.build/debug/pf-killtest
         run: |
