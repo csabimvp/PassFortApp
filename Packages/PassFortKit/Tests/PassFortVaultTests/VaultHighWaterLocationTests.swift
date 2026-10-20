@@ -43,6 +43,16 @@ import Testing
     #expect(!exists(s.vaultPath + ".hw"))  // not beside the vault
   }
 
+  @Test func writingCreatesAMissingFolder() throws {
+    let s = try makeScratch()
+    defer { s.remove() }
+    let mark = HighWaterMark(url: s.dir.appending(path: "not/yet/there/m.hw"))
+
+    try mark.write(7)
+
+    #expect(try mark.read() == 7)
+  }
+
   @Test func theDefaultIsStillTheSidecarBesideTheVault() async throws {
     let s = try makeScratch()
     defer { s.remove() }

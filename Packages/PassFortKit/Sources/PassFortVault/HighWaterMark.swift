@@ -28,6 +28,10 @@ public struct HighWaterMark: Sendable {
   }
 
   public func write(_ version: UInt64) throws {
+    // The mark can live in a folder that doesn't exist yet (the app's own storage, for a vault in a
+    // user-chosen folder); a write must not depend on something else having made it first.
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     var bigEndian = version.bigEndian
     let data = withUnsafeBytes(of: &bigEndian) { Data($0) }
     try data.write(to: url, options: [.atomic])
