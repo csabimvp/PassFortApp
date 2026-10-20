@@ -99,6 +99,28 @@ public enum VaultBackup {
     "\(namePrefix(for: vaultID))\(timestamp(date)).sqlite"
   }
 
+  /// When a backup was taken, read back from its name (UTC, to the second). `nil` for any name
+  /// `fileName(vaultID:at:)` would not have produced -- a renamed copy simply shows no date.
+  public static func date(inFileName name: String) -> Date? {
+    let suffix = ".sqlite"
+    guard name.hasPrefix("passfort-vault-"), name.hasSuffix(suffix) else { return nil }
+    // The vault UUID has dashes too, so the stamp is whatever follows the *last* one.
+    guard let stamp = name.dropLast(suffix.count).split(separator: "-").last,
+      stamp.count == 16, stamp.dropFirst(8).first == "T", stamp.last == "Z"
+    else { return nil }
+    let digits = stamp.filter(\.isNumber)
+    guard digits.count == 14,
+      let year = Int(digits.prefix(4)), let month = Int(digits.dropFirst(4).prefix(2)),
+      let day = Int(digits.dropFirst(6).prefix(2)), let hour = Int(digits.dropFirst(8).prefix(2)),
+      let minute = Int(digits.dropFirst(10).prefix(2)), let second = Int(digits.dropFirst(12))
+    else { return nil }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+    return calendar.date(
+      from: DateComponents(
+        year: year, month: month, day: day, hour: hour, minute: minute, second: second))
+  }
+
   /// The backups of `vaultID` in `folder`, newest first. Only names `fileName(vaultID:at:)` would
   /// have produced for that vault count, so other vaults' backups and unrelated files are ignored.
   /// Ordering is by name, not modification time: NAS clocks and `mtime`s are not trustworthy.

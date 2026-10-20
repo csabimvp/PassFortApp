@@ -213,6 +213,17 @@ import Testing
     #expect(early == "passfort-vault-\(id.uuidString.lowercased())-20231114T221320Z.sqlite")
   }
 
+  @Test func theDateRoundTripsThroughTheFileName() {
+    let id = UUID()
+    let taken = Date(timeIntervalSince1970: 1_700_000_000)
+    let name = VaultBackup.fileName(vaultID: id, at: taken)
+
+    #expect(VaultBackup.date(inFileName: name) == taken)
+    #expect(VaultBackup.date(inFileName: "vault.sqlite") == nil)
+    #expect(VaultBackup.date(inFileName: "passfort-vault-\(id.uuidString)-nonsense.sqlite") == nil)
+    #expect(VaultBackup.date(inFileName: "passfort-vault-\(id.uuidString)-20231114T221320Z.txt") == nil)
+  }
+
   @Test func pruneKeepsTheNewestAndTouchesOnlyThisVaultsBackups() throws {
     let s = try makeScratch()
     defer { s.remove() }
