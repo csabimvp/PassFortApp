@@ -236,6 +236,28 @@ import Testing
     #expect(left == Set(mineNames.suffix(2) + [otherName, "notes.txt"]))
   }
 
+  @Test func backupsListsOnlyThisVaultsFilesNewestFirst() throws {
+    let s = try makeScratch()
+    defer { s.remove() }
+    let mine = UUID()
+    let other = UUID()
+    let times: [Double] = [1_700_000_000, 1_700_100_000, 1_700_050_000]
+    for t in times {
+      try Data().write(
+        to: s.url(VaultBackup.fileName(vaultID: mine, at: Date(timeIntervalSince1970: t))))
+    }
+    try Data().write(to: s.url(VaultBackup.fileName(vaultID: other, at: .now)))
+    try Data().write(to: s.url("notes.txt"))
+
+    let listed = try VaultBackup.backups(in: s.dir, vaultID: mine).map(\.lastPathComponent)
+
+    let expected = times.sorted(by: >).map {
+      VaultBackup.fileName(vaultID: mine, at: Date(timeIntervalSince1970: $0))
+    }
+    #expect(listed == expected)
+    #expect(try VaultBackup.backups(in: s.url("nope"), vaultID: mine).isEmpty)
+  }
+
   @Test func pruneNeverDeletesEverythingAndToleratesAMissingFolder() throws {
     let s = try makeScratch()
     defer { s.remove() }

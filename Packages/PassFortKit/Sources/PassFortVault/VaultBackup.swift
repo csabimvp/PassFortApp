@@ -99,25 +99,29 @@ public enum VaultBackup {
     "\(namePrefix(for: vaultID))\(timestamp(date)).sqlite"
   }
 
-  /// Delete all but the newest `keep` backups of `vaultID` in `folder` (at least one is always
-  /// kept). Only names this type would have produced for that vault are touched, so other
-  /// vaults' backups and unrelated files are safe. Ordering is by name, not modification time:
-  /// NAS clocks and `mtime`s are not trustworthy.
-  ///
-  /// - Returns: the names removed. A missing folder is not an error.
-  @discardableResult
-  public static func prune(in folder: URL, vaultID: UUID, keep: Int) throws -> [String] {
+  /// The backups of `vaultID` in `folder`, newest first. Only names `fileName(vaultID:at:)` would
+  /// have produced for that vault count, so other vaults' backups and unrelated files are ignored.
+  /// Ordering is by name, not modification time: NAS clocks and `mtime`s are not trustworthy.
+  /// A missing folder is not an error.
+  public static func backups(in folder: URL, vaultID: UUID) throws -> [URL] {
     let fm = FileManager.default
-    let folderPath = folder.path(percentEncoded: false)
-    guard fm.fileExists(atPath: folderPath) else { return [] }
-
+    guard fm.fileExists(atPath: folder.path(percentEncoded: false)) else { return [] }
     let prefix = namePrefix(for: vaultID)
-    let mine = try fm.contentsOfDirectory(atPath: folderPath)
+    return try fm.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
       .filter { $0.hasPrefix(prefix) && $0.hasSuffix(".sqlite") }
       .sorted(by: >)
-    let doomed = Array(mine.dropFirst(max(keep, 1)))
-    for name in doomed { try fm.removeItem(at: folder.appending(path: name)) }
-    return doomed
+      .map { folder.appending(path: $0) }
+  }
+
+  /// Delete all but the newest `keep` backups of `vaultID` in `folder` (at least one is always
+  /// kept); see `backups(in:vaultID:)` for what counts as one.
+  ///
+  /// - Returns: the names removed.
+  @discardableResult
+  public static func prune(in folder: URL, vaultID: UUID, keep: Int) throws -> [String] {
+    let doomed = try backups(in: folder, vaultID: vaultID).dropFirst(max(keep, 1))
+    for url in doomed { try FileManager.default.removeItem(at: url) }
+    return doomed.map(\.lastPathComponent)
   }
 
   // MARK: - Restore
