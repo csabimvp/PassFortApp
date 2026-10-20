@@ -14,6 +14,9 @@ enum AppError: Error, Equatable {
   /// backup or a rolled-back file. The versions drive the Unlock screen's
   /// "this was a backup I restored" prompt (Phase 3).
   case rolledBack(fileVersion: UInt64, lastSeen: UInt64)
+  /// A folder can't hold the live vault (network drive, synced folder, not writable...). The value
+  /// is the full sentence to show.
+  case locationNotAllowed(String)
   /// A file picked for restore isn't a usable PassFort vault backup.
   case notABackup
   /// Backups have no destination folder yet (Settings ▸ Backup ▸ Choose Folder).
@@ -43,6 +46,8 @@ enum AppError: Error, Equatable {
       return "This vault was modified outside PassFort and isn't safe to open."
     case .rolledBack(let fileVersion, let lastSeen):
       return "This vault is v\(fileVersion); this Mac last saw v\(lastSeen). It looks rolled back."
+    case .locationNotAllowed(let reason):
+      return reason
     case .notABackup:
       return "That file isn't a PassFort vault backup."
     case .backupNotConfigured:
