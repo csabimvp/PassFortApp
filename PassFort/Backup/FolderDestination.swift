@@ -10,7 +10,8 @@ nonisolated protocol BookmarkStore: Sendable {
 /// The bookmark is a pointer to a folder, not a secret, so `UserDefaults` is the right home.
 nonisolated struct UserDefaultsBookmarkStore: BookmarkStore {
   static let key = "backup.folderBookmark"
-  private let defaults: UserDefaults
+  /// `UserDefaults` is documented as thread-safe; it just isn't annotated `Sendable`.
+  nonisolated(unsafe) private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 

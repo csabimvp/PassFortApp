@@ -9,11 +9,13 @@ struct RestoreBackupButton: View {
   @Environment(AppModel.self) private var model
   /// Optional so previews that only inject `AppModel` keep working.
   @Environment(BackupModel.self) private var backup: BackupModel?
+  @Environment(VaultLocationModel.self) private var location: VaultLocationModel?
   @State private var restore = RestoreModel()
 
   var body: some View {
     Button("Restore from Backup…", action: pick)
       .disabled(restore.isBusy || !restoreAllowed)
+      .onAppear { if let location { restore.databasePath = location.databasePath } }
       .alert(
         "Restore this backup?", isPresented: confirmingBinding, presenting: candidate
       ) { candidate in
@@ -38,10 +40,7 @@ struct RestoreBackupButton: View {
 
   /// Not while a vault is being created or unlocked: the files are in use.
   private var restoreAllowed: Bool {
-    switch model.state {
-    case .unlocking, .showingRecoveryKey: return false
-    case .needsVault, .locked, .unlocked: return true
-    }
+    model.state.allowsFileMoves && location?.isUsable != false && location?.needsRelaunch != true
   }
 
   private func pick() {

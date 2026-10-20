@@ -19,6 +19,18 @@ nonisolated struct VaultService {
   /// path the CLI uses. They converge in M5 (sync).
   let databasePath: String
 
+  /// Where the anti-rollback mark lives. `nil` is the default, the `<db>.hw` sidecar beside the
+  /// vault; a vault in a user-chosen folder keeps its mark in the app's own storage instead
+  /// (`VaultLocation.customHighWaterURL`).
+  let highWaterURL: URL?
+
+  init(databasePath: String, highWaterURL: URL? = nil) {
+    self.databasePath = databasePath
+    self.highWaterURL = highWaterURL
+  }
+
+  private var highWater: HighWaterMark? { highWaterURL.map(HighWaterMark.init(url:)) }
+
   /// Cheap, side-effect-free (§2.3): is there an initialised vault at the path?
   func exists() -> Bool { Vault.exists(databasePath: databasePath) }
 
@@ -35,11 +47,13 @@ nonisolated struct VaultService {
     do {
       if recovery {
         let (repo, key) = try await Vault.createWithRecovery(
-          databasePath: databasePath, password: password, params: params, deviceID: Self.deviceID)
+          databasePath: databasePath, password: password, params: params, deviceID: Self.deviceID,
+          highWater: highWater)
         return (repo, key)
       }
       let repo = try await Vault.create(
-        databasePath: databasePath, password: password, params: params, deviceID: Self.deviceID)
+        databasePath: databasePath, password: password, params: params, deviceID: Self.deviceID,
+        highWater: highWater)
       return (repo, nil)
     } catch {
       throw Self.map(error)
@@ -50,7 +64,8 @@ nonisolated struct VaultService {
   func unlock(password: Data) async throws -> VaultRepository {
     do {
       return try await Vault.unlock(
-        databasePath: databasePath, password: password, deviceID: Self.deviceID)
+        databasePath: databasePath, password: password, deviceID: Self.deviceID,
+        highWater: highWater)
     } catch {
       throw Self.map(error)
     }
@@ -59,7 +74,7 @@ nonisolated struct VaultService {
   /// The GUI's `verify --accept-restore`: clear the anti-rollback sidecar so the
   /// next `unlock` accepts the file and repairs the mark forward.
   func acceptRestoredBackup() throws {
-    try HighWaterMark(sidecarFor: databasePath).reset()
+    try (highWater ?? HighWaterMark(sidecarFor: databasePath)).reset()
   }
 
   // MARK: - Error translation

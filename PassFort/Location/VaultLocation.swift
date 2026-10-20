@@ -72,7 +72,8 @@ nonisolated protocol VaultLocationStore: Sendable {
 
 nonisolated struct UserDefaultsVaultLocationStore: VaultLocationStore {
   static let key = "vault.location"
-  private let defaults: UserDefaults
+  /// `UserDefaults` is documented as thread-safe; it just isn't annotated `Sendable`.
+  nonisolated(unsafe) private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
@@ -128,8 +129,7 @@ nonisolated enum VaultLocation {
   /// **opens its security scope and deliberately never closes it**: the database's `-wal`/`-shm`
   /// files live in that folder for as long as the app runs.
   static func resolveAtLaunch(
-    store: any VaultLocationStore = UserDefaultsVaultLocationStore(),
-    supportDirectory: URL = .applicationSupportDirectory
+    store: any VaultLocationStore = UserDefaultsVaultLocationStore()
   ) -> Resolution {
     guard let record = store.load() else { return .standard }
     let missing = databasePath(inChosenFolder: URL(fileURLWithPath: record.path))
@@ -155,10 +155,6 @@ nonisolated enum VaultLocation {
     if stale, let fresh = try? FolderDestination.makeBookmark(for: folder) {
       store.save(VaultLocationRecord(bookmark: fresh, path: folder.path(percentEncoded: false)))
     }
-    // The mark lives in the app's own storage; make sure its folder exists before the first write.
-    try? FileManager.default.createDirectory(
-      at: customHighWaterURL(supportDirectory: supportDirectory).deletingLastPathComponent(),
-      withIntermediateDirectories: true)
     return .custom(Custom(folder: folder, databasePath: databasePath(inChosenFolder: folder)))
   }
 }

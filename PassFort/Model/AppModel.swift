@@ -37,8 +37,8 @@ final class AppModel {
   /// (so "repo is non-nil only in .unlocked" stays true during `.showingRecoveryKey`).
   private var stagedRepo: VaultRepository?
 
-  init(databasePath: String = VaultDatabase.defaultPath) {
-    self.service = VaultService(databasePath: databasePath)
+  init(databasePath: String = VaultDatabase.defaultPath, highWaterURL: URL? = nil) {
+    self.service = VaultService(databasePath: databasePath, highWaterURL: highWaterURL)
     self.state = service.exists() ? .locked() : .needsVault
   }
 

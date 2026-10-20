@@ -1,6 +1,6 @@
 # M3 addendum — Vault backup & restore
 
-**Status:** In progress — Phases 0–5 done or built (2026-10-20); Phases 3–4 await their by-hand checkpoints. Phase 6 (Azure) is blocked on M5; Phase 7 (vault location) is a plan awaiting two decisions.
+**Status:** In progress — Phases 0–5 and 7 built (2026-10-20). Phases 3, 4 and 7 await their by-hand checkpoints; Phase 6 (Azure) is blocked on M5.
 **Prerequisite:** M3 Phases 1–8 done (the app runs, unlocks, edits, auto-locks). Independent of M4/M5, but
 Phase 0 below says where it touches each.
 **Spec:** `architecture.md` §5.5 (manifest / anti-rollback), §8.2 (WAL, `0600`, one live file), §9–§10
@@ -345,7 +345,7 @@ phases don't paint us into a corner:
 
 ---
 
-## Phase 7 — Choose where the live vault lives (PLAN, not started)
+## Phase 7 — Choose where the live vault lives — BUILT (2026-10-20), manual checkpoint pending
 
 The backup folder is chosen in Settings; the same choice for the **live** vault ("put it on my
 external drive / in a folder I pick") reverses the first decision in this document ("one live vault,
@@ -403,14 +403,67 @@ always local"), so it is planned here and not built until the two decisions at t
   leaves the old vault active, interrupted move) and a by-hand checklist (external drive unplugged at
   launch; moving there and back).
 
-### Decisions needed before 7a
+### Decisions (made 2026-10-20)
 
-1. **Is "local folders only" what you want?** The NAS and cloud-synced folders would be refused for the
-   live vault (they stay valid *backup* destinations). If the aim was the NAS as the live location, this
-   plan does not give you that, and I would advise against it.
-2. **Is "takes effect after relaunch" acceptable?** (Alternative: rebuild the models live; more code,
-   more risk, no extra capability.)
+1. **Local folders only.** The NAS and cloud-synced folders are refused for the live vault (they stay
+   valid *backup* destinations).
+2. **A move takes effect after a relaunch.** The move ends on a blocking "Restart to finish" screen.
 
+### What shipped (deviations from the plan above)
+
+- **7a** `Location/VaultLocation.swift`: `LocationProblem` + `SystemFolderChecker` (not a folder, not
+  writable, `volumeIsLocal == false` -> network, `/Library/CloudStorage`, `/Library/Mobile Documents`,
+  `com~apple~CloudDocs` or an iCloud-ubiquitous item -> synced), `VaultLocationRecord`/`Store`
+  (bookmark + path, `UserDefaults`), and `VaultLocation.resolveAtLaunch` -> `.standard | .custom |
+  .unavailable`. For a chosen folder it opens the security scope and **never closes it** (the `-wal` /
+  `-shm` live there for the whole run). The vault sits in `<chosen>/PassFort/vault.sqlite`.
+- **7b** (package) `Vault.create / createWithRecovery / recover / unlock` take an optional
+  `highWater:`; default unchanged, so the CLI is unaffected.
+  **Found by the tests:** `HighWaterMark.write` failed when its folder did not exist, and the app only
+  worked because launch happened to create the folder first. `write` now creates its own folder
+  (package commit `60e17be`), and the duplicate `mkdir` calls in launch and the mover were removed.
+- **7c** `PassFortApp.init` resolves the location once, before anything opens the vault, and builds
+  `AppModel(databasePath:highWaterURL:)`, `BackupModel` and the location model from it. `VaultService`
+  and `AppModel.init` gained `highWaterURL` (default `nil`: unchanged). `RestoreBackupButton` now takes
+  its path from the location, so a restore targets the vault actually in use. The window shows
+  `VaultLocationUnavailableView` for an unreachable folder (never "Create a vault") and
+  `RelaunchRequiredView` after a move.
+- **7d** A **Vault** tab in Settings (General | Vault | Backup): the path, **Move Vault…** (folder
+  picker -> confirmation -> move), **Use Default Location**, the result, and **Restart PassFort**.
+  The "unavailable" screen offers *Restart and Try Again*, *Choose Another Folder…* and *Use Default
+  Location* (both pointer-only: nothing can be copied from a drive that is not there; the confirmation
+  says what happens if the chosen folder holds no vault).
+- **The order is copy -> verify -> switch the pointer -> retire the old files** (`VaultMover.copy`,
+  `store.save`, `VaultMover.retire`). Verification requires the same vault id, `vault_version` and
+  manifest MAC. The anti-rollback mark is carried to the new location and never lowered. A different
+  vault already at the target is refused; an older copy of the same vault there is set aside, kept.
+  Old files become `vault.sqlite.pre-move-<time>` (+ `-wal`/`-shm`), never deleted.
+- After a successful move, backups stay **paused** and the vault stays locked: this process still
+  points at the old place, so the app shows only the restart screen.
+- Tests: `VaultLocationTests` (18), `VaultMoverTests` (10), `VaultLocationModelTests` (9, including
+  `AppModel` keeping its mark where it was told), `VaultHighWaterLocationTests` (6, package).
+- **Not covered by tests:** (1) the "copy did not verify" rollback in `VaultMover` (nothing can force a
+  verification failure; the code path is small and reviewed, but unexercised); (2) real
+  `volumeIsLocal == false` detection on an SMB mount (the unit tests use a fake checker; the NAS was
+  not mounted); (3) the open panels, alerts and the relaunch button.
+
+### Check by hand
+
+1. **Settings ▸ Vault** shows the default path. **Move Vault…**, pick a folder on an attached drive or
+   in Documents; the confirmation names it; **Move Vault** -> the "Restart to finish" screen.
+2. **Restart PassFort.** Unlock with the usual password; your accounts are all there. Settings ▸ Vault
+   shows the new path and "A folder you chose". The old file sits beside the old location as
+   `vault.sqlite.pre-move-…`.
+3. Edit an account, lock, restart: the edit survived (it was written to the new vault).
+4. **Network drive refused:** with the NAS mounted, Move Vault… to a folder on it -> "That folder is on a
+   network drive…". This is the real test of the volume check.
+5. **Synced folder refused:** pick a folder inside Dropbox/iCloud Drive -> the "synced" message.
+6. **Unavailable:** with the vault on an external drive, quit, eject the drive, relaunch -> "Your vault
+   isn't available", never Create. Reconnect, **Restart and Try Again** -> normal unlock.
+7. **Back:** Settings ▸ Vault ▸ **Use Default Location** -> restart -> unlock; the vault is in
+   PassFort's own storage again and Settings shows "PassFort's own storage".
+8. **Backup and Restore still work** from the new location (Back Up Now; Restore replaces the vault
+   that is actually in use).
 ---
 
 ## Where this leaves you

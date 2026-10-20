@@ -98,7 +98,9 @@ final class RestoreModel {
   }
 
   private(set) var step: Step = .idle
-  private let databasePath: String
+  /// The vault being replaced. A view sets it from the resolved location when it appears (a view's
+  /// `@State` initial value can't read the environment); tests pass it to `init`.
+  var databasePath: String
 
   init(databasePath: String = VaultDatabase.defaultPath) {
     self.databasePath = databasePath

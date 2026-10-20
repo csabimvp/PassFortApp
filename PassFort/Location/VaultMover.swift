@@ -73,10 +73,6 @@ nonisolated enum VaultMover {
     }
 
     do {
-      if let markURL = target.highWaterURL {
-        try fm.createDirectory(
-          at: markURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-      }
       // Never lower a mark that is already further ahead at the target.
       let carried = try max(source.highWater.read(), target.highWater.read())
       try target.highWater.write(carried)

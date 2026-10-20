@@ -104,18 +104,14 @@ struct VaultLocationTests {
 
   @Test func aSavedFolderResolvesToACustomLocation() throws {
     let folder = try makeFolder()
-    let support = try makeFolder()
-    defer {
-      try? FileManager.default.removeItem(at: folder)
-      try? FileManager.default.removeItem(at: support)
-    }
+    defer { try? FileManager.default.removeItem(at: folder) }
     let store = MemoryStore()
     store.save(
       VaultLocationRecord(
         bookmark: try FolderDestination.makeBookmark(for: folder),
         path: folder.path(percentEncoded: false)))
 
-    let resolution = VaultLocation.resolveAtLaunch(store: store, supportDirectory: support)
+    let resolution = VaultLocation.resolveAtLaunch(store: store)
 
     guard case .custom(let custom) = resolution else {
       Issue.record("expected .custom, got \(resolution)")
@@ -123,11 +119,6 @@ struct VaultLocationTests {
     }
     #expect(custom.databasePath.hasSuffix("/PassFort/vault.sqlite"))
     #expect(custom.databasePath.contains(folder.lastPathComponent))
-    // The mark's folder is ready for the first write.
-    var isDirectory: ObjCBool = false
-    let markFolder = VaultLocation.customHighWaterURL(supportDirectory: support)
-      .deletingLastPathComponent().path(percentEncoded: false)
-    #expect(FileManager.default.fileExists(atPath: markFolder, isDirectory: &isDirectory) && isDirectory.boolValue)
   }
 
   @Test func aFolderThatWentAwayIsUnavailableNeverNoVault() throws {
