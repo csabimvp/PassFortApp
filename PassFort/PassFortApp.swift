@@ -36,7 +36,7 @@ struct PassFortApp: App {
       TabView {
         SettingsView().environment(model).tint(Palette.primary)
           .tabItem { Label("General", systemImage: "gearshape") }
-        BackupSettingsView().environment(backup).tint(Palette.primary)
+        BackupSettingsView().environment(model).environment(backup).tint(Palette.primary)
           .tabItem { Label("Backup", systemImage: "externaldrive") }
       }
     }

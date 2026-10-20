@@ -42,6 +42,12 @@ struct CreateVaultView: View {
       }
 
       if working { ProgressView("Calibrating & creating…") }
+
+      Divider()
+      HStack {
+        Text("Setting up a new Mac?").font(.caption).foregroundStyle(.secondary)
+        RestoreBackupButton().buttonStyle(.link).font(.caption)
+      }
     }
     .padding(32)
     .frame(width: 400)

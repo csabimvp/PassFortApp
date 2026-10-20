@@ -146,6 +146,28 @@ struct AppModelTests {
 
   // MARK: - Rollback
 
+  @Test func reloadAfterRestoreShowsTheScreenThatMatchesTheDisk() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    let model = AppModel(databasePath: path)
+    #expect(model.state == .needsVault)
+
+    try await makeVault(at: path)  // a restore put a vault in place
+    model.reloadAfterRestore()
+    #expect(model.state == .locked())
+
+    await model.unlock(password: Data("correct horse".utf8))
+    #expect(model.state == .unlocked)
+    model.reloadAfterRestore()  // an unlocked vault is released, not left open over new files
+    #expect(model.repo == nil)
+    #expect(model.state == .locked())
+
+    for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: path + suffix) }
+    model.reloadAfterRestore()
+    #expect(model.state == .needsVault)
+  }
+
   @Test func aRolledBackVaultOffersRestoreThenUnlocks() async throws {
     let dir = try tempDir()
     defer { try? FileManager.default.removeItem(at: dir) }

@@ -108,6 +108,14 @@ final class AppModel {
     state = .locked()
   }
 
+  /// The vault files on disk were replaced behind the model's back (a restore): drop everything
+  /// open and show the screen that matches what is there now -- Unlock if there is a vault,
+  /// Create if there still is none.
+  func reloadAfterRestore() {
+    lock()
+    state = service.exists() ? .locked() : .needsVault
+  }
+
   // MARK: - Auto-lock
 
   /// The idle timeout, in seconds — a `UserDefaults` preference (`SettingsView`),

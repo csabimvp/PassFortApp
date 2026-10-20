@@ -13,6 +13,10 @@ nonisolated protocol BackupDestination: Sendable {
   /// A short name for the status line, e.g. "PassFort" for `/Volumes/nas/Zeus/PassFort`.
   var displayName: String { get }
 
+  /// Where a person would look for the files, for opening a file picker there. A hint only: it
+  /// grants no access. `nil` when the destination isn't a folder.
+  var folderURL: URL? { get }
+
   /// Copy the local backup `file` into the destination under its own file name, atomically (a
   /// half-copied file is never visible under the final name), and confirm it landed intact.
   /// Never overwrites. Returns the stored file's name.

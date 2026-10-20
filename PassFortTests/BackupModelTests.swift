@@ -31,6 +31,7 @@ struct BackupModelTests {
 
     var isConfigured: Bool { configured }
     var displayName: String { "Fake NAS" }
+    var folderURL: URL? { nil }
 
     @concurrent func store(_ file: URL) async throws -> String {
       if let failure { throw failure }
@@ -191,6 +192,21 @@ struct BackupModelTests {
 
     #expect(f.destination.stored.isEmpty)
     #expect(f.model.status == .idle)
+  }
+
+  @Test func aPausedModelNeverTouchesTheFilesAMidSwapRestoreIsMoving() async throws {
+    let f = try await makeFixture()
+    defer { f.cleanUp() }
+    f.model.setPaused(true)
+
+    await f.model.vaultDidLock()
+    await f.model.backUpNow()
+    #expect(f.destination.stored.isEmpty)
+    #expect(f.model.status == .idle)
+
+    f.model.setPaused(false)
+    await f.model.backUpNow()
+    #expect(f.destination.stored.count == 1)
   }
 
   // MARK: - No folder / failures

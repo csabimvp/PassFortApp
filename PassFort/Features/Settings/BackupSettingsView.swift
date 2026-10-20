@@ -41,6 +41,13 @@ struct BackupSettingsView: View {
         .disabled(!backup.hasFolder)
       }
 
+      Section("Restore") {
+        RestoreBackupButton()
+        Text("Replaces the vault on this Mac with a backup. The current vault is kept as a safety copy.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
       Section {
         Text(
           "A backup is a copy of your encrypted vault. It is as safe as the vault itself, "

@@ -111,6 +111,14 @@ final class BackupModel {
   var hasFolder: Bool { folderName != nil }
   var isRunning: Bool { status == .running }
 
+  /// Where the NAS folder lives, as a hint for a restore file picker to open in.
+  var folderURL: URL? { destination.isConfigured ? destination.folderURL : nil }
+
+  /// Set while a restore swaps the vault files: no backup may read them mid-swap. The restore keeps
+  /// the replaced vault as a safety copy, so skipping the lock-time backup loses nothing.
+  private(set) var isPaused = false
+  func setPaused(_ paused: Bool) { isPaused = paused }
+
   /// Back up automatically when the vault locks (on by default; inert until a folder is chosen).
   var backsUpOnLock: Bool {
     defaults.object(forKey: Keys.onLock) == nil ? true : defaults.bool(forKey: Keys.onLock)
@@ -155,7 +163,7 @@ final class BackupModel {
   }
 
   private func run(manual: Bool) async {
-    guard !isRunning else { return }
+    guard !isRunning, !isPaused else { return }
     guard destination.isConfigured else {
       if manual { fail(AppError.backupNotConfigured) }
       return

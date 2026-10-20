@@ -34,6 +34,12 @@ struct UnlockView: View {
         ProgressView("Deriving key…")
       }
 
+      if !model.state.isUnlocking {
+        RestoreBackupButton()
+          .buttonStyle(.link)
+          .font(.caption)
+      }
+
       // A failed automatic backup happens while locked, with nobody watching -- say so here.
       if let failure = backup?.failureMessage {
         Label("Last backup failed. \(failure)", systemImage: "exclamationmark.triangle")

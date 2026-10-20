@@ -1,6 +1,6 @@
 # M3 addendum — Vault backup & restore
 
-**Status:** In progress — Phases 0–2 done, Phase 3 built (2026-10-20) and awaiting its by-hand checkpoint; Phase 4 next. Follow top to bottom.
+**Status:** In progress — Phases 0–2 done, Phases 3–4 built (2026-10-20), both awaiting their by-hand checkpoints; Phase 5 next. Follow top to bottom.
 **Prerequisite:** M3 Phases 1–8 done (the app runs, unlocks, edits, auto-locks). Independent of M4/M5, but
 Phase 0 below says where it touches each.
 **Spec:** `architecture.md` §5.5 (manifest / anti-rollback), §8.2 (WAL, `0600`, one live file), §9–§10
@@ -237,7 +237,7 @@ nothing, lock → no new file.
 
 ---
 
-## Phase 4 — Restore
+## Phase 4 — Restore — BUILT (2026-10-20), manual checkpoint pending
 
 Entry points: **Settings ▸ Restore from Backup…** and a link on the Unlock screen (the "my vault is gone"
 case).
@@ -254,6 +254,38 @@ Flow:
 
 **Checkpoint:** the full drill — back up, add an account, restore, confirm the account is gone, the
 pre-restore files exist, and unlock works after accept-restore.
+
+### What shipped (deviations from the sketch above)
+
+- **Where the button is.** `RestoreBackupButton` (own `RestoreModel`) appears on the **Unlock** screen,
+  the **Create** screen ("Setting up a new Mac?" -- a Mac with no vault shows Create, not Unlock, so
+  the sketch's Unlock-only link would have missed the main new-Mac case) and **Settings ▸ Backup ▸
+  Restore**. Disabled while a vault is being created or unlocked.
+- **The picked file is never opened over the network.** `RestoreJob.stage` copies it to a local temp
+  dir as plain bytes and every SQLite operation (inspect, restore) uses that copy; the share only ever
+  sees byte reads, the same rule as the backup read-back. The staged copy is deleted on cancel, success
+  and failure.
+- **Order is enforced in `RestoreModel.confirm`**: `begin` (may refuse) -> `releaseVault` -> yield ->
+  swap -> `reload` -> `end`. `reload` also runs after a failed swap, so the screen always matches the
+  disk. Tested by recording the hook order and the version on disk at the moment of `reload`.
+- **Auto-backup is paused during a restore** (`BackupModel.setPaused`) and a restore refuses to start
+  while a backup is running. Without this, releasing the vault fires the lock-time backup concurrently
+  with the file swap. Skipping it loses nothing: the replaced vault is kept as a safety copy.
+- **`AppModel.reloadAfterRestore()`** (new): release anything open, then `.locked()` if a vault exists
+  on disk, `.needsVault` if not. Needed for the fresh-Mac case, where `lock()` alone would land on the
+  wrong screen.
+- The confirmation names what matters: backup date (parsed from the file name via
+  `VaultBackup.date(inFileName:)`) and version vs. the vault on this Mac, "older: later changes will be
+  missing", a loud line for a **different vault**, and that **the restored vault opens with the master
+  password it had when the backup was made** (it may not be your current one).
+- Anti-rollback: unchanged. Restoring an older backup makes the next unlock show the existing "This was
+  a backup I restored" prompt; no new rollback code.
+- Tests (`RestoreModelTests`, 9; + `AppModelTests.reloadAfterRestore…`, + a `BackupModel` pause test).
+- **Check by hand:** (1) back up, add an account, lock; (2) Settings ▸ Backup ▸ Restore from Backup…,
+  pick the file -- the dialog shows its date and version; (3) Restore -> the Unlock screen; unlock ->
+  the "backup I restored" prompt -> accept -> the account you added is gone; (4) the safety copy
+  `vault.sqlite.pre-restore-…` exists in the app's PassFort folder; (5) restore from the **Create**
+  screen on a fresh vault location (rename the vault folder away first, then put it back).
 
 ---
 

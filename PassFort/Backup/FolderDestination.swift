@@ -53,6 +53,8 @@ nonisolated struct FolderDestination: BackupDestination {
 
   var isConfigured: Bool { bookmarks.load() != nil }
 
+  var folderURL: URL? { resolvedURL()?.url }
+
   var displayName: String {
     guard let url = resolvedURL()?.url else { return "Backup folder" }
     return url.lastPathComponent
