@@ -11,7 +11,7 @@ One file per decision, numbered, immutable once accepted — corrections go in a
 | [0005](0005-azure-sync-backend.md) | Custom Azure sync backend, not CloudKit | Accepted |
 | [0006](0006-web-client-wasm-core.md) | The web client runs the crypto core as WebAssembly | Accepted |
 | [0007](0007-recovery-key-header-slot.md) | Recovery-key DEK slot folded into vault-header format v1 (no migration) | Accepted |
-| [0008](0008-biometric-unlock-keychain.md) | Biometric unlock keeps the master password in a Touch ID-gated Keychain item | Accepted |
+| [0008](0008-biometric-unlock-keychain.md) | Biometric unlock keeps the master password in a Touch ID-gated Keychain item | Accepted, then not adopted (amended 2026-10-21) |
 
 ## Template
 

@@ -1,5 +1,18 @@
 # M4 — Platform integration
 
+> **Scaled back (2026-10-21): do not follow this runbook as written.** PassFort is a personal-use app
+> built locally in Xcode, so Touch ID, the Keychain and notarization (which needs the paid Apple
+> Developer Program) were dropped. What trying Phases 1, 2 and 4 taught us:
+>
+> - **The Keychain needs an entitlement, contrary to §0.3.** The data-protection keychain returns
+>   `errSecMissingEntitlement` (-34018) without `keychain-access-groups`, which is restricted and so
+>   needs a provisioning profile tied to an Apple ID. With it, Xcode refuses an ad-hoc Release build.
+> - **A Release `build` signs with `get-task-allow`** unless `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO`.
+> - The Keychain helper and device-id commits were reverted (`7e4a59c`, `532141c`); the rollback mark
+>   stays the `<db>.hw` file sidecar and `VaultService.deviceID` stays the zero UUID until M5 needs a
+>   real one. Phases 3 and 5 to 8 were never started.
+
+
 **Status:** Draft, starts after M3. Follow top to bottom. Two load-bearing decisions are in Phase 0 —
 settle them before writing code.
 **Prerequisite:** M3 complete — the SwiftUI app does full CRUD against a real vault, the lock-state

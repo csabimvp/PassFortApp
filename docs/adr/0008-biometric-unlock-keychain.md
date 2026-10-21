@@ -1,5 +1,10 @@
 # ADR-0008: Biometric unlock keeps the master password in a Touch ID-gated Keychain item
 
+> **Amended 2026-10-21: not adopted.** Touch ID unlock and every other Keychain use were dropped
+> before anything shipped: the data-protection keychain needs a `keychain-access-groups` entitlement,
+> which makes signing depend on a provisioning profile tied to an Apple ID, for a hobby app that only
+> needs master-password unlock. The design below is kept as the answer if Touch ID is ever wanted.
+
 **Status:** Accepted
 **Date:** 2026-10-21
 
