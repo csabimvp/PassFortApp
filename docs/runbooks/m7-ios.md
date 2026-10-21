@@ -7,7 +7,7 @@ past Phase 0 is a plan to *validate against the spikes*, not a set of steps to f
 "Checkpoint" and command below as provisional until Phase 0 has run and M5 has shipped.
 
 **Prerequisite:** M5 complete — two Macs converge through the deployed Azure backend, a second device
-can **join an existing vault** from `GET /v1/vaults/{id}/header` alone, conflict copies surface in the
+can **join an existing vault** from `GET /api/v1/vaults/{id}/header` alone, conflict copies surface in the
 UI, and the `seq` floor + manifest recheck (§10.5) are wired. M7 is a client of that contract as-is.
 **M7 does not depend on M6** — the web client and the iPhone client are independent consumers of the
 same API, so this milestone can be built before M6 if the phone is the part you want first.
@@ -157,8 +157,7 @@ with new parameters, §9.5) and recorded in §14 — never something the phone d
 
 ### 0.4 Decisions to record
 
-- **A new ADR** (the next free number — ADR-0009 is earmarked by `m5-sync.md` Phase 0.2 if the auth
-  handshake needs one): *"iOS client: a second app target sideloaded with a free Personal Team; the
+- **A new ADR** (the next free number — ADR-0009 is the M5 sync-auth ADR, `m5-sync.md` Phase 0.2): *"iOS client: a second app target sideloaded with a free Personal Team; the
   apps share `PassFortAppCore`, not views."* It records the free-vs-paid call (§14.19) and the shared-core
   shape.
 - If 0.2 needed it: the ADR-0001 amendment.
@@ -266,9 +265,9 @@ xcodebuild -scheme PassFortiOS -destination 'generic/platform=iOS Simulator' \
 - **Device backups:** leave the directory in iCloud / Finder backups. It is ciphertext (A1-equivalent,
   §3.2), and a phone restored from an old backup catches up from the server on its first sync — the
   `seq` floor and the server agree again after one pull.
-- **Device identity:** use whatever M5 actually lands for `device_id`. (The M5 sketch assumed a
-  Keychain-backed `DeviceIdentity` from M4, which was reverted — check what shipped.) On iOS a UUID file
-  in `Application Support/PassFort/` is enough; it survives re-signs (Phase 0.1 step 4).
+- **Device identity:** M5's `DeviceIdentity` (`m5-sync.md` A.5) — a per-install `device.json` in
+  `Application Support/PassFort/`, outside the vault file. It works unchanged on iOS and survives
+  re-signs (Phase 0.1 step 4). Platform string `ios`.
 
 **Checkpoint:** a unit test in the iOS target (or a Debug-only assertion at startup) confirms the
 directory's `FileProtectionType` is `.complete`; a fresh install creates the directory with no vault.
@@ -283,20 +282,21 @@ The phone has **no "create vault"** flow. First run is *join*:
    Settings → "Add a device". The QR holds the endpoint URL and the vault UUID **only**: no token, no
    key, no password. (A QR scanner needs `NSCameraUsageDescription`, nothing a Personal Team lacks. If
    you want it, the Mac-side "Add a device" sheet is a small M5-adjacent addition to `PassFort/`.)
-2. **`GET /v1/vaults/{id}/header`** → write the header to the fresh local DB.
+2. **`GET /api/v1/vaults/{id}/header`** → write the header to the fresh local DB.
 3. **Master password → `VaultSession` unlock** over that header (Argon2id on the phone, Phase 0.3).
-4. **Only after the DEK unwrap has succeeded**, derive the auth response and `POST …/session`.
+4. **`POST …/session` with `session.authKey()`** — only possible *after* step 3 succeeded.
 
-   This ordering is a security rule, not a detail. The header came from the server (A2). A server that
-   served a forged header with trivially cheap KDF parameters and its own salt could otherwise collect a
-   challenge response derived at near-zero Argon2 cost — a cheap offline-cracking target. A forged
-   header cannot pass the unwrap (the server does not know the KEK; the header is the wrap's AAD), so
-   *unwrap first, answer the challenge second* closes it. `kdf_params_sane` only bounds the parameters
-   from above. **The same rule applies to M5's second-Mac join — check M5 got it right; if not, that is
-   an M5 bug with a regression test.**
-5. **Full pull** (`GET …/records?since=0`) → ingest through the same `SyncEngine` path M5 built — one
-   transaction covering the rows and the manifest re-MAC (§8.2), the `seq` floor recorded in the sidecar.
+   This ordering is a security property, and with ADR-0009's DEK-derived auth key (`m5-sync.md` D1) it
+   is enforced by construction: `k_auth` is derived from the DEK, so a forged header (wrong KEK → unwrap
+   fails) yields no key and nothing is sent. Under the old password-derived design, a forged header with
+   cheap KDF parameters could have harvested a cheap offline-cracking target; `kdf_params_sane` only
+   bounds parameters from above. If ADR-0009 lands differently, restore the explicit "unwrap first"
+   rule here and in M5's join.
+5. **Full pull** (`GET …/changes?since=0`, paged) → ingest through the same `SyncEngine` path M5 built —
+   one commit per page covering the rows, the manifest re-MAC (§8.2) and `sync_cursor`.
 6. Land on the vault list.
+
+M5's `JoinVaultView` on the Mac is the template for this screen and its progress steps.
 
 Recovery stays on the Mac: if the master password is forgotten, the recovery key (§5.6) is used there,
 and the phone re-joins afterwards.

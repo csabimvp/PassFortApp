@@ -1,5 +1,9 @@
 # ADR-0005: Custom Azure sync backend, not CloudKit
 
+> **Amended 2026-10-21 by ADR-0009:** the auth bullet below (`auth_secret` as a challenge-response
+> verifier, `HMAC(pepper, auth_secret)`) is superseded. Sync authenticates with `k_auth`, derived from
+> the DEK, and the server stores only `SHA-256(k_auth)`. The backend choice itself is unchanged.
+
 **Status:** Accepted
 **Date:** 2026-08-28
 

@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Draft (scaffolding). Nothing is built yet; this document is the plan we design against.
-**Last updated:** 2026-10-21 (rev 11 — iOS client added as **M7** (§12), hardening renumbered **M8**; §1.2 iOS non-goal lifted; §4 gains the `PassFortiOS/` app target and the shared `PassFortAppCore` package target; §3.4 records the free-signing availability cost; §10.5 / §3.4 high-water-mark wording corrected to the `<db>.hw` sidecar (stale since rev 10); §13 gains the `ios` CI job; open decision 9 resolved, 18 re-scoped for iOS, 19 added (free Personal Team vs paid program); runbook `docs/runbooks/m7-ios.md`; rev 10 — M4 scaled back: no Touch ID, no Keychain (ADR-0008 not adopted), no notarization work; the rollback mark stays a file sidecar and unlock stays master-password only (open decision 18); rev 9 — `AccountSummary` (§7.5) gains `category`, mirroring `AccountPayload.category`, so the M3 sidebar can group by category and pin favorites without a full-record fetch; no ADR, no migration — `AccountSummary` is derived, never sealed; rev 8 — `AccountPayload` gains `revisionHistory` and `passwordHistory` / `passwordChangedAt` are now written by `VaultRepository` on every edit (§7.2, §7.3, §7.7); a new optional payload key, absorbed by the `unknown` forward-compat bag — no ADR, no migration, no schema bump; §4 app-source folder is `PassFort/` not `App/` (Xcode's synchronized-group folder; `.xcodeproj` still at the repo root) and its `Info.plist` is build-generated; open decision 11 re-scoped ("last used" sidecar deferred past M3 — the GUI list has no recent sort); rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
+**Last updated:** 2026-10-21 (rev 12 — M5 sync designed to endpoint level (`docs/runbooks/m5-sync.md` Part A) and ratified here: **ADR-0009** — sync authenticates with `k_auth = HKDF(DEK, 'sync-auth')`, server stores only its SHA-256; the Argon2-side `auth_secret` and the §10.4 offline-cracking limitation are gone (§5.1, §10.4, §14.8); §9 / §10 rewritten — one Table partition per vault (`meta` / `rec_` / `dev_`), transactional `seq` allocation, nine endpoints with a single batch push carrying per-record `baseVersion`, header-version sync for recovery-key rotation and recovery, purge + `410` full resync that re-uploads rather than deletes; the server `seq` cursor lives in `vault_meta`, separate from `vault_version`; blind indexes and DEK rotation move out of M5 (§12, open decision 20); schema migration v2 adds full-HLC and sync-bookkeeping columns (§8.1); pinning targets the CA keys of the managed certificate (§9.4); §3.4 gains the sync limitations; open decisions 8, 12, 13, 14 resolved; two more stale Keychain mentions fixed (§5.5, §7.4); rev 11 — iOS client added as **M7** (§12), hardening renumbered **M8**; §1.2 iOS non-goal lifted; §4 gains the `PassFortiOS/` app target and the shared `PassFortAppCore` package target; §3.4 records the free-signing availability cost; §10.5 / §3.4 high-water-mark wording corrected to the `<db>.hw` sidecar (stale since rev 10); §13 gains the `ios` CI job; open decision 9 resolved, 18 re-scoped for iOS, 19 added (free Personal Team vs paid program); runbook `docs/runbooks/m7-ios.md`; rev 10 — M4 scaled back: no Touch ID, no Keychain (ADR-0008 not adopted), no notarization work; the rollback mark stays a file sidecar and unlock stays master-password only (open decision 18); rev 9 — `AccountSummary` (§7.5) gains `category`, mirroring `AccountPayload.category`, so the M3 sidebar can group by category and pin favorites without a full-record fetch; no ADR, no migration — `AccountSummary` is derived, never sealed; rev 8 — `AccountPayload` gains `revisionHistory` and `passwordHistory` / `passwordChangedAt` are now written by `VaultRepository` on every edit (§7.2, §7.3, §7.7); a new optional payload key, absorbed by the `unknown` forward-compat bag — no ADR, no migration, no schema bump; §4 app-source folder is `PassFort/` not `App/` (Xcode's synchronized-group folder; `.xcodeproj` still at the repo root) and its `Info.plist` is build-generated; open decision 11 re-scoped ("last used" sidecar deferred past M3 — the GUI list has no recent sort); rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
 
 ---
 
@@ -50,7 +50,7 @@ flowchart TB
         Repo["VaultRepository<br/>CRUD · search · tombstones"]
         DB["GRDB / SQLite<br/>schema · migrations · WAL"]
         Model["Account · SealedRecord · HLC"]
-        Plat["Keychain · LocalAuthentication · URLSession sync client"]
+        Plat["URLSession sync client · SPKI-pinned transport<br/>(no Keychain — §14.18)"]
     end
     subgraph Bridge["PassFortCrypto — Swift, interop mode: Cxx"]
         Session["actor VaultSession<br/>throwing · Sendable · off-MainActor"]
@@ -104,7 +104,7 @@ Write this down before writing code; every later decision points back here.
 | # | Adversary | Capability | Our defence |
 |---|---|---|---|
 | A1 | Device thief, vault locked | Full read of disk, Time Machine / iPhone backups | Argon2id-derived KEK; nothing decryptable without the master password |
-| A2 | Cloud/sync operator (Azure, plus whoever runs the deploy) | Reads and modifies everything stored server-side; **serves the web client its code** | E2EE payloads; manifest MAC detects tampering/rollback (§5.5); the native app is the high-trust client and does not depend on server-delivered code (§3.4, §11.4) |
+| A2 | Cloud/sync operator (Azure, plus whoever runs the deploy) | Reads and modifies everything stored server-side; **serves the web client its code** | E2EE payloads; the server's only credential is `SHA-256(k_auth)`, nothing to crack (ADR-0009); every pulled record must `pf_open`, and a `seq` below the client's cursor is refused (§10.5); the native app is the high-trust client and does not depend on server-delivered code (§3.4, §11.4) |
 | A3 | Passive network attacker | Reads traffic | TLS 1.3 + ATS; payloads already ciphertext |
 | A4 | Active network attacker (MITM) | Substitutes certs, replays | Cert validation, optional pinning, AEAD + per-record versioning |
 | A5 | Another local app, non-root, no debugger | Reads our files, our clipboard | File perms + sandbox; concealed pasteboard type; auto-lock |
@@ -129,7 +129,11 @@ This section grew when the boundary moved (ADR-0004). Be precise about what was 
 - **The unlocked in-memory index holds decrypted titles/usernames in Swift** so the list view can search and sort (§8.3). This is the single largest concession versus the rev-1 design where C++ held the index. It is bounded — it holds titles, not passwords — and it is discarded on lock.
 - Keys are still never in Swift. A memory dump of the unlocked process yields plaintext records; it does not yield the DEK, so it does not yield the *file*.
 - `mlock` (via Botan's locking allocator) is best-effort and capped by `RLIMIT_MEMLOCK`; pages may still hit swap. macOS encrypts swap by default, which helps.
-- Sync metadata (record count, ciphertext sizes, update timestamps, per-vault write frequency) is visible to the Azure Storage account.
+- Sync metadata (record count, ciphertext sizes bucketed to 256 B, update timestamps, HLC device ids, per-vault write frequency) is visible to the Azure Storage account.
+- **A hostile sync server can withhold or delay other devices' writes.** It cannot forge, alter, roll back below a device's cursor, or replay a version a device has already seen (§10.5), but freshness is not provable through an untrusted relay.
+- **The old master password keeps opening the server's copy until the DEK is rotated.** A password change or recovery only re-wraps the DEK, and DEK rotation is deferred past M5 (§9.5, open decision 20). A device that hasn't adopted the new header also keeps accepting the old password locally until its next unlock with the new one.
+- **A re-registered device can resurrect a deleted record.** On a full resync (§10.5) a device re-uploads anything the server lacks rather than deleting on the server's word — a record deleted elsewhere while it was unregistered may reappear. Deliberate: the alternative lets a server delete your passwords.
+- **The sync cursor lives in the vault file.** It inherits the file's rollback protection (`vault_version` vs `<db>.hw`), but an attacker who can edit the file in place *and* controls the server could lower it and hide a server rollback.
 - **The web client is a lower trust tier than the native app.** Whoever serves its JavaScript — Azure, or whoever runs the deploy — can serve JavaScript that captures the master password on the next unlock. This is inherent to web-delivered E2EE; a strict CSP, Subresource Integrity, pinned and reproducible builds, and near-zero dependencies raise the cost but do not close it. Treat the native app as the client you trust and the web app as a convenience used with eyes open. See §11.4.
 - **The web client's anti-rollback cache lives in browser storage.** The highest-seen `vault_version` (§5.5) sits in IndexedDB / `localStorage`, same-origin with the served code, so the code-serving adversary can wipe it. Whole-vault rollback detection is therefore best-effort in the browser; it stays solid in the native apps, which cache the high-water mark in a local `<db>.hw` sidecar file the server cannot reach (§10.5, §14.18).
 - **The iPhone app's signature expires every ~7 days** (free Personal Team, §14.19). After that it won't launch until reinstalled from the Mac (`scripts/install_ios.sh`); the vault and sync cursor survive the reinstall. This is an availability cost, never a confidentiality one — the Mac app (and the web client, M6) are the fallback when it lapses away from the Mac.
@@ -190,13 +194,17 @@ PassFortApp/
 ├── Cloud/                                # ── Azure backend — infra + API, no cryptography ──
 │   ├── infra/                            # Bicep: Static Web App, Storage account, budget alert
 │   │   ├── main.bicep
-│   │   └── main.parameters.json
-│   ├── api/                              # Azure Functions (TypeScript) — the thin sync API
-│   │   ├── src/functions/                # createVault · session · getRecords · putRecord · batch · getHeader
-│   │   ├── src/{tableClient,auth,dto}.ts
+│   │   ├── main.parameters.json
+│   │   └── bootstrap-oidc.sh             # one-time: Entra app + federated credential for GitHub deploys
+│   ├── api/                              # Azure Functions (TypeScript) — the thin sync API, hosted by SWA
+│   │   ├── src/functions/                # health · createVault · openSession · getHeader · putHeader · getChanges
+│   │   │                                 # pushChanges · listDevices · removeDevice · deleteVault
+│   │   ├── src/lib/                      # table · seq · auth · jwt · validate · errors · log
+│   │   ├── src/dto.ts                    # generated from openapi.yaml
 │   │   ├── host.json
 │   │   └── local.settings.json           # dev only — connection string + JWT key; git-ignored
 │   ├── openapi.yaml                      # the sync contract — one source of truth for all three clients
+│   ├── site/  · staticwebapp.config.json # placeholder static content + SWA routes/runtime pin (M6 replaces site/)
 │   └── README.md
 ├── Web/                                  # ── Web client — WASM crypto core + minimal UI ──
 │   ├── src/
@@ -268,26 +276,26 @@ flowchart TB
     MP["Master password<br/>(crosses the seam once, as bytes)"]
     A["Argon2id<br/>salt 16B · m≈512 MiB · t=3 · p=4<br/>→ 64 bytes"]
     KEK["KEK (32B)<br/>wraps the DEK"]
-    AUTH["auth_secret (32B)<br/>sync login only"]
     DEK["DEK (32B) — random<br/>stored wrapped in the vault header"]
     KR["k_record<br/>record AEAD"]
-    KI["k_index<br/>blind indexes"]
+    KI["k_index<br/>blind indexes (deferred)"]
     KM["k_manifest<br/>anti-rollback MAC"]
+    KA["k_auth (32B)<br/>sync login — ADR-0009"]
 
     MP --> A
     A -->|HKDF-Expand info='kek'| KEK
-    A -->|HKDF-Expand info='auth'| AUTH
     KEK -->|AEAD unwrap| DEK
     DEK -->|HKDF info='rec'| KR
     DEK -->|HKDF info='idx'| KI
     DEK -->|HKDF info='mft'| KM
+    DEK -->|HKDF info='sync-auth'| KA
 ```
 
-Everything below `MP` in that diagram exists only inside the C++ session handle.
+Everything below `MP` in that diagram exists only inside the C++ session handle — with one deliberate exception: `k_auth` is copied out (`pf_session_auth_key`) because showing it to the sync server is its whole purpose (ADR-0009).
 
 Why a DEK at all, rather than encrypting records straight with the KEK? Because **changing the master password must not mean re-encrypting the whole vault** — it only re-wraps 32 bytes. Same reason the industry does it. This is envelope encryption, and it's the single most useful pattern in the whole design.
 
-Why derive `auth_secret` from the same Argon2 run instead of a second one? One expensive KDF pass, two domain-separated outputs via HKDF. The KEK never leaves the device; only `auth_secret` is ever shown to a server. (Caveat to understand and write up: this makes the server's stored verifier a target for offline cracking at Argon2 cost. A PAKE — OPAQUE/SRP — avoids that; it's the right thing and out of scope for M5.)
+Why is the sync credential derived from the **DEK** and not from the password? (rev 12, ADR-0009; up to rev 11 it was a second output of the Argon2 run.) A password-derived credential makes whatever the server stores an offline-cracking target at Argon2 cost — only a PAKE (OPAQUE/SRP) avoids that — and it changes with every password change or recovery, which then needs a credential-rotation flow. `k_auth` is a 256-bit key derived from a random DEK: the server keeps `SHA-256(k_auth)`, which is useless to crack; it survives password changes and recovery because they only re-wrap the DEK; and a device can only compute it after a successful unwrap, so a forged header yields nothing. It is domain-separated from `k_record` / `k_manifest` by HKDF and reveals nothing about them. The cost: it is a bearer credential that only a DEK rotation replaces.
 
 ### 5.2 KDF parameters
 
@@ -334,7 +342,7 @@ Swift serializes the payload (§14.5) and hands C++ the plaintext bytes plus the
 
 **Why the AAD binds identity and version:** without it, an attacker with file access can swap the ciphertext of your bank record onto your throwaway-forum record (both decrypt fine, both authenticate fine — AEAD only proves *this blob* is intact, not *where it belongs*), or restore last month's ciphertext for a rotated password. Binding `record_uuid` kills the swap; binding `record_version` kills the per-record rollback.
 
-**Everything sensitive is encrypted, including the title, username and URL.** Plaintext columns are limited to `uuid`, `version`, `updated_at`, `is_deleted`, and blind indexes.
+**Everything sensitive is encrypted, including the title, username and URL.** Plaintext columns are limited to `uuid`, `version`, the HLC (`updated_at` + counter + device), `is_deleted`, local sync bookkeeping (§8.1), and blind-index columns that stay `NULL` until a feature needs them (open decision 20).
 
 ### 5.5 What AEAD does *not* protect: the manifest
 
@@ -349,7 +357,7 @@ manifest_mac = HMAC-SHA-256(k_manifest,
 
 verified at unlock. Deletion, reordering, and whole-file rollback all become detectable.
 
-Because `k_manifest` never leaves C++, Swift computes this by **streaming**: `mac_init` on the session, then `mac_update(uuid, version, sealed_bytes)` per row in UUID order, then `mac_finish`. Swift decides the iteration order; C++ does the hashing and holds the key. `vault_version` is a monotonic counter whose highest-seen value is cached in the Keychain by Swift, so a full-file rollback is caught even though the rolled-back file is internally consistent.
+Because `k_manifest` never leaves C++, Swift computes this by **streaming**: `mac_init` on the session, then `mac_update(uuid, version, sealed_bytes)` per row in UUID order, then `mac_finish`. Swift decides the iteration order; C++ does the hashing and holds the key. `vault_version` is a monotonic counter whose highest-seen value Swift caches outside the file, in the `<db>.hw` sidecar (§14.18), so a full-file rollback is caught even though the rolled-back file is internally consistent.
 
 This is the part most hobby password managers get wrong, and it's the most instructive thing in the whole design.
 
@@ -403,7 +411,7 @@ pf_mac_free(Mac*)
 pf_bytes_data(Bytes*) / pf_bytes_size(Bytes*) / pf_bytes_free(Bytes*)
 ```
 
-Later additions, same shape: `pf_recovery_wrap` / `pf_recovery_open` (M2 — fill / read header slot 1, ADR-0007), `pf_session_vault_uuid` (M2 — copy out the plaintext §5.3 vault_uuid, for export and sync), `pf_blind_index` (M5).
+Later additions, same shape: `pf_recovery_wrap` / `pf_recovery_open` (M2 — fill / read header slot 1, ADR-0007), `pf_session_vault_uuid` (M2 — copy out the plaintext §5.3 vault_uuid, for export and sync), `pf_session_auth_key` (M5 — copy out `k_auth`, ADR-0009). `pf_blind_index` is deferred until a feature reads a blind index (open decision 20).
 
 Note what is *not* here: no record type, no query, no collection, no string. The seam speaks bytes and integers.
 
@@ -493,7 +501,7 @@ struct SealedRecord: Sendable, Identifiable {
     var sealed: Data          // nonce ‖ ciphertext ‖ tag — opaque, straight out of pf_seal
     var isDeleted: Bool       // tombstone; the row survives until every device has acked (§8.2)
     var updatedAt: HLC        // conflict clock (§9.3) — MUST stay plaintext
-    var blindTitle: Data?     // idx_title — keyed blind index, M5 (k_index, §5.1)
+    var blindTitle: Data?     // idx_title — keyed blind index (k_index, §5.1); deferred, stays nil (open decision 20)
     var blindURL: Data?       // idx_url
 }
 ```
@@ -673,28 +681,42 @@ The **vault header** (§5.3) gets no Swift model, on purpose: C++ owns its encod
 |---|---|---|
 | `header` | the §5.3 blob | `pf_vault_create`, `pf_session_rewrap` |
 | `manifest_mac` | 32B | every write transaction (§8.2) |
-| `vault_version` | u64, monotonic; high-water mark also mirrored to the Keychain (§5.5) | every write |
+| `vault_version` | u64, monotonic; high-water mark also mirrored to the `<db>.hw` sidecar (§5.5) | every write |
 | `kdf_calibration` | last `pf_kdf_calibrate` result, kept for reuse at rewrap | Settings |
+| `sync_config` *(M5)* | JSON `{ endpoint, vaultId, enabledAt }` — no secrets | enable / join / disable sync |
+| `sync_cursor` *(M5)* | u64 — highest server `seq` fully ingested (§10.5) | every ingest commit |
+| `sync_header_version` *(M5)* | u64 — server `headerVersion` the local header matches (§9.5) | header push / adopt |
+| `header_dirty` *(M5)* | `0x01` while a local header change hasn't reached the server | recovery-key rotation, recovery |
+| `pending_header` *(M5)* | `u64 headerVersion ‖ header` — a newer server header, adopted at the next unlock | pull |
 
 ### 7.5 Sync and derived models
 
 ```swift
-struct SyncEnvelope: Sendable {          // one Table Storage entity / one server-side row (§9.1, §10.2)
-    var vaultUUID: UUID
-    var recordUUID: UUID
+struct SyncEnvelope: Sendable {          // one `rec_` entity on the server (§9.1, §10.2); the pull DTO
+    var recordUUID: UUID                 // (the vault is the Table partition, not a field)
     var version: UInt64
     var hlc: HLC
     var sealed: Data                     // byte-identical to the local BLOB — sync adds no crypto
-    var deviceID: UUID
     var isDeleted: Bool
-    var seq: Int64                       // server-assigned; the sync cursor and anti-rollback counter
+    var seq: Int64                       // server-assigned, per-vault, gap-free; the pull cursor (§10.5)
+    var writer: UUID                     // device that wrote this version
 }
 
-struct DeviceInfo: Codable, Sendable {   // HLC identity + tombstone-compaction bookkeeping (§8.2)
-    var deviceID: UUID
-    var name: String                     // "Csaba's MacBook Air"
-    var addedAt: Date
-    var lastSyncedAt: Date?
+struct PushRecord: Sendable {           // one element of a push batch (§10.3)
+    var recordUUID: UUID
+    var baseVersion: UInt64              // the version this edit started from; 0 = must not exist yet
+    var version: UInt64                  // > baseVersion
+    var hlc: HLC
+    var sealed: Data
+    var isDeleted: Bool
+}
+
+struct DeviceInfo: Codable, Sendable {   // one `dev_` entity: HLC identity + purge bookkeeping (§10.5)
+    var deviceID: UUID                   // per install, stored outside the vault file
+    var name: String                     // "MacBook Air"
+    var platform: String                 // macos · ios · cli · web
+    var lastSeq: Int64                   // highest seq this device has confirmed pulling
+    var lastSeenAt: Date?
 }
 ```
 
@@ -763,13 +785,20 @@ CREATE TABLE records (
   version     INTEGER NOT NULL,            -- monotonic per record; in the AEAD's AAD
   sealed      BLOB NOT NULL,               -- nonce ‖ ciphertext ‖ tag, straight from pf_seal
   is_deleted  INTEGER NOT NULL DEFAULT 0,  -- tombstone, for sync
-  updated_at  INTEGER NOT NULL,            -- HLC timestamp
-  idx_title   BLOB,                        -- blind index (M5)
-  idx_url     BLOB
+  updated_at  INTEGER NOT NULL,            -- HLC wall-clock millis
+  idx_title   BLOB,                        -- blind index (deferred, stays NULL — open decision 20)
+  idx_url     BLOB,
+  -- migration v2 (M5): the rest of the HLC, and what the server has confirmed
+  hlc_counter    INTEGER NOT NULL DEFAULT 0,
+  hlc_device     BLOB    NOT NULL DEFAULT x'00000000000000000000000000000000',
+  synced_version INTEGER,                  -- version the server last confirmed; NULL = never pushed
+  synced_seq     INTEGER                   -- server seq of that version
 );
-CREATE TABLE vault_meta   (key TEXT PRIMARY KEY, value BLOB NOT NULL);  -- header, manifest_mac, vault_version
+CREATE TABLE vault_meta   (key TEXT PRIMARY KEY, value BLOB NOT NULL);  -- header, manifest_mac, vault_version, sync_* (§7.4)
 CREATE TABLE schema_version(version INTEGER NOT NULL);
 ```
+
+A row is **dirty** — waiting to be pushed — when `synced_version IS NULL OR synced_version != version`. Migration v2 is a GRDB schema migration, not a format change: no sealed byte changes, `schema_version` stays 1, and the manifest MAC (which covers `uuid`, `version`, `sealed`) is untouched. The sync columns sit outside the MAC and may be updated in a plain transaction; anything the MAC covers changes only through the §8.2 write path.
 
 Swift never inspects `sealed`. It is opaque bytes that go to and from `pf_seal` / `pf_open`.
 
@@ -798,10 +827,12 @@ At hobby scale — thousands of records, a few hundred KB — this is a millisec
 The server stores opaque blobs. It never sees a key.
 
 ```
-{ vault_uuid, record_uuid, version, hlc, sealed, device_id, seq }
+{ record_uuid, version, hlc, sealed, is_deleted, seq, writer }      per vault; §7.5 SyncEnvelope
 ```
 
-`sealed` is byte-identical to the local BLOB — the sync layer moves exactly what storage holds, and needs no crypto of its own. `seq` is a per-vault monotonic counter the server assigns on every write; it doubles as the anti-rollback `vault_version` (§5.5) and as the sync cursor (a client pulls records with `seq > lastSeen`). The **vault header** (§5.3) rides along as one distinguished record, so a new device or the web client can fetch it, run Argon2id, and bootstrap.
+`sealed` is byte-identical to the local BLOB — the sync layer moves exactly what storage holds, and needs no crypto of its own. `seq` is a per-vault, gap-free counter the server assigns on every record write; it is the **sync cursor** (a client pulls records with `seq > cursor`) and the server-side half of anti-rollback (§10.5). It is **not** the local `vault_version` (§5.5): that one counts commits on one device and is guarded by the `<db>.hw` sidecar; the cursor is stored in `vault_meta`, so every ingest commit protects it too. The **vault header** (§5.3) lives in the vault's control row with its own `headerVersion`, so a new device or the web client can fetch it, run Argon2id, and bootstrap — and header changes propagate (§9.5).
+
+A sync run, in order: open a session with `k_auth` (§10.4) → pull every page since the cursor, require each record to `pf_open`, reconcile (§9.3) and ingest each page as one §8.2 commit → push or fetch a changed header → push every dirty row (§8.1) in atomic batches → purge clean tombstones locally. Sync only runs while the vault is unlocked: it needs the session for `k_auth`, for `pf_open` and for the MAC. The step-by-step algorithm and every edge case are in `docs/runbooks/m5-sync.md` Part A.
 
 The security of sync does **not** rest on TLS. TLS protects against A3/A4 (network attackers); the payload encryption protects against A2 (the operator). Understanding that these are two independent layers solving two different problems is the main lesson of this phase.
 
@@ -815,17 +846,28 @@ The **reference backend is a custom Azure deployment** — Functions + Table Sto
 
 Hybrid Logical Clocks per record: `(wall_ms, counter, device_id)`. Last-writer-wins on the HLC, with the loser preserved as a conflict copy (`AccountPayload.conflictOf`, §7.2) rather than discarded — silently losing a password is worse than showing two.
 
-The server's job here is only to *detect* a race: a `PUT` carries the record's expected current `seq` (or an `If-Match` ETag), and a stale write gets a `412` instead of overwriting. The client then fetches the winner, applies the HLC rule locally, and writes the conflict copy back. The server never merges.
+The server's job here is only to *detect* a race: every pushed record carries the `baseVersion` it was edited from, and if the server's current version differs the whole batch is refused with `409` and the conflicting ids. The client then pulls, applies the rules below locally, and pushes again. The server never merges.
+
+A conflict is "both sides changed since the common base" (local row dirty, remote `version` > the local `synced_version`). Then:
+
+- payloads equal (ignoring history) → take the remote, no copy;
+- remote HLC wins → local row becomes the remote; the local payload survives as a conflict copy if it was live;
+- local HLC wins → re-seal the local payload at `remote.version + 1` (the AAD binds `version`, §5.4, so a version change is a re-seal) and push it; the remote payload survives as a conflict copy if it was live;
+- a tombstone wins over a live edit → the delete stands **and** the edit survives as a conflict copy. An edit is never lost to a concurrent delete.
+
+A conflict copy is a new record (new UUID, version 1) with `conflictOf` set; it syncs like any other row, and the GUI badges it until the user keeps one side or both.
 
 ### 9.4 Transport hardening
 
 - TLS 1.3 only; App Transport Security left at its strict defaults (never add an ATS exception). Static Web Apps terminates TLS with a managed certificate, so there is no TLS config to write — only to verify.
-- Certificate pinning from the native app: pin the **SPKI** of the Azure endpoint, not the leaf cert; ship two pins so certificate rotation doesn't brick the app. The web client cannot pin (the browser owns TLS) — another reason it is the lower-trust client.
+- Certificate pinning from the native app: evaluate trust normally, then require an **SPKI** hash from the served chain to match a pin. Static Web Apps' certificate is Azure-managed and renewed on Azure's schedule, so pin the **CA keys** in the chain (intermediate + root, two or three hashes recorded in the M5 spike), not the leaf. A pin failure stops sync with an explicit error — never a silent fallback. Pins are build configuration (and a CLI flag), so updating them needs no code change. The web client cannot pin (the browser owns TLS) — another reason it is the lower-trust client.
 - Understand and be able to explain: ECDHE forward secrecy, the AEAD ciphersuites TLS 1.3 kept and why it dropped CBC, chain validation, and why pinning is an availability risk as much as a security control.
 
 ### 9.5 Key rotation
 
-Rotating the master password re-wraps the DEK only (`pf_session_rewrap`). Rotating the *DEK* means re-sealing every record — support it, keep both DEK generations available during the migration, and drive it from the CLI first.
+Rotating the master password re-wraps the DEK only (`pf_session_rewrap`); so do recovery and recovery-key rotation. **With sync on, each is a header change**: the device sets `header_dirty` and pushes the header against its `sync_header_version` (`409` if another device changed it first). Other devices fetch it as a `pending_header` and adopt it at their next unlock — the typed password is tried against the pending header first, then the local one, with a banner if only the old one opened. `k_auth` doesn't change (it hangs off the DEK, ADR-0009), so sync never stops.
+
+Rotating the *DEK* means re-sealing every record, and with sync it also means devices receiving records sealed under a key they don't have yet. Doing that safely needs a key-generation id in the header and the AAD — a **format change** with its own ADR and re-seal migration — and a re-registration of `SHA-256(k_auth')`. **Deferred past M5** (open decision 20). Until then the old master password plus the server's copy still opens every record (§3.4).
 
 ---
 
@@ -852,59 +894,75 @@ Two required resources, plus an optional identity gate.
 
 The only ways this costs real money are egress far past hobby scale or adding an always-on resource (App Service, Cosmos DB, AKS, a VM) — so don't. Set an **Azure budget alert at $5** anyway; a learning project must not be able to surprise you. Start on an Azure free account or Azure for Students credit.
 
+The API runs as **SWA managed Functions**, which have no managed identity and no VNet integration: they reach Table Storage with a connection string that Bicep computes (`listKeys()`) and writes straight into the SWA app settings, so it never touches GitHub or a file. Besides that, the app settings hold exactly two secrets — the JWT signing key and the enrollment secret (§10.4) — supplied from GitHub secrets at deploy. Not provisioned on purpose: a standalone Function App, Key Vault (managed Functions can't reference it), Front Door, a custom domain. Optional App Insights stays off by default, behind a 0.1 GB daily cap when on — a logging pipeline is one more place a secret could leak (§13.1). The full resource list is `docs/runbooks/m5-sync.md` A.1.
+
 ### 10.2 Storage model
 
-Table Storage, one table:
+Table Storage, one table `vaults`, **one partition per vault** (`PartitionKey = vaultId`):
 
 ```
-PartitionKey = vaultId            (UUID)
-RowKey       = recordId           (UUID; "$header" for the vault header record)
-properties   : version:Int64, hlc:String, sealed:Binary,
-               isDeleted:Bool, seq:Int64, deviceId:String
+RowKey "meta"          seq:Int64 (last assigned) · headerVersion:Int64 · header:Binary (§5.3)
+                       authKeyHash:Binary(32) (SHA-256 of k_auth) · purgedThroughSeq:Int64
+                       failedAuthCount:Int32 · lockedUntil:DateTime? · createdAt:DateTime
+RowKey "rec_<uuid>"    version:Int64 · hlcWall:Int64 · hlcCounter:Int32 · hlcDevice:String
+                       sealed:Binary · isDeleted:Bool · seq:Int64 · writer:String
+RowKey "dev_<uuid>"    name:String · platform:String · lastSeq:Int64 · lastSeenAt:DateTime
 ```
 
-- `PartitionKey eq vaultId` returns the whole vault in one query. Personal scale (thousands of records, a few MB) sits well inside Table Storage's limits — 1 MB/entity, 64 KB/property; a sealed password record is far under, attachments (§7.7) would go to Blob.
-- **ETags give optimistic concurrency for free:** `Update Entity` with `If-Match` → `412` on a stale write. That is the §9.3 conflict trigger.
-- The **change feed is `seq`:** one `$changes` counter entity per partition, bumped with an ETag retry loop on each write; every record stores the `seq` it was last written at; the client cursor is the highest `seq` it has stored.
-- Blob Storage is the alternative if attachments land early — same ETag story, native but minutes-delayed change feed. Table is cheaper and simpler for records-only (§14.12).
+- **Everything a vault owns shares a partition, so one Table transaction (≤ 100 operations, ≤ 4 MiB) updates records and the `meta` counter atomically.** A push of up to 99 records plus the `meta` update is all-or-nothing, and `seq` is gap-free and never reused.
+- **ETags give optimistic concurrency:** the push reads `meta` and each target record, checks every `baseVersion`, then submits the transaction with `If-Match` on all of them; a racing writer makes it fail and the Function retries (bounded, then `503`). Clients never see or store ETags — `baseVersion` is the client-facing precondition (§9.3).
+- **Size limits shape the format at the edge:** a Binary property is ≤ 64 KiB, so `sealed` is capped at 65,320 bytes (`40 + 256·255`, the largest padded size that fits, §5.4); a larger record is `413`. A sealed login record is ~0.5–4 KB.
+- **Framing check** on every write: `len ≥ 296` and `(len − 40) % 256 == 0` (24-byte nonce ‖ 256·k ciphertext ‖ 16-byte tag). A client-bug tripwire, not a crypto check.
+- "Changes since s" is a filtered scan of one partition (`seq gt s`, `rec_` prefix); personal scale keeps it one page. Blob Storage stays the alternative for attachments (§7.7, §14.12).
 
 ### 10.3 The sync API
 
-Six endpoints. TypeScript Azure Functions. The contract lives in `Cloud/openapi.yaml` and is the one source of truth for all three clients.
+Nine vault endpoints plus a health check. TypeScript Azure Functions under SWA's `/api` prefix (local `func start` serves the same paths). The contract lives in `Cloud/openapi.yaml` and is the one source of truth for all three clients.
 
 ```
-POST /v1/vaults                          create; body { authVerifier, header }        -> { vaultId }
-POST /v1/vaults/{id}/session             body: challenge response over auth_secret     -> { token, seq }
-GET  /v1/vaults/{id}/records?since={seq}  changed sealed records since the cursor       -> { records[], seq }
-PUT  /v1/vaults/{id}/records/{rid}        body { version, hlc, sealed, isDeleted }; If-Match -> { seq }
-POST /v1/vaults/{id}/records:batch        up to 100 records in one Table transaction    -> { seq }
-GET  /v1/vaults/{id}/header               the §5.3 blob, for device / web bootstrap     -> { header }
+GET    /api/v1/health                                    no auth   -> { ok, apiVersion }
+POST   /api/v1/vaults                                    enroll    { vaultId, header, authKey, device }      -> 201 { seq, headerVersion } | 409
+POST   /api/v1/vaults/{id}/session                       body key  { authKey, device }                       -> { token, expiresAt, seq, headerVersion, purgedThroughSeq } | 401 | 429
+GET    /api/v1/vaults/{id}/header                        no auth   -> { header, headerVersion }
+PUT    /api/v1/vaults/{id}/header                        JWT       { header, baseHeaderVersion }             -> { headerVersion } | 409
+GET    /api/v1/vaults/{id}/changes?since={seq}&limit=    JWT       -> { records[], seq, hasMore, headerVersion, purgedThroughSeq } | 410
+POST   /api/v1/vaults/{id}/changes                       JWT       { records: [PushRecord] } (1–99, ≤ 3 MiB) -> { applied[], seq } | 409 { conflicts[] }
+GET    /api/v1/vaults/{id}/devices                       JWT       -> { devices[] }
+DELETE /api/v1/vaults/{id}/devices/{deviceId}            JWT       -> 204
+DELETE /api/v1/vaults/{id}                               JWT       -> 204 (whole partition)
 ```
 
-- The server never requires, accepts, or stores a key. It does a **length/framing check** on `sealed` (must look like `nonce ‖ ciphertext ‖ tag`) — not a crypto check, just early detection of client bugs.
-- One SDK dependency (`@azure/data-tables`), or raw REST for zero. JWTs signed with a key in Functions app settings, short TTL, Node's built-in `crypto` or `jose`.
+- **One write path for records:** the batch push (§10.2). A `409` writes nothing. A pull returns records ascending by `seq`, at most `limit` (≤ 500), with `hasMore`, and records the caller's `dev_.lastSeq = since`.
+- The server never requires, accepts, or stores a key. Every request schema is closed (`additionalProperties: false`), so a body carrying `dek`, `password` or any unknown field is `400` — that closure *is* the guarantee, and a contract test asserts it.
+- Errors are `{ error: <stable code>, message }`; messages never echo bodies. Logs carry method, route, status, latency and a vaultId prefix — never headers, bodies, `authKey`, tokens or `sealed`.
+- Two runtime dependencies: `@azure/data-tables` and `jose`. Node's built-in `crypto` hashes the auth key and compares in constant time — auth plumbing, not vault cryptography (§4 note 5).
+- Endpoint-by-endpoint semantics, the push algorithm and the contract-test list: `docs/runbooks/m5-sync.md` A.3 and Phase 4.
 - **Why not skip Functions?** Clients could hit Table Storage directly with short-lived SAS tokens — but you still need one compute endpoint to mint them, and SAS can't enforce `seq` monotonicity or rate limits. The thin API is worth the small complexity and is better Azure practice (§14.13).
 - **Backend language: TypeScript**, not C#. The web client is unavoidably TypeScript; sharing it with the API means one language, one set of DTOs generated from `openapi.yaml`, and one toolchain (Node). The Azure learning value — the Functions programming model, Bicep, Storage, Static Web Apps — is identical either way, so the tie-breaker is code sharing.
 
 ### 10.4 Auth
 
-Reuse `auth_secret`, already derived from the same Argon2 run as the KEK (§5.1). No identity provider on the critical path.
+**ADR-0009.** The credential is `k_auth = HKDF-Expand(DEK, "sync-auth")` (§5.1). No identity provider on the critical path, no password-derived value ever reaches the server.
 
-1. Client derives `auth_secret` in the crypto core (it already does).
-2. `POST /session` sends a **challenge-response HMAC** over `auth_secret` — never the secret itself.
-3. Server compares against a stored `auth_verifier = HMAC(serverPepper, auth_secret)`: a **constant-time compare of 32 bytes**, no server-side Argon2, no crypto dependency. The expensive KDF was paid client-side.
-4. Success returns a short-TTL signed JWT; later calls carry it. First success also registers a device token, so routine sync never re-touches the password path.
+1. **Create** (`POST /vaults`, once, when sync is enabled): the client sends the header and `k_auth`; the server stores `SHA-256(k_auth)` in `meta`. Creation requires the `X-PassFort-Enroll` header to match the enrollment secret in app settings, so the public endpoint can't be used to fill the storage account.
+2. **Session** (`POST /vaults/{id}/session`): the client sends `k_auth` over TLS (SPKI-pinned, §9.4); the server hashes it and compares in constant time; success returns a 15-minute HS256 JWT bound to `{ vault, device }` and registers/updates the device row. The token lives in client memory only; on `401` the client opens a new session. No refresh or device tokens — sync runs only while unlocked, and an unlocked device can always re-derive `k_auth`.
+3. **Abuse limits:** from the 5th consecutive failed session the vault backs off `2^(n−5)` minutes (capped at 1 h, `429 Retry-After`); a success resets it. A wrong key and an unknown vault get the same `401`.
+4. **`GET /header` is unauthenticated** — a joining device needs the KDF salt before it has the DEK. The 122-bit random vaultId is the capability, and the header is the same offline target an A2 adversary already holds (§3.1).
 
-Accepted limitation (already in the doc): a breach of Azure exposes `auth_verifier` as an offline-cracking target at Argon2 cost. OPAQUE/SRP removes that and stays deferred (§14.8). Static Web Apps' built-in login (GitHub / Microsoft) can sit in front of the whole API as a free DoS gate — orthogonal to the vault crypto, and worth wiring up for the Azure practice.
+What this buys: a full Azure breach yields `SHA-256` of a 256-bit key — nothing to crack; password changes, recovery and recovery-key rotation need no credential update (they only re-wrap the DEK); and a forged header can't harvest anything because `k_auth` only exists after a successful unwrap. What it costs: `k_auth` is a bearer credential replaced only by a DEK rotation (deferred, §9.5); whoever obtains it can read and overwrite sealed blobs, though never decrypt or forge one. Static Web Apps' built-in login can still sit in front of the API later as a coarse DoS gate — orthogonal to this.
 
 ### 10.5 Anti-rollback against a real server
 
-`seq` is server-assigned and authoritative. Each client caches the **highest `seq` it has ever seen** where the server can't reach it — the `<db>.hw` sidecar file next to the vault, on macOS and iOS alike (§14.18). On every sync the native client:
+`seq` is server-assigned. Each client keeps its **cursor** — the highest `seq` it has fully ingested — in `vault_meta['sync_cursor']`, written in the same commit as the records it covers, so the file's own rollback protection (`vault_version` vs the `<db>.hw` sidecar, §5.5) protects the cursor too. On every sync the native client:
 
-- asserts the returned `seq ≥ cachedMax`, or the server has rolled the vault back;
-- rebuilds local state, recomputes the manifest MAC (§5.5) through the crypto core, and checks it against its own last-computed MAC, or the server has dropped or swapped records.
+- asserts the `seq` returned by the session and by every page is `≥ cursor`, or the server has rolled the vault back → sync stops with an explicit error;
+- requires every pulled record to `pf_open` before anything from its page is applied — a forged or altered record rejects the page;
+- ignores any record whose `version` is not above what it already holds — a replayed old version changes nothing;
+- never deletes a local row because the server lacks it: a full resync re-uploads instead (below).
 
-The server can forge neither — `k_manifest` never leaves the client. **Caveat:** strict anti-rollback under genuinely concurrent multi-writer needs more thought; for the real usage here (you, two devices, rarely simultaneous) HLC last-writer-wins plus the `seq` floor is enough. The web client's cache is weaker (§11.4).
+What the server *can* still do is withhold or delay other devices' writes — freshness is not provable through an untrusted relay (§3.4). **Caveat:** strict anti-rollback under genuinely concurrent multi-writer needs more thought; for the real usage here (you, a few devices, rarely simultaneous) HLC last-writer-wins plus the cursor floor is enough. The web client's cache is weaker (§11.4).
+
+**Tombstones and resync.** At session open the server purges tombstones every registered device has pulled (`seq ≤ min(dev.lastSeq)`) and raises `purgedThroughSeq`; a client whose cursor is below that gets `410` and does a full resync: pull everything, reconcile, then push every local row the server lacks — re-upload, never delete (§3.4: a record deleted elsewhere can reappear on a long-absent device). Locally, a tombstone is purged once it is clean (the server has it).
 
 ### 10.6 Infrastructure as code, and the local loop
 
@@ -968,7 +1026,7 @@ Two consequences already recorded in §3.4: the anti-rollback high-water mark li
 | **M2** Vault + storage | GRDB schema, migrations, repository, manifest wiring, **recovery key, plaintext export** | CLI does full CRUD; restore-from-backup verified |
 | **M3** GUI | SwiftUI unlock, list, detail, edit; auto-lock; search over the in-memory index | GUI CRUD works against a real vault |
 | **M4** Platform integration | Keychain + Touch ID unlock; hardened runtime; entitlements; concealed pasteboard; lock on sleep | Release build passes notarization dry-run |
-| **M5** Sync (Azure) | `Cloud/infra` Bicep → Storage + Functions; the §10.3 API; native HTTP sync client; HLC conflict copies; blind indexes; key rotation | Two machines converge through Azure; conflicts surface in the UI; `az group delete` leaves no orphans |
+| **M5** Sync (Azure) | `Cloud/infra` Bicep → Storage + SWA-hosted Functions; the §10.3 API; `k_auth` (ADR-0009); schema v2; native sync engine + CLI `sync`; HLC conflict copies; header propagation for recovery and recovery-key rotation; sync settings, join flow and conflict UI in the app (blind indexes and DEK rotation deferred — open decision 20) | Two machines converge through Azure; conflicts surface in the UI; `az group delete` leaves no orphans |
 | **M6** Web client | `PFCrypto` → WASM; `session.ts` seam; unlock + list + detail + edit in a browser; IndexedDB cache; deployed to Static Web Apps | Full CRUD in a browser against the same vault; native and web converge |
 | **M7** iOS client | `PassFortKit` builds for iOS; shared `PassFortAppCore` (lock-state machine, view models) extracted from the macOS app; `PassFortiOS` target sideloaded with a free Personal Team; join an existing vault over sync; unlock / list / detail / edit / generator; lock on background + app-switcher privacy cover + Data Protection `.complete`; `scripts/install_ios.sh` weekly re-sign | The iPhone and a Mac converge through Azure; an edit on either appears on the other after sync; a re-sign keeps the vault and the sync cursor |
 | **M8** Hardening | Fuzz the boundary, the header codec **and the WASM seam**; zeroization audit of both cores; threat-model review including the web trust tier **and the iOS client**; CSP / SRI / pinned-build review; release checklist | You'd trust it with your own passwords |
@@ -998,8 +1056,9 @@ The web client's WASM core (§11.2) assumes C++ survives this criterion. If the 
 | Vault format | Round-trip properties; **tamper tests** — flip one bit in nonce / ciphertext / tag / AAD input / header and assert `AuthFailed`, not a crash and not success |
 | Seam | Fuzz every boundary function with null pointers, zero lengths, huge lengths, closed sessions, double frees — it must return `BadInput`, never trap |
 | WASM seam | Re-run the Seam fuzz suite against `pfcrypto.wasm` under Node — same inputs, same `BadInput`-not-trap contract. Run the primitive KATs in-browser too: the format is correct only if all three cores agree byte-for-byte on the same vectors. |
-| Anti-rollback | Delete a row behind the app's back → manifest check fails. Restore an old DB file → `vault_version` check fails. A simulated malicious server (drops a record, replays an old `seq`) → the native client's `seq` floor + manifest recheck catch it. |
-| Sync API | Contract tests generated from `openapi.yaml`, run against Azurite: `412` on stale `If-Match`, `seq` monotonicity, auth rejection, oversized / misframed `sealed` rejection, batch atomicity. The server must never require or accept a key. |
+| Anti-rollback | Delete a row behind the app's back → manifest check fails. Restore an old DB file → `vault_version` check fails. A simulated malicious server (`FakeSyncServer` adversarial modes) → rewound `seq` is refused, a flipped bit rejects the page with nothing applied, a replayed old version is ignored, a dropped record is re-uploaded on resync, a forged header fails the unwrap with no session call made. Never a silent acceptance, never a local deletion. |
+| Sync API | Contract tests against `openapi.yaml`, run against Azurite: `409` on a stale `baseVersion` with nothing written, gap-free `seq` under concurrent pushes, pagination, `410` after purge, wrong key / expired token / cross-vault token → `401`, lockout backoff, enrollment secret, closed request schemas (a key-shaped field is `400`), framing and size limits, a redacting logger. |
+| Sync engine | `Reconciler` table tests (one per §9.3 rule), `SyncEngine` convergence against an in-memory `FakeSyncServer` (two repositories, offline edits on both, delete-vs-edit, paging, cancellation leaves both vaults verifying), header propagation, the schema v1 → v2 fixture. Plus a scripted two-device CLI drill against `func` + Azurite and a check of the Swift client's real requests against `openapi.yaml`. |
 | Backend ↔ client | `passfort-cli` and the web client both push/pull against a local Azurite + `func` host; two clients converge; conflict copies appear on both. |
 | Storage | Swift tests over `VaultRepository`: transaction atomicity, tombstones, mid-write kill test |
 | Migrations | Checked-in fixture vaults per format version, opened by every later build |
@@ -1055,7 +1114,7 @@ Secrets are GitHub Actions secrets, kept minimal:
 
 - **Azure** — OIDC federated credentials, not a stored client secret: the job trades its GitHub identity token for a short-lived Azure token, so no long-lived cloud credential lives in the repo.
 - **Apple** — an App Store Connect API key (issuer id, key id, `.p8`) plus the signing identity in a job-scoped keychain.
-- **JWT signing key and server pepper** (§10.4) — written to Function app settings by the Bicep deploy from a secret, never via `local.settings.json` (git-ignored, §15).
+- **JWT signing key and enrollment secret** (§10.4) — written to the SWA app settings by the Bicep deploy from GitHub secrets (`@secure()` parameters), never via `local.settings.json` (git-ignored, §15). The Storage connection string is computed inside Bicep and never leaves Azure.
 
 Teardown is `az group delete` (§10.6); a release counts as done only when teardown-then-redeploy from the same tag reproduces the environment with no manual step and no orphan resource. Once `ci.yml` is green on `main`, add the build-status badge to `README.md` — the README convention earns a badge only when CI actually runs.
 
@@ -1083,13 +1142,13 @@ Resolved ones link to their ADR.
 5. ~~**Record payload encoding: `Codable`+JSON vs CBOR.**~~ → **Resolved (rev 7):** `Codable`+JSON for M2 (M2 Phase 4). `schema_version` in the AAD keeps CBOR swappable later if payload size ever matters.
 6. ~~**GRDB vs raw `libsqlite3` via C interop.**~~ → **Resolved:** GRDB (M2 Phase 1, resolved to 7.11.1). Explicit SQL, real migrations, no opinion about a BLOB-shaped schema.
 7. ~~**Length hiding:**~~ → **Resolved (rev 7):** yes — `u32` length ‖ JSON ‖ zero padding to the next multiple of 256 B before sealing (M2 Phase 4).
-8. **Server auth:** derived `auth_secret` as a challenge-response verifier (simple; offline-crackable at Argon2 cost if Azure is breached — §10.4) vs OPAQUE/SRP (correct, more work). Static Web Apps' built-in login can sit in front as a free DoS gate either way. `auth_secret` for M5; OPAQUE stays deferred.
+8. ~~**Server auth:** derived `auth_secret` as a challenge-response verifier (simple; offline-crackable at Argon2 cost if Azure is breached — §10.4) vs OPAQUE/SRP (correct, more work).~~ → **ADR-0009** (rev 12): neither — a DEK-derived `k_auth`, stored server-side as `SHA-256`. Nothing to crack, so OPAQUE/SRP is no longer needed for the at-rest problem.
 9. ~~**iOS target?** If yes, keep `Account` validation and formatting in `PassFortVault` rather than in view models.~~ → **Resolved (rev 11): yes, M7.** Validation and formatting stay in `PassFortVault` (the CLI sees them too); the lock-state machine and view-model state move to `PassFortAppCore`; views stay per platform (§4 note 6). The ADR is written in M7 Phase 0 (`m7-ios.md` §0.4).
 10. **Account model: one universal record vs. typed item types.** `AccountCategory` (§7.3) is a placeholder — everything is `.login` in M2. Typed items (bank account, card, identity), each with its own field set, is the 1Password model; one universal `AccountPayload` plus `customFields` is simpler and probably enough. Decide the first time a non-login item genuinely chafes.
 11. **"Last used" storage.** → **rev 7:** M2 leaves `usedAt` `nil` and never writes it; "last used" becomes a local-only sidecar when a client first needs it. → **rev 8 (M3):** still not needed — the GUI list sorts by title, no recent/frequent sort. Re-scoped as "build the sidecar (schema-v2 or `usage.sqlite`, never the `usedAt` payload field) if and when a recent/frequent sort is added, M4+". The payload field stays for forward-compat. (§7.2)
-12. **Backend store: Table Storage vs Blob Storage.** Leaning Table for M5 — cheaper, ETag concurrency, one query per vault. Move to Blob if attachments (§7.7) arrive, or split records in Table + attachments in Blob.
-13. **Sync data path: thin Functions API vs clients direct to Storage via SAS + one token-minting Function.** Leaning the thin API — SAS can't enforce `seq` monotonicity or rate limits, and the API is the better Azure exercise. Revisit only if the Function cold-start latency actually bites.
-14. **Infra as code: Bicep vs Terraform.** Leaning Bicep — ships in `az`, no state backend, Azure-native, and practising Azure is the point. Terraform if a second cloud ever appears (it won't). Folded into ADR-0005.
+12. ~~**Backend store: Table Storage vs Blob Storage.**~~ → **Resolved (rev 12):** Table Storage, one partition per vault, so records and the `seq` counter share one transaction (§10.2). Blob only if attachments (§7.7) arrive, alongside the table.
+13. ~~**Sync data path: thin Functions API vs clients direct to Storage via SAS + one token-minting Function.**~~ → **Resolved (rev 12):** the thin API, hosted as SWA managed Functions (§10.3) — SAS can't enforce `baseVersion`, gap-free `seq` or rate limits. Revisit only if cold-start latency actually bites.
+14. ~~**Infra as code: Bicep vs Terraform.**~~ → **Resolved (rev 12):** Bicep (ADR-0005) — ships in `az`, no state backend. The one thing outside it is the GitHub OIDC app registration, created once by `Cloud/infra/bootstrap-oidc.sh`.
 15. **Web UI framework: vanilla Web Components vs Lit (~6 KB) vs Svelte (compiles away).** Leaning Lit for M6 — smallest runtime that still gives components. Revisit if the UI outgrows a dozen components.
 16. **CI macOS runners: GitHub-hosted minutes vs a self-hosted runner.** Hosted `macos-15` is zero-setup but bills at 10× and the free tier is finite; the `swift` and `native` jobs (§13.2) are the only ones that need macOS. Leaning hosted until the monthly minutes actually bind, then a self-hosted runner on the dev Mac — at the cost of it becoming a build dependency that can rot. Decide at M3, when the app build joins CI.
 17. ~~**Recovery-key header slot: fold it into format v1 now, or bump to format v2 with a re-seal migration in M2?**~~ → **ADR-0007** — fold into v1 (`slot_count` + optional slot 1, §5.3). Justified only because no vault had shipped; the versioned-format discipline applies in full from the first release.
@@ -1097,6 +1156,8 @@ Resolved ones link to their ADR.
 18. **Notarization, Touch ID and Keychain use.** → **Dropped for now** (2026-10-21). PassFort is a personal-use app built locally in Xcode, which needs none of them; notarization needs the paid Apple Developer Program, and the Keychain needs a `keychain-access-groups` entitlement and a provisioning profile. Revisit only if the app is ever given to other people (M8) or Touch ID is wanted (ADR-0008 holds the design). → **rev 11 (iOS only):** every iOS install carries a provisioning profile anyway, so the entitlement problem that killed the Keychain on macOS should not exist on the iPhone. M7 Phase 0 tests it under a Personal Team; if it holds, M7 Phase 9 may adopt ADR-0008's design for Face ID **on iOS only**, via a new ADR (ADR-0008 itself stays as amended). macOS is unchanged.
 
 19. **iOS signing: free Personal Team vs the paid Apple Developer Program ($99/yr).** Free: install on your own iPhone only, profile expires every ~7 days (re-sign with `scripts/install_ios.sh`), 3 sideloaded apps per device, no push / iCloud / App Groups / TestFlight. Paid: 1-year profiles, all capabilities, and it would also unlock real notarization (§13.3) and an AutoFill extension (still a §1.2 non-goal). **Leaning free for M7** — the sync backend already avoids every paid-only capability (§9.2). Revisit if the weekly re-sign actually bites, or if live push sync is ever wanted.
+
+20. **DEK rotation and blind indexes — when, and in what format?** Both moved out of M5 (rev 12). DEK rotation under sync needs a key-generation id in the header and the AAD (a format change, its own ADR, a re-seal migration) and re-registers `SHA-256(k_auth)`; until it exists, the old master password plus the server's copy still opens every record (§3.4, §9.5). Blind indexes (`pf_blind_index`, `idx_title` / `idx_url`) have no reader: search is the in-memory index (§8.3) and the server never sees `idx_*`. Build either when a concrete need appears — DEK rotation most likely as part of M8's threat-model review.
 ---
 
 ## 15. Immediate next steps

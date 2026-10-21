@@ -16,7 +16,7 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | **M3** GUI | [`m3-gui.md`](m3-gui.md) | ✅ done — Phases 1–9 done; Phase 10 ("last used") deliberately deferred |
 | **M3 addendum** Vault backup & restore | [`m3-vault-management.md`](m3-vault-management.md) | ✎ Phases 0–5 and 7 built (3, 4, 7 await by-hand checks); Azure (6) blocked on M5 |
 | **M4** Platform integration | [`m4-platform.md`](m4-platform.md) | ⏸ scaled back 2026-10-21 — no Keychain, Touch ID or notarization for a personal-use app; Phases 1–2 and 4 were tried and reverted; Phases 6 (lock on sleep/screen lock) and 7 (concealed pasteboard) built — see the note at the top of the runbook |
-| **M5** Sync (Azure) | [`m5-sync.md`](m5-sync.md) | ✎ sketch — written ahead of cadence; only Phase 0 (the Azure spike, `architecture.md` §15 step 6) is actionable, the rest is a plan to validate |
+| **M5** Sync (Azure) | [`m5-sync.md`](m5-sync.md) | ✎ detailed design (reworked 2026-10-21) — Part A is the low-level design (Azure resources, data model, API, auth, sync algorithm, app views); the Azure spike (Phase 0.1) gates the rest; its design changes D1–D8 are ratified by ADR-0009 and `architecture.md` rev 12 |
 | **M6** Web client | — | write after M5 (or pull forward — §12 note 3) |
 | **M7** iOS client | [`m7-ios.md`](m7-ios.md) | ✎ sketch — written ahead of cadence (2026-10-21); depends on M5 only, not M6; only Phase 0 (the spikes) is actionable, the rest is a plan to validate |
 | **M8** Hardening | — | write after M7 |
