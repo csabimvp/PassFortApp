@@ -426,6 +426,11 @@ it means M5 does not open on a zero id. Note it as "wired, not yet meaningful" i
 construct `AppModel` with an explicit test path — make sure they don't now pick up a real device id in
 a way that matters; they shouldn't).
 
+**DONE (2026-10-21).** `PassFort/Platform/DeviceIdentity.swift` + `DeviceIdentityTests` (4);
+`VaultService.deviceID` now reads it once per process. Existing records keep the zero id: `HLC` orders
+by wall time then counter and uses the device id only as a final tiebreaker, so mixed ids are safe and
+nothing is rewritten.
+
 ---
 
 ## Phase 5 — Touch ID unlock (ADR-0008 lands here)
