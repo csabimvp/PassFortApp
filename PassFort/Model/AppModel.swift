@@ -31,6 +31,10 @@ final class AppModel {
   /// unlock, dropped on lock.
   private(set) var summaries: [AccountSummary] = []
 
+  /// Whether the password generator sheet is up. Lives here so the Tools menu entry and the
+  /// toolbar button open the same sheet; the generator needs no vault, so it works while locked.
+  var showingGenerator = false
+
   private let service: VaultService
   private var autoLock: AutoLock?
   /// The open vault held between `createVault` and the recovery-key confirmation

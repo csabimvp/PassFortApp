@@ -110,6 +110,14 @@ struct VaultListView: View {
         }
         ToolbarItem {
           Button {
+            model.showingGenerator = true
+          } label: {
+            Label("Generate password", systemImage: "wand.and.stars")
+          }
+          .help("Generate password (⌘⌥G)")
+        }
+        ToolbarItem {
+          Button {
             model.lock()
           } label: {
             Label("Lock", systemImage: "lock")

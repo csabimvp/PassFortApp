@@ -5,7 +5,6 @@ struct PassFortApp: App {
   @State private var location: VaultLocationModel
   @State private var model: AppModel
   @State private var backup: BackupModel
-  @State private var showingGenerator = false
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
@@ -39,14 +38,14 @@ struct PassFortApp: App {
         .onChange(of: scenePhase) { _, phase in
           if phase == .background { model.lock() }
         }
-        .sheet(isPresented: $showingGenerator) {
+        .sheet(isPresented: $model.showingGenerator) {
           PasswordGeneratorView().tint(Palette.primary)
         }
     }
     .defaultSize(width: 860, height: 540)
     .commands {
       CommandMenu("Tools") {
-        Button("Generate Password…") { showingGenerator = true }
+        Button("Generate Password…") { model.showingGenerator = true }
           .keyboardShortcut("g", modifiers: [.command, .option])
       }
     }
