@@ -287,6 +287,23 @@ enum Keychain {
   prompt ("PassFort wants to use the … keychain") depending on macOS version — expected, benign,
   once.
 
+**DONE (2026-10-21), with one deviation from §0.3.** `PassFort/Platform/Keychain.swift` +
+`PassFortTests/KeychainTests.swift` (5 tests against the real keychain, throwaway service names). The
+Touch ID variant is written but only checkable by hand (Phase 5).
+
+**§0.3 was wrong: the Keychain does need an entitlement.** Items live in the data-protection keychain
+(`kSecUseDataProtectionKeychain`, required for `ThisDeviceOnly` and the biometric ACL), and without
+`keychain-access-groups` every call fails `errSecMissingEntitlement` (-34018). `PassFort.entitlements`
+now carries `keychain-access-groups = $(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`. It is a
+restricted entitlement, so automatic signing now needs a provisioning profile ("Mac Team Provisioning
+Profile: csabimvp.PassFort", created by `xcodebuild -allowProvisioningUpdates` or Xcode). Consequences:
+
+- **CI is unaffected** (`CODE_SIGNING_ALLOWED=NO` builds fine; verified for Release too).
+- **An ad-hoc Release build is now refused by Xcode** ("entitlements that require signing with a
+  development certificate"). Phase 8's 0.2-local plan must build unsigned and ad-hoc `codesign` the
+  result itself, and `scripts/PassFort.entitlements.expected` (Phase 1) needs the keychain group added
+  then. Decide the exact mechanics in Phase 8.
+
 **Checkpoint:** a throwaway test (or a debug menu item) round-trips `Data` through `set`/`get`/`delete`
 for the plain variant; `getBiometryGated` shows the Touch ID sheet and returns the bytes on a good
 scan, `.userCancelled` on cancel.
