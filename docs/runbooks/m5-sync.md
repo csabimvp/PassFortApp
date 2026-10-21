@@ -2,7 +2,9 @@
 
 **Status:** Detailed design, written ahead of the normal cadence (first sketch 2026-09-04; reworked to
 low-level detail 2026-10-21, on request). The design decisions are **ratified** — ADR-0009 and
-`architecture.md` rev 12 (2026-10-21) — but the Azure spike (Phase 0.1) has **not** run. Part A is the
+`architecture.md` rev 12 (2026-10-21). The Azure spike (Phase 0.1) is **half run**: the local half
+passed on 2026-10-21 (A.3 holds on Azurite, real sealed blobs round-trip), and the deploy half hasn't
+run yet. Part A is the
 design every phase builds against; the spike can still overturn it, and then the ADR gets amended and
 this runbook rewritten. Treat every "Checkpoint", command and number below as provisional until the
 spike has run.
@@ -285,12 +287,15 @@ deviceId, and a token for vault A is rejected on vault B's routes.
                               with { version, hlc…, sealed, isDeleted, seq: s, writer: jwt.dev }
           + update meta { seq: s } If-Match meta.etag
     submitTransaction(ops) → success: return 200 { applied, seq: s }
-                          → 412 / 409 from Storage (someone raced us): loop
+                          → 412 / 409 from Storage (someone raced us):
+                              sleep (20 + rand·60) ms × attempt; loop
   return 503 + Retry-After: 1
   ```
 
   Each record gets its own `seq`; the batch is all-or-nothing; a racing writer can never interleave
-  half a batch; `seq` is gap-free and never reused.
+  half a batch; `seq` is gap-free and never reused. The jittered sleep is a spike finding (Phase 0.1):
+  without it, 2–3 of 10 concurrent pushers exhausted all five tries on every run; with it, none did
+  across five runs. A 503 is still safe — nothing was written — but it shouldn't be the common path.
 - **Validation** on push: `version > baseVersion`, framing (A.2), size, ids are UUIDs, no duplicate ids
   in one batch, at most 99 records, **no unknown fields** (a body with `dek`, `password`, `key` or any
   field not in the schema is `400` — the "never accept a key" guarantee is the schema being closed).
@@ -566,6 +571,34 @@ protocol and the cost locally and cheaply before the milestone is on the board.
   timeout, which Node versions `apiRuntime` accepts, and the served certificate chain
   (`openssl s_client -connect <site>.azurestaticapps.net:443 -showcerts`) for the pin set. Read the
   actual Table Storage prices for your region. Then `az group delete` it.
+
+**Local half — DONE (2026-10-21), branch `spike/m5-azure`.** Run without `func` (see below): the A.3
+push and pull written literally against `@azure/data-tables` + Azurite (`azurite-table`), plus a
+round-trip of real blobs. Results:
+
+- Three pushes → seqs 1/2/3; `since=0` → all three, byte-identical; `since=3` → none, `seq` 3.
+- Same-record race from the same base → exactly one `200`, one `409 { serverVersion: 2 }`.
+- 10-way race on different records → seqs always gap-free and unique. **But** with no backoff 2–3 of
+  the 10 hit `503` every run; jittered backoff fixed it (now in A.3).
+- 99 records + `meta` (100 ops) lands as one transaction. 100 records (101 ops) is refused (`400`),
+  with nothing written. A 65,320-byte `sealed` fits; 65,576 is refused (`400`). **Azurite enforces both
+  Table limits**, so the Phase 2 checkpoints can test them locally.
+- The Int64 filter `seq gt <n>L` plus the `rec_` ≤ RowKey < ``rec` `` prefix range works as A.2 says.
+- **Real blobs:** a synthetic vault's `pf_seal` output (3 records, one at version 2) was pushed as one
+  batch and pulled back. A second vault was rebuilt from the pull (records table replaced, `.hw`
+  copied). `passfort-cli verify` → OK and `list` / `get` open every record. Negative control: one
+  flipped bit in one pulled blob → `manifest MAC mismatch`. No Swift subcommand was needed: Node's
+  built-in `node:sqlite` read and wrote the vault files.
+- **Tooling:** npm 11 holds back install scripts by default, and the `azure-functions-core-tools`
+  npm wrapper (4.16.0) downloads a 620 MB zip, then fails to extract it with no error message on
+  Node 26. Phase 1.3 installs `func` from Homebrew (`brew tap azure/functions && brew install
+  azure-functions-core-tools@4`) instead. Whether the Functions host and SWA `apiRuntime` accept
+  Node 26 is **unverified**. Node 26 is the local default; `Cloud/api/.nvmrc` may need to pin an
+  older LTS.
+
+**Deploy half — not run.** It needs the `az` CLI, an Azure login, `func` (Homebrew) and a scratch RG.
+Its measurements (cold start, per-request timeout, `apiRuntime` Node versions, the cert chain for the
+pin set, regional Table prices) are still open.
 
 **Spike exit:** you can state from experience how many days `Cloud/` is, and whether ADR-0005's
 CloudKit fallback should fire. "The custom backend costs more attention than it teaches" is a
