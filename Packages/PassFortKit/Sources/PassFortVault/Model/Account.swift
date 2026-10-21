@@ -9,21 +9,31 @@ public struct Account: Sendable, Identifiable, Equatable {
   public var updatedAt: HLC
   public var isDeleted: Bool
   public var payload: AccountPayload
+  /// The record's §7.1 schema version -- the envelope field the payload was
+  /// decoded against, not the payload's own `AccountPayload.schemaVersion`.
+  public var schemaVersion: UInt16
+  /// `sealed.count` from the envelope -- `nonce ‖ ciphertext ‖ tag`, i.e. what
+  /// this record actually costs on disk. A UI "under the hood" stat only.
+  public var sealedSize: Int
 
   public init(
-    id: UUID, version: UInt64, updatedAt: HLC, isDeleted: Bool, payload: AccountPayload
+    id: UUID, version: UInt64, updatedAt: HLC, isDeleted: Bool, payload: AccountPayload,
+    schemaVersion: UInt16, sealedSize: Int
   ) {
     self.id = id
     self.version = version
     self.updatedAt = updatedAt
     self.isDeleted = isDeleted
     self.payload = payload
+    self.schemaVersion = schemaVersion
+    self.sealedSize = sealedSize
   }
 
   public init(envelope: SealedRecord, payload: AccountPayload) {
     self.init(
       id: envelope.id, version: envelope.version, updatedAt: envelope.updatedAt,
-      isDeleted: envelope.isDeleted, payload: payload)
+      isDeleted: envelope.isDeleted, payload: payload, schemaVersion: envelope.schemaVersion,
+      sealedSize: envelope.sealed.count)
   }
 }
 

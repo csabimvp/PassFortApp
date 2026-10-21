@@ -340,6 +340,20 @@ public actor VaultRepository {
     try highWater.write(next)
   }
 
+  // MARK: - Stats
+
+  /// Crypto op counts since this session was opened — a UI "under the hood"
+  /// panel (not a security property, and not persisted across unlocks).
+  public struct CryptoStats: Sendable, Equatable {
+    public let sealCount: UInt64
+    public let openCount: UInt64
+  }
+
+  public func cryptoStats() async -> CryptoStats {
+    let s = await session.cryptoStats()
+    return CryptoStats(sealCount: s.sealCount, openCount: s.openCount)
+  }
+
   // MARK: - Crypto helpers
 
   private func liveRecord(_ id: UUID) async throws -> SealedRecord {

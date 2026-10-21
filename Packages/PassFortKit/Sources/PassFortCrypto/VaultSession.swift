@@ -117,7 +117,8 @@ public actor VaultSession {
   /// Returns `nonce ‖ ciphertext ‖ tag`.
   public func seal(recordID: UUID, version: UInt64, schema: UInt16, plaintext: Data) throws -> Data
   {
-    try withUnsafeBytes(of: recordID.uuid) { id in
+    defer { sealCount &+= 1 }
+    return try withUnsafeBytes(of: recordID.uuid) { id in
       try plaintext.withUnsafeBytes { pt in
         try consume(
           pf.pf_seal(
@@ -130,7 +131,8 @@ public actor VaultSession {
   /// Open a sealed blob. The identity fields must match what it was sealed with,
   /// or this throws `.authFailed` (the §5.4 binding). Returns the plaintext.
   public func open(recordID: UUID, version: UInt64, schema: UInt16, sealed: Data) throws -> Data {
-    try withUnsafeBytes(of: recordID.uuid) { id in
+    defer { openCount &+= 1 }
+    return try withUnsafeBytes(of: recordID.uuid) { id in
       try sealed.withUnsafeBytes { s in
         try consume(
           pf.pf_open(
@@ -138,6 +140,23 @@ public actor VaultSession {
             s.bindMemory(to: UInt8.self).baseAddress, s.count))
       }
     }
+  }
+
+  // MARK: - Stats
+
+  /// Crypto operation counts, for a UI "under the hood" panel — not a security
+  /// property, so counted on every call including a failed `open` (a wrong
+  /// version/schema binding, say): the AEAD primitive still ran.
+  public struct CryptoStats: Sendable, Equatable {
+    public let sealCount: UInt64
+    public let openCount: UInt64
+  }
+
+  private var sealCount: UInt64 = 0
+  private var openCount: UInt64 = 0
+
+  public func cryptoStats() -> CryptoStats {
+    CryptoStats(sealCount: sealCount, openCount: openCount)
   }
 
   // MARK: - Manifest
