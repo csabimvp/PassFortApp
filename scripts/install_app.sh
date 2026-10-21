@@ -48,4 +48,8 @@ echo "==> Installing to $dest"
 mkdir -p "$dest"
 rm -rf "$dest/PassFort.app"
 cp -R "$app" "$dest/PassFort.app"
+touch "$dest/PassFort.app"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -f "$dest/PassFort.app" >/dev/null 2>&1 || true
 echo "==> Installed $dest/PassFort.app"
+echo "    If the Dock still shows a generic icon, run: killall Dock"

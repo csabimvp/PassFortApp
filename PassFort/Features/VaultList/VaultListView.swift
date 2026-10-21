@@ -45,6 +45,14 @@ struct VaultListView: View {
       .background(.ultraThinMaterial)
       .searchable(text: $query, prompt: "Search")
       .searchFocused($searchFocused)
+      .background {
+        // Not in the toolbar (it showed up there as an empty button): just a ⌘F shortcut.
+        Button("Search") { searchFocused = true }
+          .keyboardShortcut("f", modifiers: .command)
+          .opacity(0)
+          .frame(width: 0, height: 0)
+          .accessibilityHidden(true)
+      }
       .onDeleteCommand { deleteSelected() }
       .navigationTitle("PassFort")
       .navigationSplitViewColumnWidth(min: 220, ideal: 280)
@@ -78,6 +86,12 @@ struct VaultListView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             Spacer()
+            SettingsLink {
+              Label("Settings", systemImage: "gearshape")
+                .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help("Settings (⌘,)")
           }
           .padding(.horizontal, 10)
           .padding(.vertical, 6)
@@ -93,13 +107,6 @@ struct VaultListView: View {
           }
           .keyboardShortcut("n", modifiers: .command)
           .help("Add account (⌘N)")
-        }
-        ToolbarItem {
-          // Invisible: only here to give the sidebar search field a ⌘F shortcut.
-          Button("Search") { searchFocused = true }
-            .keyboardShortcut("f", modifiers: .command)
-            .opacity(0)
-            .accessibilityHidden(true)
         }
         ToolbarItem {
           Button {
