@@ -25,6 +25,5 @@ struct RelaunchRequiredView: View {
     }
     .padding(40)
     .frame(maxWidth: 460)
-    .pfBackground()
   }
 }

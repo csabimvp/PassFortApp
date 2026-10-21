@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -9,16 +10,21 @@ struct UnlockView: View {
   /// Optional so previews that only inject `AppModel` keep working.
   @Environment(BackupModel.self) private var backup: BackupModel?
   @State private var password = ""
+  @FocusState private var passwordFocused: Bool
 
   var body: some View {
     VStack(spacing: 16) {
-      Image(systemName: "lock.fill")
-        .font(.largeTitle)
-        .foregroundStyle(.secondary)
+      Image(nsImage: NSApp.applicationIconImage)
+        .resizable()
+        .frame(width: 80, height: 80)
+        .accessibilityHidden(true)
+      Text("PassFort")
+        .font(.title2.weight(.semibold))
 
       SecureField("Master password", text: $password)
         .textFieldStyle(.roundedBorder)
         .frame(maxWidth: 280)
+        .focused($passwordFocused)
 
       if case .locked(let error?) = model.state {
         errorBanner(error)
@@ -50,6 +56,7 @@ struct UnlockView: View {
     }
     .padding(40)
     .animation(.default, value: model.state)
+    .onAppear { passwordFocused = true }
     .onChange(of: model.state) { _, state in
       if state == .unlocked { password = "" }  // keep it on failure so a retry works
     }

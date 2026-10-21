@@ -51,7 +51,6 @@ struct CreateVaultView: View {
     }
     .padding(32)
     .frame(width: 400)
-    .pfBackground()
     .disabled(working)
   }
 

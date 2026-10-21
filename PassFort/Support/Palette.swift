@@ -4,37 +4,14 @@ import SwiftUI
 /// Brand palette, hex only. **This struct is the whole retheme surface** — swap
 /// values here and every screen picks it up; nothing else needs to change.
 /// `primary` drives buttons/toggles/selection via `.tint(Palette.primary)` at
-/// the app root; `accent`/`background` build the window backdrop gradient.
+/// the app root. Windows use the system background; there is no brand backdrop.
 private enum PaletteTokens {
   static let primaryLight = "#F97316"
   static let primaryDark = "#FB923C"
-
-  static let accentLight = "#FB923C"
-  static let accentDark = "#F97316"
-
-  static let backgroundLight = "#FFF7ED"
-  static let backgroundDark = "#1F140A"
 }
 
 enum Palette {
   static let primary = Color(light: PaletteTokens.primaryLight, dark: PaletteTokens.primaryDark)
-  static let accent = Color(light: PaletteTokens.accentLight, dark: PaletteTokens.accentDark)
-  static let background = Color(
-    light: PaletteTokens.backgroundLight, dark: PaletteTokens.backgroundDark)
-
-  static var backgroundGradient: LinearGradient {
-    LinearGradient(
-      colors: [background, accent.opacity(0.16)],
-      startPoint: .topLeading,
-      endPoint: .bottomTrailing)
-  }
-}
-
-extension View {
-  /// Applies the brand gradient as a full-bleed backdrop behind the view.
-  func pfBackground() -> some View {
-    background(Palette.backgroundGradient.ignoresSafeArea())
-  }
 }
 
 // MARK: - Hex-driven, appearance-aware Color

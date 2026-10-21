@@ -48,7 +48,6 @@ struct VaultLocationUnavailableView: View {
     }
     .padding(40)
     .frame(maxWidth: 460)
-    .pfBackground()
     .alert(
       "Look for the vault there?",
       isPresented: Binding(get: { pendingFolder != nil }, set: { if !$0 { pendingFolder = nil } }),
