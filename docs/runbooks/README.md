@@ -15,7 +15,7 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | **M2** Vault + storage | [`m2-vault-storage.md`](m2-vault-storage.md) | ✅ done |
 | **M3** GUI | [`m3-gui.md`](m3-gui.md) | ▶ current — Phases 1–8 done, Phase 9 (test target) manual, Phase 10 deferred |
 | **M3 addendum** Vault backup & restore | [`m3-vault-management.md`](m3-vault-management.md) | ✎ Phases 0–5 and 7 built (3, 4, 7 await by-hand checks); Azure (6) blocked on M5 |
-| **M4** Platform integration | [`m4-platform.md`](m4-platform.md) | ▶ drafted — two Phase 0 decisions open (ADR-0008; the notarization membership) |
+| **M4** Platform integration | [`m4-platform.md`](m4-platform.md) | ▶ current — Phase 0 decided (ADR-0008 option A; notarization 0.2-local); Phase 1 next |
 | **M5** Sync (Azure) | [`m5-sync.md`](m5-sync.md) | ✎ sketch — written ahead of cadence; only Phase 0 (the Azure spike, `architecture.md` §15 step 6) is actionable, the rest is a plan to validate |
 | **M6** Web client | — | write after M5 (or pull forward — §12 note 3) |
 | **M7** Hardening | — | write after M6 |

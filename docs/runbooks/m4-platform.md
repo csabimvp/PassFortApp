@@ -158,6 +158,8 @@ Everything else in M4 is independent of this choice — do Phases 1–7 first; P
 
 **Checkpoint:** none — this is reading and two decisions. Move on with ADR-0008 written and 0.2 chosen.
 
+**DONE (2026-10-21):** 0.1 = option A, `docs/adr/0008-biometric-unlock-keychain.md` written, new §3.4 bullet. 0.2 = **0.2-local**, recorded as `architecture.md` §14 open decision 18. Phase 8 therefore ad-hoc signs and gates `notarytool` on secrets.
+
 ---
 
 ## Phase 1 — Hardened runtime + the entitlements audit
