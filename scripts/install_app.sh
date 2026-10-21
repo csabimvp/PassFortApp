@@ -17,17 +17,18 @@ build_only=false
 if [[ "${1:-}" == "--build-only" ]]; then build_only=true; shift; fi
 dest="${1:-/Applications}"
 
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-
 echo "==> Building Release"
+# Apple silicon only: pin the destination (otherwise xcodebuild warns that "My Mac" matches both
+# arm64 and x86_64) and the architecture. The project builds into Build/ (git-ignored), so rebuilds
+# are incremental.
 xcodebuild build \
   -project PassFort.xcodeproj -scheme PassFort -configuration Release \
-  -destination 'platform=macOS' \
-  ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
-  CONFIGURATION_BUILD_DIR="$work/out" -quiet
+  -destination 'platform=macOS,arch=arm64' \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+  ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO -quiet
 
-app="$work/out/PassFort.app"
+app="Build/Products/Release/PassFort.app"
+[[ -d "$app" ]] || { echo "error: no app at $app" >&2; exit 1; }
 echo "==> Verifying signature"
 codesign --verify --strict --deep "$app"
 if codesign -d --entitlements - "$app" 2>&1 | grep -q get-task-allow; then
