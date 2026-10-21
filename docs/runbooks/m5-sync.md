@@ -89,7 +89,8 @@ PassFort/  (the app)
 | Deferred to | What |
 |---|---|
 | **M6** | the web client — `Web/`, `pfcrypto.wasm`, the SWA static bundle, cross-origin isolation, the three-core agreement test. M5 stands up the API the web client will call; it does not call it. |
-| **M7** | the real notarized+stapled release; the nightly long-run fuzz job; SPKI pin rotation drills. |
+| **M7** | the iPhone client (`m7-ios.md`). It joins through the API M5 builds, unchanged — but M5's second-device join must already unwrap the DEK *before* sending any auth response (`m7-ios.md` Phase 5). |
+| **M8** | the real notarized+stapled release; the nightly long-run fuzz job; SPKI pin rotation drills. |
 | **format v2 / a later ADR** | attachments (§7.7 — `sealed` file rows + Blob Storage); OPAQUE/SRP auth (§10.4, §14.8 — `auth_secret` challenge-response is M5); strict multi-writer anti-rollback under genuine concurrency (§10.5 caveat). |
 | **not at all** | any server-side crypto, any server-side decrypt, any endpoint that requires a key. A test that the server *rejects* a key-shaped request is in Phase 4. |
 
@@ -694,7 +695,7 @@ CI: the `cloud` job (Phase 4) rides `ci.yml`; the `swift` job's package + app su
   a simulated-malicious-server test suite.
 - **Deferred, tracked:** the web client and everything WASM (M6 — it calls the API M5 built);
   attachments (Blob Storage, a later ADR); OPAQUE/SRP auth (§14.8); strict multi-writer anti-rollback
-  under genuine concurrency (§10.5 caveat); SPKI pin-rotation drills (M7).
+  under genuine concurrency (§10.5 caveat); SPKI pin-rotation drills (M8).
 - **Next:** M6 — the web client. `PFCrypto` → `pfcrypto.wasm` via Emscripten (`scripts/build_wasm.sh`,
   ADR-0006), `Web/src/crypto/session.ts` mirroring `VaultSession.swift`, a Lit UI, the IndexedDB
   cache, and the same `seq` cursor + HLC rules this milestone built — against the same API. Write

@@ -67,7 +67,7 @@ Packages/PassFortKit/Sources/PassFortVault/
 | Deferred to | What |
 |---|---|
 | **M5** | any sync UI or client, the real use of the device id, blind indexes, `com.apple.security.network.client` |
-| **M7** | the *real* notarized release: `stapler staple` + a signed `.app` attached to a GitHub Release, the nightly long-run fuzz job |
+| **M8** | the *real* notarized release: `stapler staple` + a signed `.app` attached to a GitHub Release, the nightly long-run fuzz job |
 | **format v2** | a biometric-unlock **header slot**. ADR-0007 (line 82) already ruled that a third slot is a real `format_version = 2` with a real re-seal migration — correct only once the format has shipped. M4 keeps biometric material in the Keychain instead (Phase 0, ADR-0008). |
 | **"Last used" sidecar** | still deferred (`m3-gui.md` Phase 10, open decision 11). If a recent/frequent sort is ever added it now has a natural home — the Keychain/`UserDefaults` sidecar pattern this milestone establishes — but nothing in M4 needs it. |
 
@@ -137,21 +137,21 @@ M4's exit criterion is *"the release build passes a notarization dry-run"*, and 
   Automatic`, no team).
 
 §10 / ADR-0005 deliberately dropped the Apple Developer Program dependency *for sync*. It does **not**
-drop it for distribution — a notarized macOS app needs Developer ID either way, and that is the M7
+drop it for distribution — a notarized macOS app needs Developer ID either way, and that is the M8
 "real release" bar.
 
 **Pick one and record it in `architecture.md` §14 (open decision 16 is the CI-runner one; add a new
 entry):**
 
 - **0.2-real** — you have / will get the membership now. Phase 8 runs `notarytool submit --wait`
-  against Apple for real (no `--staple`, no Release attachment — that is M7). A submission that is
+  against Apple for real (no `--staple`, no Release attachment — that is M8). A submission that is
   rejected fails the job. This fully meets the §13.4 M4 line.
 - **0.2-local** (fallback) — no membership yet. Phase 8 does everything short of Apple: Release build
   with hardened runtime, **ad-hoc** sign (`CODE_SIGN_IDENTITY = "-"`), then assert the hardened-runtime
   flag is set, `get-task-allow` is absent, `codesign --verify --strict --deep` passes, and the
   effective entitlements match a checked-in `PassFort.entitlements.expected`. The `notarytool` step is
   wired but `if:`-gated on the secrets existing, so it lights up automatically when 0.2-real lands.
-  Mark the milestone "M4 (local dry-run); notarization completes at M7".
+  Mark the milestone "M4 (local dry-run); notarization completes at M8".
 
 Everything else in M4 is independent of this choice — do Phases 1–7 first; Phase 8 is where it bites.
 
@@ -689,16 +689,16 @@ jobs:
           ditto -c -k --keepParent "$APP" PassFort.zip
           xcrun notarytool submit PassFort.zip \
             --key key.p8 --key-id "$KEY_ID" --issuer "$ISSUER" --wait
-          # M4: stop here. M7 adds `xcrun stapler staple "$APP"` + attach to a GitHub Release.
+          # M4: stop here. M8 adds `xcrun stapler staple "$APP"` + attach to a GitHub Release.
         # secret hygiene: no `set -x`, key.p8 is job-ephemeral, logs are public (§13.2)
 ```
 
 - **0.2-local:** the `if:` guard means the job is green on the assertions alone until the Apple secrets
-  exist. Record the milestone as "M4 dry-run local; notarize at M7" in §14.
+  exist. Record the milestone as "M4 dry-run local; notarize at M8" in §14.
 - **0.2-real:** add the three secrets, set `DEVELOPMENT_TEAM`, import the Developer ID cert into a
   job-scoped keychain (`security create-keychain` / `import` / `set-key-partition-list`), re-sign
   before `ditto`, and a rejected `notarytool submit` fails the job — meeting the §13.4 line in full.
-- **`native` job note (§13.4 M7, not now):** the nightly long-run fuzz stays out of this file.
+- **`native` job note (§13.4 M8, not now):** the nightly long-run fuzz stays out of this file.
 - Once `ci.yml` *and* this workflow are green, add the CI status badge to `README.md` (§13.3, the
   README convention "earns a badge only when CI actually runs" — CI has run since M1, so the badge is
   arguably overdue; add it now).
@@ -741,13 +741,13 @@ locally and in CI; the `release.yml` assertions green on a test tag.
   sidecar.
 - **Two decisions recorded:** ADR-0008 (biometric unlock stores the password in the biometric-gated
   Keychain, not a header slot — option B waits for a format-v2 bump); and the Apple Developer Program
-  call in §14 (real notarization now, or local dry-run until M7).
+  call in §14 (real notarization now, or local dry-run until M8).
 - **`architecture.md` edits this milestone:** §3.4 gains the Touch ID limitation bullet; §14 gains the
   notarization-membership decision; the rev line moves. ADR-0008 is added and the `docs/adr/README.md`
   table row with it.
 - **`release.yml` exists** and enforces the hardened-runtime / entitlements floor on every tag; the
   notarize step is either live (0.2-real) or one `if:`-guard away from live (0.2-local).
-- **Deferred, tracked:** the real stapled+published release and the nightly fuzz job (M7); the device
+- **Deferred, tracked:** the real stapled+published release and the nightly fuzz job (M8); the device
   id becomes meaningful and `com.apple.security.network.client` gets added (M5); a biometric header
   slot only if a `format_version = 2` ever happens for another reason.
 - **Next:** M5 — sync against the Azure backend. Do the Azure spike first (`architecture.md` §15

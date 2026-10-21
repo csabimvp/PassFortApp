@@ -1,13 +1,13 @@
 # PassFort — Architecture
 
 **Status:** Draft (scaffolding). Nothing is built yet; this document is the plan we design against.
-**Last updated:** 2026-10-21 (rev 10 — M4 scaled back: no Touch ID, no Keychain (ADR-0008 not adopted), no notarization work; the rollback mark stays a file sidecar and unlock stays master-password only (open decision 18); rev 9 — `AccountSummary` (§7.5) gains `category`, mirroring `AccountPayload.category`, so the M3 sidebar can group by category and pin favorites without a full-record fetch; no ADR, no migration — `AccountSummary` is derived, never sealed; rev 8 — `AccountPayload` gains `revisionHistory` and `passwordHistory` / `passwordChangedAt` are now written by `VaultRepository` on every edit (§7.2, §7.3, §7.7); a new optional payload key, absorbed by the `unknown` forward-compat bag — no ADR, no migration, no schema bump; §4 app-source folder is `PassFort/` not `App/` (Xcode's synchronized-group folder; `.xcodeproj` still at the repo root) and its `Info.plist` is build-generated; open decision 11 re-scoped ("last used" sidecar deferred past M3 — the GUI list has no recent sort); rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
+**Last updated:** 2026-10-21 (rev 11 — iOS client added as **M7** (§12), hardening renumbered **M8**; §1.2 iOS non-goal lifted; §4 gains the `PassFortiOS/` app target and the shared `PassFortAppCore` package target; §3.4 records the free-signing availability cost; §10.5 / §3.4 high-water-mark wording corrected to the `<db>.hw` sidecar (stale since rev 10); §13 gains the `ios` CI job; open decision 9 resolved, 18 re-scoped for iOS, 19 added (free Personal Team vs paid program); runbook `docs/runbooks/m7-ios.md`; rev 10 — M4 scaled back: no Touch ID, no Keychain (ADR-0008 not adopted), no notarization work; the rollback mark stays a file sidecar and unlock stays master-password only (open decision 18); rev 9 — `AccountSummary` (§7.5) gains `category`, mirroring `AccountPayload.category`, so the M3 sidebar can group by category and pin favorites without a full-record fetch; no ADR, no migration — `AccountSummary` is derived, never sealed; rev 8 — `AccountPayload` gains `revisionHistory` and `passwordHistory` / `passwordChangedAt` are now written by `VaultRepository` on every edit (§7.2, §7.3, §7.7); a new optional payload key, absorbed by the `unknown` forward-compat bag — no ADR, no migration, no schema bump; §4 app-source folder is `PassFort/` not `App/` (Xcode's synchronized-group folder; `.xcodeproj` still at the repo root) and its `Info.plist` is build-generated; open decision 11 re-scoped ("last used" sidecar deferred past M3 — the GUI list has no recent sort); rev 7 — recovery-key DEK slot folded into header format v1 per ADR-0007: §5.3 gains `slot_count` + an optional second slot, no version bump, no migration; §5.6 recovery key rendered Crockford Base32; open decisions 5, 6, 7, 11, 17 resolved (JSON payload, GRDB, 256-byte padding, `usedAt` deferred, recovery slot in v1); rev 6 — Botan pin bumped 3.12.0 → 3.13.0 per ADR-0001 amendment; rev 5 — CI and release pipeline added as §13.2–§13.4, §13 retitled "Testing, CI, and release", open decision 16 added; rev 4 — Azure backend §10 and web client §11 folded in per ADR-0005/0006, former §10–§13 renumbered to §12–§15)
 
 ---
 
 ## 1. What this is
 
-PassFort is a macOS password manager with:
+PassFort is a macOS-first password manager — with an iPhone client from M7 (§12) — with:
 
 - a **C++ crypto core** that owns key derivation, the key hierarchy, authenticated encryption and the manifest MAC — and nothing else;
 - a **Swift layer** that owns storage, the record model, sync and the SwiftUI presentation;
@@ -27,14 +27,14 @@ PassFort is a macOS password manager with:
 
 ### 1.2 Non-goals (for now)
 
-- iOS/iPadOS targets. The crypto core is portable; the app is macOS-first. Don't pay for a shared UI layer before there's a second platform.
+- **iPadOS-specific UI, App Store / TestFlight distribution, and anything else that needs the paid Apple Developer Program.** An **iPhone app is in scope as M7** (rev 11): a second native client, sideloaded with a free Personal Team (§14.19), that *joins* an existing vault over sync. The two apps share the core and an app-logic layer (`PassFortAppCore`, §4) — not views.
 - **Browser extension, page autofill, OS credential-provider integration.** A hosted **web vault UI** *is* now in scope (§11) — full CRUD over the same encrypted vault, explicitly a lower trust tier than the native app (§3.4). An extension that reads other pages' DOM is a different, larger trust boundary and stays out.
 - Multi-user vaults, sharing, or team features.
 - Defending against an attacker who already has code execution as your user while the vault is unlocked (see §3).
 
 ### 1.3 Honesty clause
 
-This is a learning project. Don't make it your primary password store until, at minimum, M7 (§12) is complete and you have a tested, verified backup/restore path. Rolling your own vault format is a good way to learn cryptography and a bad way to guarantee you can still read your data in five years. **Export-to-plaintext-under-explicit-confirmation is a security feature**, not a wart — build it in M2, not as a hardening-phase afterthought.
+This is a learning project. Don't make it your primary password store until, at minimum, M8 (§12) is complete and you have a tested, verified backup/restore path. Rolling your own vault format is a good way to learn cryptography and a bad way to guarantee you can still read your data in five years. **Export-to-plaintext-under-explicit-confirmation is a security feature**, not a wart — build it in M2, not as a hardening-phase afterthought.
 
 ---
 
@@ -43,8 +43,8 @@ This is a learning project. Don't make it your primary password store until, at 
 ```mermaid
 flowchart TB
     subgraph SwiftUI["Presentation — Swift"]
-        UI["SwiftUI views<br/>Unlock · VaultList · AccountDetail · Settings"]
-        VM["Observable view models<br/>(@MainActor)"]
+        UI["SwiftUI views — per platform (macOS, iOS from M7)<br/>Unlock · VaultList · AccountDetail · Settings"]
+        VM["PassFortAppCore — shared by both apps<br/>lock-state machine · observable view models (@MainActor)"]
     end
     subgraph Vault["PassFortVault — Swift, no interop flag"]
         Repo["VaultRepository<br/>CRUD · search · tombstones"]
@@ -103,7 +103,7 @@ Write this down before writing code; every later decision points back here.
 
 | # | Adversary | Capability | Our defence |
 |---|---|---|---|
-| A1 | Device thief, vault locked | Full read of disk, Time Machine backups | Argon2id-derived KEK; nothing decryptable without the master password |
+| A1 | Device thief, vault locked | Full read of disk, Time Machine / iPhone backups | Argon2id-derived KEK; nothing decryptable without the master password |
 | A2 | Cloud/sync operator (Azure, plus whoever runs the deploy) | Reads and modifies everything stored server-side; **serves the web client its code** | E2EE payloads; manifest MAC detects tampering/rollback (§5.5); the native app is the high-trust client and does not depend on server-delivered code (§3.4, §11.4) |
 | A3 | Passive network attacker | Reads traffic | TLS 1.3 + ATS; payloads already ciphertext |
 | A4 | Active network attacker (MITM) | Substitutes certs, replays | Cert validation, optional pinning, AEAD + per-record versioning |
@@ -131,7 +131,8 @@ This section grew when the boundary moved (ADR-0004). Be precise about what was 
 - `mlock` (via Botan's locking allocator) is best-effort and capped by `RLIMIT_MEMLOCK`; pages may still hit swap. macOS encrypts swap by default, which helps.
 - Sync metadata (record count, ciphertext sizes, update timestamps, per-vault write frequency) is visible to the Azure Storage account.
 - **The web client is a lower trust tier than the native app.** Whoever serves its JavaScript — Azure, or whoever runs the deploy — can serve JavaScript that captures the master password on the next unlock. This is inherent to web-delivered E2EE; a strict CSP, Subresource Integrity, pinned and reproducible builds, and near-zero dependencies raise the cost but do not close it. Treat the native app as the client you trust and the web app as a convenience used with eyes open. See §11.4.
-- **The web client's anti-rollback cache lives in browser storage.** The highest-seen `vault_version` (§5.5) sits in IndexedDB / `localStorage`, same-origin with the served code, so the code-serving adversary can wipe it. Whole-vault rollback detection is therefore best-effort in the browser; it stays solid in the native app, which caches the high-water mark in the Keychain.
+- **The web client's anti-rollback cache lives in browser storage.** The highest-seen `vault_version` (§5.5) sits in IndexedDB / `localStorage`, same-origin with the served code, so the code-serving adversary can wipe it. Whole-vault rollback detection is therefore best-effort in the browser; it stays solid in the native apps, which cache the high-water mark in a local `<db>.hw` sidecar file the server cannot reach (§10.5, §14.18).
+- **The iPhone app's signature expires every ~7 days** (free Personal Team, §14.19). After that it won't launch until reinstalled from the Mac (`scripts/install_ios.sh`); the vault and sync cursor survive the reinstall. This is an availability cost, never a confidentiality one — the Mac app (and the web client, M6) are the fallback when it lapses away from the Mac.
 - Botan's WASM build (ADR-0006) has no `mlock` equivalent — the browser gives no page-locking primitive. Key material in the web client can be paged to the OS's (encrypted, on mainstream OSes) swap. Auto-lock and session teardown are the only mitigations.
 
 ---
@@ -147,6 +148,11 @@ PassFortApp/
 │   ├── PassFortApp.swift
 │   ├── Features/{Unlock,VaultList,AccountDetail,Settings}/
 │   └── Resources/  (Assets, PassFort.entitlements; Info.plist is generated — GENERATE_INFOPLIST_FILE)
+├── PassFortiOS/                          # M7 — iPhone app target sources (plain Swift; synchronized group)
+│   ├── PassFortiOSApp.swift
+│   ├── Features/{Join,Unlock,VaultList,AccountDetail,AccountForm,PasswordGenerator,Settings}/
+│   ├── Lifecycle/                        # scene-phase locking, app-switcher privacy cover
+│   └── Support/                          # pasteboard (.localOnly + expiry), vault paths, signature expiry
 ├── Packages/
 │   └── PassFortKit/                      # local SwiftPM package
 │       ├── Package.swift
@@ -175,7 +181,10 @@ PassFortApp/
 │       │       ├── VaultRepository.swift # CRUD, search, tombstones
 │       │       ├── VaultManifest.swift   # streams rows through PassFortCrypto
 │       │       └── Sync/                 # M5 — HTTP sync client against the Azure API (§10.3)
-│       └── Tests/{PFCryptoBoundaryTests,PassFortVaultTests}/
+│       │   └── PassFortAppCore/          # ── M7 — app logic shared by the macOS and iOS apps ──
+│       │       ├── AppModel.swift        # lock-state machine (moved out of PassFort/Model/)
+│       │       └── AutoLockPolicy.swift  # idle / grace rules; the platform observers stay in each app
+│       └── Tests/{PFCryptoBoundaryTests,PassFortVaultTests,PassFortAppCoreTests}/
 ├── Tools/passfort-cli/                   # Swift executable: unlock, CRUD, dump, bench, sync
 ├── native-tests/                         # CMake + Catch2 over PFCrypto internals
 ├── Cloud/                                # ── Azure backend — infra + API, no cryptography ──
@@ -197,17 +206,18 @@ PassFortApp/
 │   │   └── main.ts
 │   ├── index.html
 │   └── staticwebapp.config.json          # routes, CSP, auth
-├── scripts/{bootstrap.sh,build_botan.sh,build_wasm.sh,calibrate_kdf.sh}
+├── scripts/{bootstrap.sh,build_botan.sh,build_wasm.sh,calibrate_kdf.sh,install_app.sh,install_ios.sh}
 └── docs/{architecture.md,adr/}
 ```
 
-Five things to notice:
+Six things to notice:
 
 1. **Botan lives under `vendor/`, not `include/`.** SwiftPM exports only `include/` to dependents, so Botan's headers never reach Swift. The Swift compiler never parses 10 MB of template-heavy C++, and no Botan type can accidentally appear in the boundary.
 2. **`PassFortCrypto` is the only module compiled with `.interoperabilityMode(.Cxx)`.** Not the app, and — new in rev 2 — not `PassFortVault` either. The interop surface is one small module of wrapper code.
 3. **`PassFortVault` cannot import `PFCrypto`.** It has no interop flag, so a layering violation is a compile error rather than a code-review catch.
 4. **`Tools/passfort-cli` is a Swift executable**, so it exercises the seam from M1 onward. The interop risk is retired in the first milestone, not discovered in the third.
 5. **`Cloud/` contains no cryptography** — the Functions API moves sealed blobs and enforces auth, versioning and rate limits, nothing more (§10.3). **`Web/` gets its crypto by compiling `PFCrypto` to WebAssembly** (`build_wasm.sh`), so there is exactly one implementation of the vault format, consumed by three hosts: Swift, a browser, and the CLI.
+6. **`PassFortAppCore` (M7) is the only thing the two app targets share.** It holds app logic — the lock-state machine, auto-lock policy, view-model state — and imports no UI framework and has no interop flag. Views, pasteboard, lifecycle observers and file-location policy stay in each app target; a shared view layer full of `#if os(iOS)` is the thing this avoids. The iOS target is a *joining* client: vault creation, recovery, export and backup stay on the Mac.
 
 ```swift
 // Package.swift — the shape that matters
@@ -216,6 +226,8 @@ Five things to notice:
         swiftSettings: [.interoperabilityMode(.Cxx)]),
 .target(name: "PassFortVault", dependencies: ["PassFortCrypto",
                                               .product(name: "GRDB", package: "GRDB.swift")]),
+.target(name: "PassFortAppCore", dependencies: ["PassFortVault", "PassFortCrypto"]),  // M7 — no interop, no UI
+// platforms: [.macOS(.v14), .iOS(.v17)] from M7
 ```
 
 ### 4.1 Toolchain (verified on this machine, 2026-08-24)
@@ -229,6 +241,8 @@ Five things to notice:
 | CMake | 4.4.2 | native tests + Botan build only, not in the app build graph |
 
 Confirmed available by direct probe against Botan 3.12.0 (unchanged in 3.13.0; re-probe pending): `Argon2id`, `HKDF(SHA-256)`, `AES-256/GCM`, and `ChaCha20Poly1305` **with a 24-byte nonce** (i.e. XChaCha20-Poly1305 — valid nonce lengths reported: 8, 12, 24). Note Botan 3 exposes concrete algorithms through generic factory headers (`aead.h`, `kdf.h`, `pwdhash.h`), so write to `AEAD_Mode::create(...)` / `PasswordHashFamily::create(...)`, not to per-algorithm headers.
+
+**iOS (M7)** needs no new tool: Xcode 26.6 ships the iOS SDK and Simulator, and `xcrun devicectl` installs to a paired iPhone. It does need an iPhone in Developer Mode and a free Personal Team signing identity (§14.19).
 
 **Cloud and web toolchain (M5, M6 — not yet installed; pin each version at first use).**
 
@@ -699,7 +713,7 @@ struct AccountSummary: Sendable, Identifiable {   // the unlocked in-memory inde
     var isDeleted: Bool
 }
 
-struct AuditFinding: Sendable {                   // computed on demand, hardening phase (M7, §12)
+struct AuditFinding: Sendable {                   // computed on demand, hardening phase (M8, §12)
     enum Kind { case weak, reused, old, breached, missingTOTP, expired }
     var kind: Kind
     var account: UUID
@@ -885,7 +899,7 @@ Accepted limitation (already in the doc): a breach of Azure exposes `auth_verifi
 
 ### 10.5 Anti-rollback against a real server
 
-`seq` is server-assigned and authoritative. Each client caches the **highest `seq` it has ever seen** where the server can't reach it — the Keychain, on macOS. On every sync the native client:
+`seq` is server-assigned and authoritative. Each client caches the **highest `seq` it has ever seen** where the server can't reach it — the `<db>.hw` sidecar file next to the vault, on macOS and iOS alike (§14.18). On every sync the native client:
 
 - asserts the returned `seq ≥ cachedMax`, or the server has rolled the vault back;
 - rebuilds local state, recomputes the manifest MAC (§5.5) through the crypto core, and checks it against its own last-computed MAC, or the server has dropped or swapped records.
@@ -956,13 +970,15 @@ Two consequences already recorded in §3.4: the anti-rollback high-water mark li
 | **M4** Platform integration | Keychain + Touch ID unlock; hardened runtime; entitlements; concealed pasteboard; lock on sleep | Release build passes notarization dry-run |
 | **M5** Sync (Azure) | `Cloud/infra` Bicep → Storage + Functions; the §10.3 API; native HTTP sync client; HLC conflict copies; blind indexes; key rotation | Two machines converge through Azure; conflicts surface in the UI; `az group delete` leaves no orphans |
 | **M6** Web client | `PFCrypto` → WASM; `session.ts` seam; unlock + list + detail + edit in a browser; IndexedDB cache; deployed to Static Web Apps | Full CRUD in a browser against the same vault; native and web converge |
-| **M7** Hardening | Fuzz the boundary, the header codec **and the WASM seam**; zeroization audit of both cores; threat-model review including the web trust tier; CSP / SRI / pinned-build review; release checklist | You'd trust it with your own passwords |
+| **M7** iOS client | `PassFortKit` builds for iOS; shared `PassFortAppCore` (lock-state machine, view models) extracted from the macOS app; `PassFortiOS` target sideloaded with a free Personal Team; join an existing vault over sync; unlock / list / detail / edit / generator; lock on background + app-switcher privacy cover + Data Protection `.complete`; `scripts/install_ios.sh` weekly re-sign | The iPhone and a Mac converge through Azure; an edit on either appears on the other after sync; a re-sign keeps the vault and the sync cursor |
+| **M8** Hardening | Fuzz the boundary, the header codec **and the WASM seam**; zeroization audit of both cores; threat-model review including the web trust tier **and the iOS client**; CSP / SRI / pinned-build review; release checklist | You'd trust it with your own passwords |
 
-Three notes on sequencing:
+Four notes on sequencing:
 
 - **The whole seam is built and exercised in M1**, through a Swift CLI. If interop is going to be a problem, you find out in week one rather than week eight. That's the main practical win from ADR-0004.
 - **Build M1 and M2 entirely through `passfort-cli`.** Seconds-long iteration on crypto, and it forces the vault layer to be genuinely UI-independent.
 - **Spike the Azure backend before M5 lands** (§15) — one Function + Table Storage on Azurite, `passfort-cli` pushing and pulling sealed blobs. Same move as M0: retire the "custom backend is a second project" fear early. M6 can be pulled forward if the WASM port is the part you most want to learn — nothing in M5 blocks it except the API it calls.
+- **M7 depends on M5, not on M6.** The iPhone and the browser are independent consumers of the same API, so M7 can be built before M6 if the phone is wanted first. M7 changes nothing below the app layer — no format, seam or API change; if the phone needs the server to behave differently, that is an M5 bug.
 
 ### 12.1 Exit criterion for C++
 
@@ -988,6 +1004,7 @@ The web client's WASM core (§11.2) assumes C++ survives this criterion. If the 
 | Storage | Swift tests over `VaultRepository`: transaction atomicity, tombstones, mid-write kill test |
 | Migrations | Checked-in fixture vaults per format version, opened by every later build |
 | Swift layer | XCTest against `PassFortVault`; UI state machines (locked/unlocking/unlocked/error) |
+| iOS client *(M7)* | `PassFortAppCoreTests` under `swift test` and on the iOS Simulator; the crypto + storage suites re-run on the Simulator; a join against a stub server serving a forged cheap-KDF header must fail the unwrap **before** any auth response is sent; vault directory is Data Protection `.complete`. By hand on a device: lock on background, app-switcher cover, conflict drill, re-sign survival. |
 | Web client | Auto-lock teardown zeroizes the WASM session; CSP has no `unsafe-inline`; IndexedDB holds only sealed blobs, never plaintext; clipboard clears on schedule |
 
 Two rules worth stating up front: **a decrypt failure must be indistinguishable from a wrong password** (no error-message oracle — `pf_open` returns `AuthFailed` for both), and **no secret ever reaches a log or a crash report** — audit that deliberately, because the default behaviour of every logging system is to be helpful.
@@ -1017,6 +1034,7 @@ At this scale CI earns its keep by doing one thing well: **proving that a fresh 
 | `lint` | Linux | `swift format lint --strict`, `clang-format --dry-run -Werror`, SwiftLint, `shellcheck scripts/*.sh` |
 | `secrets` | Linux | `gitleaks` over the push range — the CI backstop to the local pre-commit secret scan the git conventions require |
 | `deps` | Linux | clean dependency resolve; fail if `Package.resolved` or any `package-lock.json` drifted |
+| `ios` *(M7+)* | macOS | the `PassFortKit` test suites on the iOS Simulator, and `PassFortiOS` built for the Simulator unsigned (`CODE_SIGNING_ALLOWED=NO`). A second macOS job — path-filter it to `PassFortiOS/`, `Packages/` and `Package.resolved` if minutes bind (§14.16) |
 | `cloud` *(M5+)* | Linux | `Cloud/api`: `npm ci`, `tsc --noEmit`, ESLint, unit tests, then the `openapi.yaml` contract tests against a service-container Azurite (§13.1) |
 | `web` *(M6+)* | Linux | `Web/`: `npm ci`, `tsc`, production build, the seam fuzz suite against `pfcrypto.wasm` under Node, the three-core byte-agreement vectors, and the CSP / SRI / reproducible-bundle checks of §13.1 |
 
@@ -1028,7 +1046,8 @@ Triggered by a semver tag (`v0.3.0`), never by a push — `release.yml`, the con
 
 | Target | Steps | From |
 |---|---|---|
-| **macOS app** | `xcodebuild` Release → hardened runtime, no `get-task-allow` → Developer ID sign → `notarytool submit --wait` → `stapler staple` → attach the zipped `.app` to a GitHub Release | M4 dry-run, M7 real |
+| **macOS app** | `xcodebuild` Release → hardened runtime, no `get-task-allow` → Developer ID sign → `notarytool submit --wait` → `stapler staple` → attach the zipped `.app` to a GitHub Release | M4 dry-run, M8 real |
+| **iOS app** | none — not released. Built and installed locally by `scripts/install_ios.sh` with a free Personal Team (7-day profile). A release target only exists if the paid program is ever joined (§14.19) | M7 (local only) |
 | **Azure infra** | `az deployment group create` from `Cloud/infra/main.bicep` (idempotent; the $5 budget alert is in the template) | M5 |
 | **Sync API + web** | the Static Web Apps deploy action publishes `Cloud/api` and the built `Web/` bundle together; the deployed bundle hash is recorded on the Release for §11.4's "pinned build" claim | M5 / M6 |
 
@@ -1048,7 +1067,8 @@ Teardown is `az group delete` (§10.6); a release counts as done only when teard
 - **M4** — `release.yml` gains the notarization dry-run; a build that fails the hardened-runtime or notarization check fails the job.
 - **M5** — the `cloud` job plus the infra and API deploy targets.
 - **M6** — the `web` job, the WASM and three-core-agreement checks, the SWA deploy.
-- **M7** — a nightly long-run fuzz job (boundary, header codec, WASM seam), kept off the per-push path so PR feedback stays fast.
+- **M7** — the `ios` job (Simulator tests + unsigned iOS app build). No signing or credentials in CI.
+- **M8** — a nightly long-run fuzz job (boundary, header codec, WASM seam), kept off the per-push path so PR feedback stays fast.
 
 ---
 
@@ -1064,7 +1084,7 @@ Resolved ones link to their ADR.
 6. ~~**GRDB vs raw `libsqlite3` via C interop.**~~ → **Resolved:** GRDB (M2 Phase 1, resolved to 7.11.1). Explicit SQL, real migrations, no opinion about a BLOB-shaped schema.
 7. ~~**Length hiding:**~~ → **Resolved (rev 7):** yes — `u32` length ‖ JSON ‖ zero padding to the next multiple of 256 B before sealing (M2 Phase 4).
 8. **Server auth:** derived `auth_secret` as a challenge-response verifier (simple; offline-crackable at Argon2 cost if Azure is breached — §10.4) vs OPAQUE/SRP (correct, more work). Static Web Apps' built-in login can sit in front as a free DoS gate either way. `auth_secret` for M5; OPAQUE stays deferred.
-9. **iOS target?** If yes, keep `Account` validation and formatting in `PassFortVault` rather than in view models.
+9. ~~**iOS target?** If yes, keep `Account` validation and formatting in `PassFortVault` rather than in view models.~~ → **Resolved (rev 11): yes, M7.** Validation and formatting stay in `PassFortVault` (the CLI sees them too); the lock-state machine and view-model state move to `PassFortAppCore`; views stay per platform (§4 note 6). The ADR is written in M7 Phase 0 (`m7-ios.md` §0.4).
 10. **Account model: one universal record vs. typed item types.** `AccountCategory` (§7.3) is a placeholder — everything is `.login` in M2. Typed items (bank account, card, identity), each with its own field set, is the 1Password model; one universal `AccountPayload` plus `customFields` is simpler and probably enough. Decide the first time a non-login item genuinely chafes.
 11. **"Last used" storage.** → **rev 7:** M2 leaves `usedAt` `nil` and never writes it; "last used" becomes a local-only sidecar when a client first needs it. → **rev 8 (M3):** still not needed — the GUI list sorts by title, no recent/frequent sort. Re-scoped as "build the sidecar (schema-v2 or `usage.sqlite`, never the `usedAt` payload field) if and when a recent/frequent sort is added, M4+". The payload field stays for forward-compat. (§7.2)
 12. **Backend store: Table Storage vs Blob Storage.** Leaning Table for M5 — cheaper, ETag concurrency, one query per vault. Move to Blob if attachments (§7.7) arrive, or split records in Table + attachments in Blob.
@@ -1074,7 +1094,9 @@ Resolved ones link to their ADR.
 16. **CI macOS runners: GitHub-hosted minutes vs a self-hosted runner.** Hosted `macos-15` is zero-setup but bills at 10× and the free tier is finite; the `swift` and `native` jobs (§13.2) are the only ones that need macOS. Leaning hosted until the monthly minutes actually bind, then a self-hosted runner on the dev Mac — at the cost of it becoming a build dependency that can rot. Decide at M3, when the app build joins CI.
 17. ~~**Recovery-key header slot: fold it into format v1 now, or bump to format v2 with a re-seal migration in M2?**~~ → **ADR-0007** — fold into v1 (`slot_count` + optional slot 1, §5.3). Justified only because no vault had shipped; the versioned-format discipline applies in full from the first release.
 
-18. **Notarization, Touch ID and Keychain use.** → **Dropped for now** (2026-10-21). PassFort is a personal-use app built locally in Xcode, which needs none of them; notarization needs the paid Apple Developer Program, and the Keychain needs a `keychain-access-groups` entitlement and a provisioning profile. Revisit only if the app is ever given to other people (M7) or Touch ID is wanted (ADR-0008 holds the design).
+18. **Notarization, Touch ID and Keychain use.** → **Dropped for now** (2026-10-21). PassFort is a personal-use app built locally in Xcode, which needs none of them; notarization needs the paid Apple Developer Program, and the Keychain needs a `keychain-access-groups` entitlement and a provisioning profile. Revisit only if the app is ever given to other people (M8) or Touch ID is wanted (ADR-0008 holds the design). → **rev 11 (iOS only):** every iOS install carries a provisioning profile anyway, so the entitlement problem that killed the Keychain on macOS should not exist on the iPhone. M7 Phase 0 tests it under a Personal Team; if it holds, M7 Phase 9 may adopt ADR-0008's design for Face ID **on iOS only**, via a new ADR (ADR-0008 itself stays as amended). macOS is unchanged.
+
+19. **iOS signing: free Personal Team vs the paid Apple Developer Program ($99/yr).** Free: install on your own iPhone only, profile expires every ~7 days (re-sign with `scripts/install_ios.sh`), 3 sideloaded apps per device, no push / iCloud / App Groups / TestFlight. Paid: 1-year profiles, all capabilities, and it would also unlock real notarization (§13.3) and an AutoFill extension (still a §1.2 non-goal). **Leaning free for M7** — the sync backend already avoids every paid-only capability (§9.2). Revisit if the weekly re-sign actually bites, or if live push sync is ever wanted.
 ---
 
 ## 15. Immediate next steps
