@@ -221,6 +221,22 @@ CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES build` succeeds; `codesign -d --en
 shows sandbox on, `get-task-allow` absent, and nothing you did not deliberately add. CI's existing
 unsigned build still passes.
 
+**AUDITED (2026-10-21), one project edit left for Xcode.** Findings:
+
+- The entitlements file already exists (`PassFort/PassFort.entitlements`, `files.bookmarks.app-scope`
+  from the backup work) and `files.user-selected.read-write` comes from the build settings, so the
+  effective set is sandbox + those two. Nothing is needed for Keychain or `LAContext` (§0.3).
+- **A Release `build` still signs with `get-task-allow`** — Xcode injects it as a "base entitlement"
+  for every non-archive build. `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO` removes it (verified:
+  ad-hoc Release build, `codesign --verify --strict --deep` passes, entitlements are exactly the three
+  above).
+- `scripts/PassFort.entitlements.expected` holds that set. It lives in `scripts/`, not `PassFort/`:
+  `PassFort/` is a file-system-synchronized group, so a file there would be copied into the bundle.
+- **To do in Xcode (never hand-edit `project.pbxproj`):** PassFort target → Build Settings, Release
+  only: `Enable Hardened Runtime = Yes` and `Inject Base Entitlements = No`. Until then Phase 8's
+  `xcodebuild` passes both as command-line overrides, which is also what keeps the check honest if
+  the project setting regresses.
+
 ---
 
 ## Phase 2 — The `Keychain` helper
