@@ -146,6 +146,12 @@ final class AppModel {
     summaries = (try? await repo.summaries()) ?? summaries
   }
 
+  /// Crypto op counts since unlock, for the Settings "under the hood" panel.
+  /// `nil` while locked.
+  func cryptoStats() async -> VaultRepository.CryptoStats? {
+    await repo?.cryptoStats()
+  }
+
   // MARK: - Account writes
 
   /// Bumped after every account create / update / delete so a detail view knows

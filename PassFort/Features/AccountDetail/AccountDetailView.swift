@@ -88,6 +88,7 @@ struct AccountDetailView: View {
       }
 
       historySection(payload)
+      statsSection(account)
     }
     .formStyle(.grouped)
     .navigationTitle(payload.title)
@@ -160,6 +161,33 @@ struct AccountDetailView: View {
         }
       }
     }
+  }
+
+  /// Nonce(24) ‖ tag(16) -- the AEAD envelope overhead on every sealed record
+  /// (`record_crypto.cpp`'s `kNonceLen`/`kTagLen`), used to back out the
+  /// plaintext size below.
+  private static let aeadOverhead = 24 + 16
+
+  @ViewBuilder
+  private func statsSection(_ account: Account) -> some View {
+    Section("Stats") {
+      LabeledContent("Sealed size", value: byteCount(account.sealedSize))
+      LabeledContent(
+        "Plaintext size", value: byteCount(max(0, account.sealedSize - Self.aeadOverhead)))
+      LabeledContent("Cipher", value: "XChaCha20-Poly1305")
+      LabeledContent("Record version", value: "\(account.version)")
+      LabeledContent("Schema version", value: "\(account.schemaVersion)")
+      LabeledContent(
+        "Sync clock", value: "#\(account.updatedAt.counter) · device \(shortDeviceID(account))")
+    }
+  }
+
+  private func byteCount(_ bytes: Int) -> String {
+    ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+  }
+
+  private func shortDeviceID(_ account: Account) -> String {
+    String(account.updatedAt.deviceID.uuidString.prefix(8))
   }
 
   @ViewBuilder

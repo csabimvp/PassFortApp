@@ -1,3 +1,4 @@
+import PassFortVault
 import SwiftUI
 
 /// The ⌘, window. Auto-lock timeout is a `UserDefaults` preference; the two
@@ -5,6 +6,7 @@ import SwiftUI
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
   @AppStorage("autoLockSeconds") private var autoLockSeconds = 300
+  @State private var cryptoStats: VaultRepository.CryptoStats?
 
   private var unlocked: Bool { model.state == .unlocked }
 
@@ -27,9 +29,22 @@ struct SettingsView: View {
         }
         .disabled(!unlocked)
       }
+
+      if unlocked {
+        Section("Crypto activity") {
+          LabeledContent("Records sealed", value: "\(cryptoStats?.sealCount ?? 0)")
+          LabeledContent("Records opened", value: "\(cryptoStats?.openCount ?? 0)")
+          Button("Refresh") { Task { await refreshCryptoStats() } }
+        }
+      }
     }
     .formStyle(.grouped)
     .frame(width: 380)
     .padding()
+    .task(id: unlocked) { await refreshCryptoStats() }
+  }
+
+  private func refreshCryptoStats() async {
+    cryptoStats = await model.cryptoStats()
   }
 }
