@@ -83,7 +83,9 @@ PassFortApp/
 │   ├── tests/                       # test_bytes, test_kat_*, test_header_codec, (tamper/fuzz in M1)
 │   └── build/                       # generated, git-ignored
 ├── scripts/
-│   └── build_botan.sh               # regenerate the minimized Botan amalgamation — run deliberately
+│   ├── build_botan.sh               # regenerate the minimized Botan amalgamation — run deliberately
+│   ├── make_icon.swift              # regenerate the app icon set (CoreGraphics; no dependencies)
+│   └── install_app.sh               # Release build + install for personal use
 └── docs/
     ├── architecture.md              # the specification (rev 7); stable §-numbers referenced everywhere
     ├── adr/                         # 7 ADRs — reasoning behind load-bearing choices
@@ -163,6 +165,21 @@ An account reference is a record UUID or a title (exact match, else a unique sub
 `get` / `dump` / `export` write secrets in the clear — `export` writes the file `0600`; delete it
 when done.
 
+### The macOS app
+
+Build a Release copy and install it. It is signed with your own development certificate (the
+project's team), so no notarization or paid Apple account is involved; Gatekeeper does not object to
+an app you built yourself.
+
+```bash
+scripts/install_app.sh                       # installs /Applications/PassFort.app
+scripts/install_app.sh --build-only ~/Desktop/PassFort-build   # build and verify, install nothing
+```
+
+Quit PassFort before re-running the script; the vault lives in the app's sandbox container, which an
+update does not touch. To change the icon, edit `scripts/make_icon.swift` and run
+`swift scripts/make_icon.swift PassFort/Assets.xcassets/AppIcon.appiconset`.
+
 ## Testing
 
 ### What to run, and when
@@ -235,12 +252,9 @@ this is a separate build, not the default.
 
 ### Full app (M3+)
 
-Not wired yet — the Xcode project is added when the GUI starts. Once it exists
-(run `xcodebuild -list` first to confirm the scheme name):
-
 ```bash
-xcodebuild -scheme PassFort -destination 'platform=macOS' build
-xcodebuild test -scheme PassFort -destination 'platform=macOS'
+xcodebuild -project PassFort.xcodeproj -scheme PassFort -destination 'platform=macOS' build
+xcodebuild test -project PassFort.xcodeproj -scheme PassFort -destination 'platform=macOS'
 ```
 
 ### Regenerating vendored crypto (run deliberately, never automatically — ADR-0001)
