@@ -105,6 +105,7 @@ final class AppModel {
     autoLock = nil
     repo = nil
     summaries = []
+    Pasteboard.clearTransient()
     state = .locked()
   }
 

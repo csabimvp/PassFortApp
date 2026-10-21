@@ -570,6 +570,12 @@ synchronous."* Today `AppModel.lock()` is sync and just nils `repo`, relying on 
   state (`repo` reference, `summaries`) is already gone before the method returns even if the C++
   close lands a beat later.
 
+**DONE (2026-10-21), 6.1 only.** `AutoLock` now also locks on `willSleepNotification` and
+`com.apple.screenIsLocked`; both notification centers are injectable and `AutoLockTests` posts the
+notifications (3 tests). **6.2 (synchronous `VaultSession.close()`) was not built:** `handle` is a `let`
+used by every method, so a safe close means guarding each one against use-after-close, a change in the
+crypto module for a small gain. `lock()` already drops `repo`, so ARC frees the session promptly.
+
 **Checkpoint:** `pmset sleepnow` (or close the lid) → on wake the app is on the Unlock screen; ⌃⌘Q
 (lock screen) → same; a breakpoint in `VaultSession.close` confirms it runs on `lock()`, and the
 `deinit` path confirms it does *not* double-close. `AppModelTests` gains
@@ -616,6 +622,11 @@ enum Pasteboard {
 
 `RecoveryKeyView` already uses `Pasteboard.copy`; it now also gets the concealed type — good, a
 recovery key is exactly what a clipboard manager should not archive.
+
+**DONE (2026-10-21).** `Pasteboard` writes `.string` plus the concealed type on every copy (including
+the recovery key), keeps the timed clear guarded by `changeCount`, and `AppModel.lock()` now calls
+`Pasteboard.clearTransient()` so a copied secret does not outlive the session. Clear-on-resign is
+already covered by lock-on-`.background`. `PasteboardTests` (6, on private named pasteboards).
 
 **Checkpoint:** copy a password → paste into a text field works → after 20 s the clipboard is empty
 (`pbpaste` prints nothing); copy then copy something else → the something-else survives; copy a
