@@ -472,9 +472,12 @@ You can keep the live vault where it is, get a verified copy onto the NAS on eve
 through the same anti-rollback path the CLI drill already uses. Azure slots in as a second destination
 once M5's auth exists.
 
-## Open questions
+## Open questions — all settled (2026-10-21)
 
-1. Backup filename scheme — timestamp only (above), or include the vault UUID so several vaults can share
-   one NAS folder? (One vault today; cheap to add now, awkward later.)
-2. Should the automatic backup also fire on a timer while unlocked (long sessions), or lock-only?
-3. Keep-N: count-based only, or also "at least one per week for a month"? Count-based is the simple start.
+1. **Backup filename scheme — decided and shipped:** `passfort-vault-<vault-uuid>-<UTC timestamp>.sqlite`,
+   so several vaults can share one folder (`VaultBackup.fileName`).
+2. **Timer-based backup while unlocked — no.** Backup is on lock plus Back Up Now. A timer is scope
+   the app doesn't need: an unlocked session is bounded by auto-lock, which triggers the lock backup.
+   Revisit only if long unlocked sessions turn out to lose real work.
+3. **Keep-N — count-based only, shipped:** Latest only (default) / 5 / 10 / 30, pruned after the new
+   file is stored and verified. A "one per week" rule is not built.

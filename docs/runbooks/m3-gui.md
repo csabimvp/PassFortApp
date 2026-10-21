@@ -878,7 +878,13 @@ background it → locked on return; the timeout slider takes effect without a re
 
 ---
 
-## Phase 9 — Tests and CI — IN PROGRESS
+## Phase 9 — Tests and CI — DONE (2026-10-21)
+
+The `PassFortTests` target exists and is wired into the shared `PassFort` scheme, the "App tests" step
+runs in the `swift` CI job (right after "App builds (unsigned)"), and `xcodebuild test -scheme
+PassFort -destination 'platform=macOS'` is green locally. The target has since grown beyond
+`AppModelTests` (backup, restore, vault-location and mover suites). The steps below are the original
+setup instructions, kept as history.
 
 The test *file* is written — `PassFortTests/AppModelTests.swift` (9 tests, drive `AppModel` directly,
 no UI). Creating the **target** is a manual Xcode step (a unit-test bundle is ~10 interlinked
