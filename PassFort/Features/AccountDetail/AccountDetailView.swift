@@ -57,6 +57,7 @@ struct AccountDetailView: View {
         LabeledContent("Title", value: payload.title)
         copyableRow("Username", payload.username)
         concealedRow("Password", payload.password)
+        if let totp = payload.totp { OneTimeCodeRow(config: totp) }
         copyableRow("Email", payload.email)
         row("Notes", payload.notes)
       }
@@ -81,7 +82,6 @@ struct AccountDetailView: View {
         }
         concealedRow("PIN", payload.pin)
         concealedRow("Memorable word", payload.memorableWord)
-        if payload.totp != nil { LabeledContent("TOTP", value: "configured") }
         if !payload.securityQuestions.isEmpty {
           LabeledContent("Security questions", value: "\(payload.securityQuestions.count)")
         }

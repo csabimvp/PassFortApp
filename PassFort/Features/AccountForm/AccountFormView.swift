@@ -1,6 +1,7 @@
 import Foundation
 import PassFortVault
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// One form, two modes, bound to a **draft copy** of the payload. Save goes
 /// through `AppModel`, which does the `VaultRepository` write (one transaction,
@@ -18,6 +19,9 @@ struct AccountFormView: View {
   @State private var draft: AccountPayload
   @State private var urlsText: String
   @State private var tagsText: String
+  /// The one-time-code field: an `otpauth://` URI or a Base32 secret, parsed on save.
+  @State private var totpText: String
+  @State private var importingQR = false
   @State private var saving = false
   @State private var error: String?
   @State private var confirmingDelete = false
@@ -33,6 +37,7 @@ struct AccountFormView: View {
     _draft = State(initialValue: payload)
     _urlsText = State(initialValue: payload.urls.map(\.absoluteString).joined(separator: "\n"))
     _tagsText = State(initialValue: payload.tags.joined(separator: ", "))
+    _totpText = State(initialValue: payload.totp?.otpauthURI ?? "")
   }
 
   private var isEditing: Bool { if case .edit = mode { return true } else { return false } }
@@ -49,6 +54,15 @@ struct AccountFormView: View {
             Button("Generate…") { showingGenerator = true }
           }
           TextField("Email", text: optional($draft.email))
+        }
+
+        Section {
+          HStack {
+            SecureField("One-time code (otpauth:// link or secret)", text: $totpText)
+            Button("From QR Image…") { importingQR = true }
+          }
+        } footer: {
+          totpFooter
         }
 
         Section {
@@ -82,7 +96,7 @@ struct AccountFormView: View {
       }
       .padding()
     }
-    .frame(width: 440, height: 520)
+    .frame(width: 440, height: 580)
     .disabled(saving)
     .overlay { if saving { ProgressView() } }
     .confirmationDialog(
@@ -95,6 +109,66 @@ struct AccountFormView: View {
     .sheet(isPresented: $showingGenerator) {
       PasswordGeneratorView { draft.password = $0 }
     }
+    .fileImporter(isPresented: $importingQR, allowedContentTypes: [.image]) { result in
+      readQR(result)
+    }
+  }
+
+  // MARK: - One-time code
+
+  /// What the one-time-code field currently means: nothing, a usable config, or why not.
+  private var parsedTOTP: Result<TOTPConfig?, OneTimeCodeError> {
+    let text = totpText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if text.isEmpty { return .success(nil) }
+    do {
+      return .success(try TOTPConfig(parsing: text))
+    } catch let error as OneTimeCodeError {
+      return .failure(error)
+    } catch {
+      return .failure(.unrecognized)
+    }
+  }
+
+  @ViewBuilder
+  private var totpFooter: some View {
+    switch parsedTOTP {
+    case .success(nil):
+      EmptyView()
+    case .success(let config?):
+      let name = [config.issuer, config.label].compactMap { $0 }.joined(separator: " · ")
+      Label(
+        name.isEmpty ? "Valid one-time code secret" : name,
+        systemImage: "checkmark.circle"
+      )
+      .foregroundStyle(.green)
+    case .failure(let error):
+      Label(Self.describe(error), systemImage: "exclamationmark.triangle")
+        .foregroundStyle(.orange)
+    }
+  }
+
+  private func readQR(_ result: Result<URL, Error>) {
+    guard case .success(let url) = result else { return }
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    if let uri = QRCodeReader.otpauthURI(inImageAt: url) {
+      totpText = uri
+      error = nil
+    } else {
+      error = "No authenticator QR code found in that image."
+    }
+  }
+
+  static func describe(_ error: OneTimeCodeError) -> String {
+    switch error {
+    case .unrecognized: "Not an otpauth:// link or a Base32 secret."
+    case .counterBasedNotSupported: "Counter-based (HOTP) codes aren't supported."
+    case .missingSecret: "The link has no secret."
+    case .badSecret: "The secret isn't valid Base32."
+    case .unsupportedAlgorithm(let name): "Unsupported algorithm \(name)."
+    case .badDigits: "Codes must be 6 to 10 digits."
+    case .badPeriod: "The period must be a positive number of seconds."
+    }
   }
 
   private func save() async {
@@ -104,6 +178,14 @@ struct AccountFormView: View {
 
     draft.urls = Self.parseURLs(urlsText)
     draft.tags = Self.parseTags(tagsText)
+    switch parsedTOTP {
+    case .success(let config):
+      // Unchanged text keeps the stored config byte-for-byte (no spurious "totp" revision).
+      if totpText != draft.totp?.otpauthURI { draft.totp = config }
+    case .failure(let failure):
+      error = "One-time code: " + Self.describe(failure)
+      return
+    }
 
     let payload = draft
     let failure: AppError?
