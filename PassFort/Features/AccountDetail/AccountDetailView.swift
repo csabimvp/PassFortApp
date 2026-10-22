@@ -69,7 +69,7 @@ struct AccountDetailView: View {
       }
 
       Section("Details") {
-        LabeledContent("Category", value: payload.category.rawValue)
+        LabeledContent("Category", value: payload.category.singularName)
         if payload.favorite { LabeledContent("Favorite", value: "Yes") }
         if !payload.tags.isEmpty {
           LabeledContent("Tags", value: payload.tags.joined(separator: ", "))

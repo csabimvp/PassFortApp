@@ -19,4 +19,22 @@ extension AccountCategory {
     case .other: "Other"
     }
   }
+
+  /// One item's category, for a form picker or a detail row ("Bank Account", not the
+  /// sidebar's plural "Bank Accounts").
+  var singularName: String {
+    switch self {
+    case .login: "Login"
+    case .bankAccount: "Bank Account"
+    case .paymentCard: "Payment Card"
+    case .identity: "Identity"
+    case .secureNote: "Secure Note"
+    case .wifi: "Wi-Fi"
+    case .softwareLicense: "Software License"
+    case .server: "Server"
+    case .database: "Database"
+    case .apiCredential: "API Credential"
+    case .other: "Other"
+    }
+  }
 }

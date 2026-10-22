@@ -57,7 +57,7 @@ struct AccountFormView: View {
           TextField("Tags (comma-separated)", text: $tagsText)
           Picker("Category", selection: $draft.category) {
             ForEach(AccountCategory.allCases, id: \.self) { category in
-              Text(category.rawValue).tag(category)
+              Text(category.singularName).tag(category)
             }
           }
           Toggle("Favorite", isOn: $draft.favorite)
