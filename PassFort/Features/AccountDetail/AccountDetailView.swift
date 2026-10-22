@@ -59,7 +59,38 @@ struct AccountDetailView: View {
         concealedRow("Password", payload.password)
         if let totp = payload.totp { OneTimeCodeRow(config: totp) }
         copyableRow("Email", payload.email)
+        concealedRow("PIN", payload.pin)
+        concealedRow("Memorable word", payload.memorableWord)
         row("Notes", payload.notes)
+      }
+
+      if !payload.securityQuestions.isEmpty {
+        Section("Security questions") {
+          ForEach(Array(payload.securityQuestions.enumerated()), id: \.offset) { _, item in
+            ConcealedRow(
+              label: item.question.isEmpty ? "Answer" : item.question, value: item.answer)
+          }
+        }
+      }
+
+      if !payload.recoveryCodes.isEmpty {
+        Section("Recovery codes") {
+          ForEach(Array(payload.recoveryCodes.enumerated()), id: \.offset) { index, code in
+            ConcealedRow(label: "Code \(index + 1)", value: code)
+          }
+        }
+      }
+
+      if !payload.customFields.isEmpty {
+        Section("Custom fields") {
+          ForEach(payload.customFields) { field in
+            if field.concealed || field.kind == .secret {
+              ConcealedRow(label: field.label, value: field.value)
+            } else {
+              copyableRow(field.label, field.value)
+            }
+          }
+        }
       }
 
       if !payload.urls.isEmpty {
@@ -80,10 +111,11 @@ struct AccountDetailView: View {
         if !payload.tags.isEmpty {
           LabeledContent("Tags", value: payload.tags.joined(separator: ", "))
         }
-        concealedRow("PIN", payload.pin)
-        concealedRow("Memorable word", payload.memorableWord)
-        if !payload.securityQuestions.isEmpty {
-          LabeledContent("Security questions", value: "\(payload.securityQuestions.count)")
+        if let expiresAt = payload.expiresAt {
+          LabeledContent("Expires") {
+            Text(expiresAt.formatted(date: .abbreviated, time: .omitted))
+              .foregroundStyle(expiresAt < .now ? Color.red : Color.primary)
+          }
         }
         LabeledContent("Created", value: stamp(payload.createdAt))
         LabeledContent("Updated", value: stamp(account.lastUpdated))

@@ -22,6 +22,13 @@ struct AccountFormView: View {
   /// The one-time-code field: an `otpauth://` URI or a Base32 secret, parsed on save.
   @State private var totpText: String
   @State private var importingQR = false
+  @State private var questions: [EditableQuestion]
+  /// Recovery codes, one per line. Behind a disclosure so a dozen live secrets aren't on screen
+  /// the moment the form opens.
+  @State private var recoveryCodesText: String
+  @State private var showingRecoveryCodes = false
+  @State private var hasExpiry: Bool
+  @State private var expiry: Date
   @State private var saving = false
   @State private var error: String?
   @State private var confirmingDelete = false
@@ -38,6 +45,12 @@ struct AccountFormView: View {
     _urlsText = State(initialValue: payload.urls.map(\.absoluteString).joined(separator: "\n"))
     _tagsText = State(initialValue: payload.tags.joined(separator: ", "))
     _totpText = State(initialValue: payload.totp?.otpauthURI ?? "")
+    _questions = State(initialValue: payload.securityQuestions.map(EditableQuestion.init))
+    _recoveryCodesText = State(initialValue: payload.recoveryCodes.joined(separator: "\n"))
+    _hasExpiry = State(initialValue: payload.expiresAt != nil)
+    _expiry = State(
+      initialValue: payload.expiresAt ?? Calendar.current.date(byAdding: .year, value: 1, to: .now)
+        ?? .now)
   }
 
   private var isEditing: Bool { if case .edit = mode { return true } else { return false } }
@@ -54,6 +67,8 @@ struct AccountFormView: View {
             Button("Generate…") { showingGenerator = true }
           }
           TextField("Email", text: optional($draft.email))
+          SecureField("PIN", text: optional($draft.pin))
+          SecureField("Memorable word", text: optional($draft.memorableWord))
         }
 
         Section {
@@ -66,6 +81,20 @@ struct AccountFormView: View {
         }
 
         Section {
+          DisclosureGroup(
+            "Recovery codes (\(Self.parseLines(recoveryCodesText).count))",
+            isExpanded: $showingRecoveryCodes
+          ) {
+            TextField("One per line", text: $recoveryCodesText, axis: .vertical)
+              .font(.system(.body, design: .monospaced))
+              .lineLimit(3...12)
+          }
+        }
+
+        SecurityQuestionsEditor(questions: $questions)
+        CustomFieldsEditor(fields: $draft.customFields)
+
+        Section {
           TextField("URLs (one per line)", text: $urlsText, axis: .vertical)
           TextField("Notes", text: optional($draft.notes), axis: .vertical)
           TextField("Tags (comma-separated)", text: $tagsText)
@@ -75,6 +104,10 @@ struct AccountFormView: View {
             }
           }
           Toggle("Favorite", isOn: $draft.favorite)
+          Toggle("Expires", isOn: $hasExpiry)
+          if hasExpiry {
+            DatePicker("Expiry date", selection: $expiry, displayedComponents: .date)
+          }
         }
 
         if let error {
@@ -96,7 +129,7 @@ struct AccountFormView: View {
       }
       .padding()
     }
-    .frame(width: 440, height: 580)
+    .frame(width: 480, height: 640)
     .disabled(saving)
     .overlay { if saving { ProgressView() } }
     .confirmationDialog(
@@ -178,6 +211,10 @@ struct AccountFormView: View {
 
     draft.urls = Self.parseURLs(urlsText)
     draft.tags = Self.parseTags(tagsText)
+    draft.recoveryCodes = Self.parseLines(recoveryCodesText)
+    draft.securityQuestions = questions.compactMap(\.model)
+    draft.customFields = CustomFieldsEditor.cleaned(draft.customFields)
+    draft.expiresAt = hasExpiry ? expiry : nil
     switch parsedTOTP {
     case .success(let config):
       // Unchanged text keeps the stored config byte-for-byte (no spurious "totp" revision).
@@ -225,6 +262,12 @@ struct AccountFormView: View {
     text.split(whereSeparator: \.isNewline).compactMap { line in
       URL(string: line.trimmingCharacters(in: .whitespaces))
     }
+  }
+
+  private static func parseLines(_ text: String) -> [String] {
+    text.split(whereSeparator: \.isNewline)
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
   }
 
   private static func parseTags(_ text: String) -> [String] {
