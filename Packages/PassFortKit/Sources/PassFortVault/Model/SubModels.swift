@@ -186,11 +186,14 @@ public struct AccountSummary: Sendable, Identifiable, Equatable {
   public var category: AccountCategory
   public var isConflict: Bool
   public var isDeleted: Bool
+  /// Wall-clock time of the last write -- the plaintext envelope `updated_at`, not a secret. For a
+  /// tombstone, when it was deleted.
+  public var lastUpdated: Date
 
   public init(
     id: UUID, title: String, username: String? = nil, host: String? = nil, tags: [String] = [],
     favorite: Bool = false, category: AccountCategory = .login, isConflict: Bool = false,
-    isDeleted: Bool = false
+    isDeleted: Bool = false, lastUpdated: Date
   ) {
     self.id = id
     self.title = title
@@ -201,5 +204,6 @@ public struct AccountSummary: Sendable, Identifiable, Equatable {
     self.category = category
     self.isConflict = isConflict
     self.isDeleted = isDeleted
+    self.lastUpdated = lastUpdated
   }
 }

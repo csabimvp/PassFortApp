@@ -733,6 +733,7 @@ struct AccountSummary: Sendable, Identifiable {   // the unlocked in-memory inde
     var category: AccountCategory   // mirrors AccountPayload.category (§7.3) — drives sidebar grouping
     var isConflict: Bool
     var isDeleted: Bool
+    var lastUpdated: Date     // the plaintext envelope updated_at — "deleted on" for a tombstone, recency sort
 }
 
 struct AuditFinding: Sendable {                   // computed on demand, hardening phase (M8, §12)

@@ -112,6 +112,44 @@ import Testing
     _ = try await reopen(h)  // manifest still verifies with the tombstone in it
   }
 
+  @Test func restoreBringsATombstoneBackAsANewVersion() async throws {
+    let h = try await makeHarness()
+    defer { try? FileManager.default.removeItem(at: h.dir) }
+
+    let made = try await h.repo.create(AccountPayload(title: "bank", password: "hunter2"))
+    try await h.repo.delete(id: made.id)
+    let restored = try await h.repo.restore(id: made.id)
+
+    #expect(restored.isDeleted == false)
+    #expect(restored.version == 3)  // created 1, deleted 2, restored 3
+    #expect(restored.payload.password == "hunter2")
+    #expect(restored.payload.revisionHistory.first?.changed == ["restored"])
+    // Live again: an ordinary edit works.
+    try await h.repo.update(id: made.id) { $0.title = "bank (restored)" }
+
+    _ = try await reopen(h)  // the manifest covers the restore
+  }
+
+  @Test func restoreRefusesALiveOrMissingRecord() async throws {
+    let h = try await makeHarness()
+    defer { try? FileManager.default.removeItem(at: h.dir) }
+
+    let live = try await h.repo.create(AccountPayload(title: "live"))
+    await #expect(throws: VaultError.notFound) { try await h.repo.restore(id: live.id) }
+    await #expect(throws: VaultError.notFound) { try await h.repo.restore(id: UUID()) }
+  }
+
+  @Test func summariesCarryTheLastWriteTime() async throws {
+    let h = try await makeHarness()
+    defer { try? FileManager.default.removeItem(at: h.dir) }
+
+    let before = Date().addingTimeInterval(-1)
+    let made = try await h.repo.create(AccountPayload(title: "a"))
+    let summary = try #require(try await h.repo.summaries().first { $0.id == made.id })
+    #expect(summary.lastUpdated >= before)
+    #expect(summary.lastUpdated <= Date().addingTimeInterval(1))
+  }
+
   @Test func compactRemovesTombstonesAndKeepsTheManifestConsistent() async throws {
     let h = try await makeHarness()
     defer { try? FileManager.default.removeItem(at: h.dir) }

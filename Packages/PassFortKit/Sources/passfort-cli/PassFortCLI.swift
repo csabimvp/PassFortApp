@@ -11,6 +11,7 @@ struct PassFortCLI: AsyncParsableCommand {
     subcommands: [
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
       Add.self, List.self, Get.self, Code.self, History.self, Edit.self, Remove.self,
+      Undelete.self,
       Dump.self, Export.self, Backup.self, Restore.self, Recover.self, Passwd.self, Seam.self,
     ]
   )
@@ -387,6 +388,27 @@ struct Remove: AsyncParsableCommand {
     let id = try await resolveAccountID(account, in: repo)
     try await repo.delete(id: id)
     print("tombstoned \(id.uuidString)")
+  }
+}
+
+// MARK: - undelete
+
+struct Undelete: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract: "Bring back a deleted (tombstoned) account as a new version.")
+
+  @Argument(help: "Path to the vault file.") var vault: String
+  @Argument(help: "Deleted account's id (UUID) or title -- see `list --all`.") var account: String
+
+  func run() async throws {
+    let repo = try await VaultCLI.open(vault)
+    let id = try await resolveAccountID(account, in: repo, deleted: true)
+    do {
+      let restored = try await repo.restore(id: id)
+      print("restored \(restored.id.uuidString) -> version \(restored.version)")
+    } catch VaultError.notFound {
+      throw CLIError("no deleted account with id \(id.uuidString)")
+    }
   }
 }
 

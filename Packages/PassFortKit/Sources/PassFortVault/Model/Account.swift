@@ -55,6 +55,7 @@ extension Account {
       favorite: payload.favorite,
       category: payload.category,
       isConflict: payload.conflictOf != nil,
-      isDeleted: isDeleted)
+      isDeleted: isDeleted,
+      lastUpdated: lastUpdated)
   }
 }

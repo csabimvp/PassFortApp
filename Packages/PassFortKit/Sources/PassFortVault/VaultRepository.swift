@@ -265,6 +265,32 @@ public actor VaultRepository {
     try await commit { db in try row.update(db) }
   }
 
+  /// Undo a `delete`: clear `is_deleted`, bump `version`, re-seal at the new version, and record a
+  /// `["restored"]` revision -- through the same one-transaction path as every write (§8.2). Under
+  /// sync (M5) this is an ordinary newer version, so it propagates like an edit.
+  ///
+  /// - Throws: `VaultError.notFound` if there is no such row or it is not deleted.
+  @discardableResult
+  public func restore(id: UUID) async throws -> Account {
+    let current = try await database.dbQueue.read { db in
+      try SealedRecord.fetchOne(db, key: id.rawData)
+    }
+    guard let current, current.isDeleted else { throw VaultError.notFound }
+    var payload = try await decrypt(current)
+
+    var next = current
+    next.isDeleted = false
+    next.version += 1
+    next.updatedAt = .now(device: deviceID)
+    Self.recordHistory(
+      before: payload, into: &payload, version: next.version, at: Date(), extra: "restored")
+    next.sealed = try await seal(id: id, version: next.version, payload: payload)
+
+    let row = next
+    try await commit { db in try row.update(db) }
+    return Account(envelope: next, payload: payload)
+  }
+
   /// Purge tombstones. M2 has no sync, so "acked by every device" is just "deleted";
   /// M5 gates this on the sync cursor. A no-op (and no version bump) when there is
   /// nothing to purge.

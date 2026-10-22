@@ -62,18 +62,22 @@ enum VaultCLI {
 }
 
 /// Resolve an account reference -- a UUID string, or a (case-insensitive) title,
-/// exact match first then a unique substring -- to its id.
-func resolveAccountID(_ reference: String, in repo: VaultRepository) async throws -> UUID {
+/// exact match first then a unique substring -- to its id. Titles match live
+/// accounts, or only deleted ones with `deleted`.
+func resolveAccountID(
+  _ reference: String, in repo: VaultRepository, deleted: Bool = false
+) async throws -> UUID {
   if let uuid = UUID(uuidString: reference) { return uuid }
 
-  let live = try await repo.summaries().filter { !$0.isDeleted }
-  let exact = live.filter { $0.title.caseInsensitiveCompare(reference) == .orderedSame }
+  // Live accounts, or only the deleted ones when `deleted` is set (for `undelete`).
+  let pool = try await repo.summaries().filter { $0.isDeleted == deleted }
+  let exact = pool.filter { $0.title.caseInsensitiveCompare(reference) == .orderedSame }
   if exact.count == 1 { return exact[0].id }
   if exact.count > 1 {
     throw CLIError("\(exact.count) accounts are titled \"\(reference)\" -- pass the id instead")
   }
 
-  let partial = live.filter { $0.title.range(of: reference, options: .caseInsensitive) != nil }
+  let partial = pool.filter { $0.title.range(of: reference, options: .caseInsensitive) != nil }
   switch partial.count {
   case 1: return partial[0].id
   case 0: throw CLIError("no account matches \"\(reference)\"")

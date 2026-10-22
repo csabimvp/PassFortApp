@@ -148,6 +148,7 @@ passfort-cli get     <vault> <id|title> [--json]         # one account, secrets 
 passfort-cli code    <vault> <id|title>                  # the account's current one-time code (TOTP)
 passfort-cli edit    <vault> <id|title> --set password=… [--add-url U] [--prompt-password]
 passfort-cli rm      <vault> <id|title>                  # tombstone
+passfort-cli undelete <vault> <id|title>                 # bring a tombstoned account back
 passfort-cli dump    <vault>                             # every record, decrypted, JSON (debug)
 passfort-cli export  <vault> -o out.json                 # decrypt the whole vault; typed phrase required
 passfort-cli recover <vault> --key <grouped-recovery-key>   # reset the master password via the recovery slot
