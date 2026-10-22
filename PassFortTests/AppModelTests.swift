@@ -278,6 +278,30 @@ struct AppModelTests {
     }
   }
 
+  // MARK: - Recently Deleted
+
+  @Test func aDeletedAccountCanBeRestoredOrErased() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "pw")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("pw".utf8))
+    _ = await model.createAccount(AccountPayload(title: "Keep"))
+    _ = await model.createAccount(AccountPayload(title: "Erase"))
+    for summary in model.summaries { _ = await model.deleteAccount(id: summary.id) }
+    #expect(Set(model.deletedSummaries.map(\.title)) == ["Keep", "Erase"])
+
+    let keep = try #require(model.deletedSummaries.first { $0.title == "Keep" })
+    #expect(await model.restoreAccount(id: keep.id) == nil)
+    #expect(model.deletedSummaries.map(\.title) == ["Erase"])
+
+    #expect(await model.emptyRecentlyDeleted() == nil)
+    #expect(model.deletedSummaries.isEmpty)
+    #expect(model.summaries.map(\.title) == ["Keep"])
+  }
+
   // MARK: - Rollback
 
   @Test func reloadAfterRestoreShowsTheScreenThatMatchesTheDisk() async throws {

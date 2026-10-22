@@ -137,7 +137,7 @@ struct AccountFormView: View {
     ) {
       Button("Delete", role: .destructive) { Task { await delete() } }
     } message: {
-      Text("It's tombstoned — recoverable until the vault is compacted (M5).")
+      Text("It moves to Recently Deleted, where you can restore it until you empty it.")
     }
     .sheet(isPresented: $showingGenerator) {
       PasswordGeneratorView { draft.password = $0 }

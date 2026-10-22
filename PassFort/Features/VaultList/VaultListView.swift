@@ -14,6 +14,7 @@ struct VaultListView: View {
   @State private var editing: AccountSummary?
   @State private var deleting: AccountSummary?
   @State private var deleteError: String?
+  @State private var showingDeleted = false
   @FocusState private var searchFocused: Bool
 
   private var sections: [SidebarSection] {
@@ -86,6 +87,14 @@ struct VaultListView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             Spacer()
+            Button {
+              showingDeleted = true
+            } label: {
+              Label("Recently Deleted", systemImage: "trash")
+                .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help("Recently Deleted (\(model.deletedSummaries.count))")
             SettingsLink {
               Label("Settings", systemImage: "gearshape")
                 .labelStyle(.iconOnly)
@@ -138,6 +147,9 @@ struct VaultListView: View {
     .sheet(item: $editing) { summary in
       EditAccountSheet(id: summary.id)
     }
+    .sheet(isPresented: $showingDeleted) {
+      RecentlyDeletedView()
+    }
     .confirmationDialog(
       "Delete “\(deleting?.title ?? "")”?",
       isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
@@ -145,7 +157,7 @@ struct VaultListView: View {
     ) { summary in
       Button("Delete", role: .destructive) { Task { await delete(summary) } }
     } message: { _ in
-      Text("This removes the account from the vault. A backup made earlier still has it.")
+      Text("It moves to Recently Deleted, where you can restore it until you empty it.")
     }
     .alert(
       "Couldn't delete the account",

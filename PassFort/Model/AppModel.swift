@@ -225,6 +225,21 @@ final class AppModel {
     await write { try await $0.delete(id: id) }
   }
 
+  /// Bring a deleted account back from Recently Deleted.
+  func restoreAccount(id: UUID) async -> AppError? {
+    await write { try await $0.restore(id: id) }
+  }
+
+  /// Erase every deleted account for good (`compact`). Backups made earlier still hold them.
+  func emptyRecentlyDeleted() async -> AppError? {
+    await write { try await $0.compact() }
+  }
+
+  /// Deleted accounts, most recently deleted first — the Recently Deleted list.
+  var deletedSummaries: [AccountSummary] {
+    summaries.filter(\.isDeleted).sorted { $0.lastUpdated > $1.lastUpdated }
+  }
+
   private func write(_ body: (VaultRepository) async throws -> Void) async -> AppError? {
     guard let repo else { return .io("The vault is locked.") }
     do {
