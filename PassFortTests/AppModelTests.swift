@@ -137,6 +137,47 @@ struct AppModelTests {
     #expect(model.repo == nil)
   }
 
+  // MARK: - Password change
+
+  @Test func changePasswordWithANewRecoveryKeyShowsItThenUnlocks() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("old".utf8))
+    let error = await model.changePassword(
+      current: Data("old".utf8), new: Data("new".utf8), issueRecoveryKey: true)
+    #expect(error == nil)
+    guard case .showingRecoveryKey = model.state else {
+      Issue.record("expected .showingRecoveryKey, got \(model.state)")
+      return
+    }
+    await model.confirmRecoveryKeyShown()
+    #expect(model.state == .unlocked)
+
+    model.lock()
+    await model.unlock(password: Data("old".utf8))
+    #expect(model.state == .locked(.wrongPassword))
+    await model.unlock(password: Data("new".utf8))
+    #expect(model.state == .unlocked)
+  }
+
+  @Test func changePasswordWithAWrongCurrentPasswordStaysUnlocked() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("old".utf8))
+    let error = await model.changePassword(
+      current: Data("nope".utf8), new: Data("new".utf8), issueRecoveryKey: false)
+    #expect(error == .wrongPassword)
+    #expect(model.state == .unlocked)
+  }
+
   // MARK: - Account writes
 
   @Test func accountWritesRefreshTheIndexAndBumpTheCounter() async throws {

@@ -148,6 +148,23 @@ final class AppModel {
     state = .showingRecoveryKey(key)
   }
 
+  /// Change the master password. On success with `issueRecoveryKey`, shows the new recovery key
+  /// once (the old one stopped working either way). Returns the failure, or `nil`.
+  func changePassword(current: Data, new: Data, issueRecoveryKey: Bool) async -> AppError? {
+    guard case .unlocked = state, let repo else { return .io("The vault is locked.") }
+    do {
+      if let key = try await repo.changePassword(
+        current: current, new: new, issueRecoveryKey: issueRecoveryKey)
+      {
+        stagedRepo = repo
+        state = .showingRecoveryKey(key)
+      }
+      return nil
+    } catch {
+      return VaultService.map(error)
+    }
+  }
+
   /// Rebuild the summary index — call after a write.
   func refreshSummaries() async {
     guard let repo else { return }

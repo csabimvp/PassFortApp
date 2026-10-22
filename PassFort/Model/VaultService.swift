@@ -79,7 +79,7 @@ nonisolated struct VaultService {
 
   // MARK: - Error translation
 
-  private static func map(_ error: Error) -> AppError {
+  static func map(_ error: Error) -> AppError {
     switch error {
     case PassFortError.authFailed:
       return .wrongPassword
