@@ -9,37 +9,44 @@ struct AccountDetailView: View {
   @Environment(AppModel.self) private var model
   let accountID: UUID
 
-  @State private var account: Account?
+  @State private var load: AppModel.AccountLoad?
   @State private var revealHistory = false
   @State private var editing = false
   @State private var togglingFavorite = false
 
   var body: some View {
     Group {
-      if let account, account.isDeleted {
+      switch load {
+      case .loaded(let account) where account.isDeleted:
         ContentUnavailableView("Account deleted", systemImage: "trash")
-      } else if let account {
+      case .loaded(let account):
         content(account)
-      } else {
+      case .missing:
+        ContentUnavailableView("Account not found", systemImage: "questionmark.folder")
+      case .failed(let message):
+        ContentUnavailableView(
+          "Can't open this account", systemImage: "exclamationmark.lock",
+          description: Text(message))
+      case nil:
         ProgressView()
       }
     }
     .task(id: accountID) {
       revealHistory = false
-      await load()
+      await reload()
     }
     .onChange(of: model.writeCounter) {
-      Task { await load() }  // an edit / delete happened — re-decrypt
+      Task { await reload() }  // an edit / delete happened — re-decrypt
     }
     .onDisappear {
-      account = nil
+      load = nil
       revealHistory = false
     }
   }
 
-  private func load() async {
-    account = nil
-    account = try? await model.repo?.account(id: accountID)
+  private func reload() async {
+    load = nil
+    load = await model.loadAccount(id: accountID)
   }
 
   @ViewBuilder

@@ -1,6 +1,7 @@
 import Foundation
 import PassFortCrypto
 import PassFortVault
+import SQLite3
 import Testing
 
 @testable import PassFort
@@ -198,6 +199,83 @@ struct AppModelTests {
     #expect(await model.deleteAccount(id: id) == nil)
     #expect(model.summaries.filter { !$0.isDeleted }.isEmpty)
     #expect(model.writeCounter == before + 2)
+  }
+
+  // MARK: - Account reads
+
+  @Test func aRecordTamperedAfterUnlockLoadsAsFailedNotForever() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "pw")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("pw".utf8))
+    _ = await model.createAccount(AccountPayload(title: "Bank", password: "hunter2"))
+    let id = try #require(model.summaries.first).id
+    guard case .loaded = await model.loadAccount(id: id) else {
+      Issue.record("an untouched record should load")
+      return
+    }
+
+    // Behind the app's back: flip a bit in the sealed blob's last byte (inside the AEAD tag).
+    var db: OpaquePointer?
+    #expect(sqlite3_open(path, &db) == SQLITE_OK)
+    defer { sqlite3_close(db) }
+    flipLastSealedByte(db: db)
+
+    guard case .failed = await model.loadAccount(id: id) else {
+      Issue.record("a tampered record must load as .failed")
+      return
+    }
+    #expect(model.state == .unlocked)  // reported, not a lock-out
+  }
+
+  @Test func anUnknownIDLoadsAsMissing() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "pw")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("pw".utf8))
+    guard case .missing = await model.loadAccount(id: UUID()) else {
+      Issue.record("expected .missing")
+      return
+    }
+  }
+
+  /// Read every row's `sealed`, flip its last bit, write it back -- raw SQLite, no GRDB, so the
+  /// write goes around `VaultRepository` and the manifest exactly as an outside edit would.
+  private func flipLastSealedByte(db: OpaquePointer?) {
+    var select: OpaquePointer?
+    #expect(
+      sqlite3_prepare_v2(db, "SELECT rowid, sealed FROM records", -1, &select, nil) == SQLITE_OK)
+    defer { sqlite3_finalize(select) }
+    var rows: [(Int64, Data)] = []
+    while sqlite3_step(select) == SQLITE_ROW {
+      let rowid = sqlite3_column_int64(select, 0)
+      let count = Int(sqlite3_column_bytes(select, 1))
+      guard let bytes = sqlite3_column_blob(select, 1) else { continue }
+      var data = Data(bytes: bytes, count: count)
+      data[data.count - 1] ^= 0x01
+      rows.append((rowid, data))
+    }
+    #expect(!rows.isEmpty)
+    for (rowid, data) in rows {
+      var update: OpaquePointer?
+      #expect(
+        sqlite3_prepare_v2(db, "UPDATE records SET sealed = ? WHERE rowid = ?", -1, &update, nil)
+          == SQLITE_OK)
+      defer { sqlite3_finalize(update) }
+      // SQLITE_TRANSIENT: SQLite copies the bytes, so the buffer may go out of scope.
+      let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+      data.withUnsafeBytes { buffer in
+        _ = sqlite3_bind_blob(update, 1, buffer.baseAddress, Int32(buffer.count), transient)
+      }
+      sqlite3_bind_int64(update, 2, rowid)
+      #expect(sqlite3_step(update) == SQLITE_DONE)
+    }
   }
 
   // MARK: - Rollback

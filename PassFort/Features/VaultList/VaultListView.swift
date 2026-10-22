@@ -208,19 +208,36 @@ struct VaultListView: View {
 /// hands over to the same `AccountFormView` the detail pane uses.
 private struct EditAccountSheet: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.dismiss) private var dismiss
   let id: UUID
-  @State private var account: Account?
+  @State private var load: AppModel.AccountLoad?
 
   var body: some View {
     Group {
-      if let account {
+      switch load {
+      case .loaded(let account):
         AccountFormView(mode: .edit(account))
-      } else {
+      case .missing:
+        unavailable("This account no longer exists.")
+      case .failed(let message):
+        unavailable(message)
+      case nil:
         ProgressView().padding(40)
       }
     }
-    .task { account = try? await model.repo?.account(id: id) }
-    .onDisappear { account = nil }
+    .task { load = await model.loadAccount(id: id) }
+    .onDisappear { load = nil }
+  }
+
+  private func unavailable(_ message: String) -> some View {
+    VStack(spacing: 16) {
+      ContentUnavailableView(
+        "Can't edit this account", systemImage: "exclamationmark.lock",
+        description: Text(message))
+      Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+    }
+    .padding()
+    .frame(width: 360, height: 260)
   }
 }
 

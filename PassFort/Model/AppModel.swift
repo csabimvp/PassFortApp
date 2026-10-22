@@ -177,6 +177,36 @@ final class AppModel {
     await repo?.cryptoStats()
   }
 
+  // MARK: - Account reads
+
+  /// The result of decrypting one account for a view.
+  enum AccountLoad {
+    case loaded(Account)
+    /// No such row — compacted, or never existed.
+    case missing
+    /// The record would not open. The value is the sentence to show.
+    case failed(String)
+  }
+
+  /// One `pf_open` for a detail or edit view. A record that fails to decrypt after the unlock-time
+  /// manifest check passed was changed on disk while the vault was open; it is reported, never
+  /// shown and never retried silently.
+  func loadAccount(id: UUID) async -> AccountLoad {
+    guard let repo else { return .failed(AppError.io("The vault is locked.").message) }
+    do {
+      guard let account = try await repo.account(id: id) else { return .missing }
+      return .loaded(account)
+    } catch {
+      let mapped = VaultService.map(error)
+      if mapped == .wrongPassword {
+        return .failed(
+          "This account failed its integrity check. It was changed outside PassFort and "
+            + "can't be opened.")
+      }
+      return .failed(mapped.message)
+    }
+  }
+
   // MARK: - Account writes
 
   /// Bumped after every account create / update / delete so a detail view knows
