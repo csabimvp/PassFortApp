@@ -150,6 +150,7 @@ passfort-cli rm      <vault> <id|title>                  # tombstone
 passfort-cli dump    <vault>                             # every record, decrypted, JSON (debug)
 passfort-cli export  <vault> -o out.json                 # decrypt the whole vault; typed phrase required
 passfort-cli recover <vault> --key <grouped-recovery-key>   # reset the master password via the recovery slot
+passfort-cli passwd  <vault> [--no-recovery-key]       # change the master password; issues a new recovery key
 ```
 
 Example — create a vault, add an account, read it back:

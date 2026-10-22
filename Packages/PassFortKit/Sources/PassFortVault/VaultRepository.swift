@@ -115,6 +115,36 @@ public actor VaultRepository {
     return recovery
   }
 
+  /// Change the master password: verify `current` against the stored header, then
+  /// re-wrap the same DEK under `new` (same KDF cost, fresh salt). Records and the
+  /// manifest are untouched, so `vault_version` does not move.
+  ///
+  /// A recovery slot cannot survive the re-wrap -- its AEAD tag covers the header
+  /// prefix, salt included -- so any existing recovery key stops working. With
+  /// `issueRecoveryKey`, a fresh slot is added in the same header write and its key
+  /// returned (shown once, never stored); without it the vault ends up password-only.
+  ///
+  /// - Throws: `PassFortError.authFailed` if `current` is wrong; the header is then
+  ///   unchanged.
+  public func changePassword(
+    current: Data, new: Data, issueRecoveryKey: Bool
+  ) async throws -> RecoveryKey? {
+    // A second Argon2 pass against the stored header -- the session can't check a
+    // password itself, and must not hand back the KEK to compare against.
+    _ = try VaultSession.open(header: try await header(), password: current)
+
+    var newHeader = try await session.rewrap(newPassword: new)
+    var recovery: RecoveryKey?
+    if issueRecoveryKey {
+      let key = RecoveryKey.generate()
+      newHeader = try await session.addRecoverySlot(recoveryKey: key.raw)
+      recovery = key
+    }
+    let header = newHeader
+    try await database.dbQueue.write { db in try VaultMeta.write(db, .header, header) }
+    return recovery
+  }
+
   // MARK: - Reads
 
   /// One decrypted account, or `nil` if there is no such row. A tombstone is

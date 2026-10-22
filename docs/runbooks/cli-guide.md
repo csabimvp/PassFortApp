@@ -545,6 +545,31 @@ The key input is forgiving: case-insensitive, hyphens and spaces optional, `I`/`
 `O` as `0`. A one-symbol slip fails the check symbol and is rejected as malformed, not silently
 mis-decoded.
 
+### 6.3a `passwd` — change the master password
+
+```text
+$ passfort-cli passwd v.sqlite
+Current vault password:
+New vault password:
+Repeat password:
+master password changed for v.sqlite.
+backups made before now still open with the old password.
+
+================================================================
+RECOVERY KEY -- write it down now and store it offline. Shown once.
+…
+```
+
+`passwd` checks the current password against the stored header, then re-wraps the same DEK under the
+new one (same Argon2id cost, fresh salt). No record is re-sealed and `vault_version` does not move.
+
+**Any existing recovery key stops working.** The recovery slot's AEAD tag covers the header prefix,
+salt included, so it cannot survive a re-wrap. `passwd` therefore issues a fresh recovery key by
+default and prints it once; pass `--no-recovery-key` to leave the vault password-only instead.
+
+Backups taken before the change hold the old header, so they still open with the old password —
+the same is true of the cloud copy once sync exists, until DEK rotation lands (§3.4, §9.5).
+
 ### 6.4 `backup` and `restore` — off-machine copies, no password
 
 `backup` writes a consistent single-file snapshot of the vault into a folder. It works on the sealed
@@ -720,6 +745,7 @@ clean.
 | `dump <vault>` | password | — | every record decrypted, JSON, stdout |
 | `export <vault> -o FILE` | phrase, then password | `FILE` (0600) | plaintext snapshot of the whole vault |
 | `recover <vault> --key GROUPED` | new password ×2 | header + fresh recovery slot | reset the master password via the recovery key |
+| `passwd <vault> [--no-recovery-key]` | current password, new password ×2 | header (+ fresh recovery slot) | change the master password |
 | `backup <vault> <folder> [--keep N]` | none | one new file in `<folder>` | snapshot the vault (WAL-safe, single file) |
 | `restore <backup> <vault> [--allow-different-vault] [--yes]` | confirmation | vault files (old ones moved aside) | replace the vault with a backup; then `verify --accept-restore` |
 

@@ -11,7 +11,7 @@ struct PassFortCLI: AsyncParsableCommand {
     subcommands: [
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
       Add.self, List.self, Get.self, History.self, Edit.self, Remove.self,
-      Dump.self, Export.self, Backup.self, Restore.self, Recover.self, Seam.self,
+      Dump.self, Export.self, Backup.self, Restore.self, Recover.self, Passwd.self, Seam.self,
     ]
   )
 }
@@ -548,6 +548,38 @@ struct Recover: AsyncParsableCommand {
     let fresh = try await repo.rotateRecoveryKey()
     print("recovered \(vault) -- master password reset.")
     RecoveryBanner.show(fresh)
+  }
+}
+
+// MARK: - passwd
+
+struct Passwd: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract: "Change the master password. Any existing recovery key stops working.")
+
+  @Argument(help: "Path to the vault file.") var vault: String
+  @Flag(help: "Leave the vault password-only instead of issuing a new recovery key.")
+  var noRecoveryKey = false
+
+  func run() async throws {
+    guard FileManager.default.fileExists(atPath: vault) else {
+      throw CLIError("no vault at \(vault)")
+    }
+    // Unlocked here rather than through `VaultCLI.open`: the same bytes are needed
+    // again as `current` for the change itself.
+    let current = try Password.prompt("Current vault password: ")
+    let repo: VaultRepository
+    do {
+      repo = try await Vault.unlock(databasePath: vault, password: current, deviceID: m2DeviceID)
+    } catch PassFortError.authFailed {
+      throw CLIError("AuthFailed -- wrong password or corrupt vault")
+    }
+    let new = try Password.promptConfirmed()
+    let fresh = try await repo.changePassword(
+      current: current, new: new, issueRecoveryKey: !noRecoveryKey)
+    print("master password changed for \(vault).")
+    print("backups made before now still open with the old password.")
+    if let fresh { RecoveryBanner.show(fresh) }
   }
 }
 
