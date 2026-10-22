@@ -736,11 +736,12 @@ clean.
 | `init <vault> [--recovery] [--force] [--target-ms N]` | new password ×2 | vault + `.hw` | create a vault |
 | `unlock <vault>` | password | `.hw` (repair only) | open + verify + report counts |
 | `verify <vault> [--accept-restore]` | password | `.hw` (on `--accept-restore`) | manifest + anti-rollback check only |
-| `add <vault> --title T [--prompt-password \| --generate-password] […]` | password (+ account pw if `--prompt-password`) | one row + MAC | create an account |
+| `add <vault> --title T [--prompt-password \| --generate-password] [--totp URI] […]` | password (+ account pw if `--prompt-password`) | one row + MAC | create an account |
 | `list <vault> [--search Q] [--all]` | password | — | summary index, no secrets |
 | `get <vault> <id\|title> [--json]` | password | — | one account + audit lines; `--json` wraps `{id, version, updated_at, is_deleted, payload}` |
+| `code <vault> <id\|title>` | password | — | the current one-time code on stdout, seconds left on stderr |
 | `history <vault> <id\|title> [--passwords]` | password | — | version timeline (changed fields per version); `--passwords` reveals old password values |
-| `edit <vault> <id\|title> --set k=v … [--add-url U] [--prompt-password \| --generate-password]` | password | one row + MAC | update an account |
+| `edit <vault> <id\|title> --set k=v … [--add-url U] [--prompt-password \| --generate-password]` | password | one row + MAC | update an account; `--set totp=URI` sets the one-time code, `--set totp=` clears it |
 | `rm <vault> <id\|title>` | password | one row + MAC | tombstone an account |
 | `dump <vault>` | password | — | every record decrypted, JSON, stdout |
 | `export <vault> -o FILE` | phrase, then password | `FILE` (0600) | plaintext snapshot of the whole vault |

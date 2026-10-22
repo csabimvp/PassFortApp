@@ -142,9 +142,10 @@ passfort-cli bench   [--target-ms 500]                   # calibrate Argon2id; p
 passfort-cli init    <vault> [--recovery] [--force]      # create a vault; prompt for a password
 passfort-cli unlock  <vault>                             # open + verify; report account counts
 passfort-cli verify  <vault> [--accept-restore]          # manifest + anti-rollback check only
-passfort-cli add     <vault> --title T [--username U] [--prompt-password] [--url U] [--note N]
+passfort-cli add     <vault> --title T [--username U] [--prompt-password] [--url U] [--note N] [--totp URI]
 passfort-cli list    <vault> [--search Q] [--all]        # summary index (no secrets)
 passfort-cli get     <vault> <id|title> [--json]         # one account, secrets to stdout
+passfort-cli code    <vault> <id|title>                  # the account's current one-time code (TOTP)
 passfort-cli edit    <vault> <id|title> --set password=… [--add-url U] [--prompt-password]
 passfort-cli rm      <vault> <id|title>                  # tombstone
 passfort-cli dump    <vault>                             # every record, decrypted, JSON (debug)

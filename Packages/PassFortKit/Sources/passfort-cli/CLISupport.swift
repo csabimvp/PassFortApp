@@ -157,10 +157,19 @@ func parseBool(_ raw: String) throws -> Bool {
   }
 }
 
+/// An `otpauth://totp/...` URI or a bare Base32 secret, as `--totp` / `--set totp=` take it.
+func parseTOTP(_ raw: String) throws -> TOTPConfig {
+  do {
+    return try TOTPConfig(parsing: raw)
+  } catch {
+    throw CLIError("not an otpauth://totp URI or a Base32 secret (\(error))")
+  }
+}
+
 /// One `--set key=value` edit. Parsed (and validated) up front so a bad key or
 /// value fails before the write transaction opens.
 enum EditOp: Sendable {
-  enum Field: String { case title, username, password, email, notes, favorite, category }
+  enum Field: String { case title, username, password, email, notes, favorite, category, totp }
   case set(Field, String)
 
   static func parse(_ pair: String) throws -> EditOp {
@@ -172,11 +181,12 @@ enum EditOp: Sendable {
     guard let field = Field(rawValue: rawKey) else {
       throw CLIError(
         "unknown --set key \"\(rawKey)\" -- one of: "
-          + "title, username, password, email, notes, favorite, category")
+          + "title, username, password, email, notes, favorite, category, totp")
     }
     if field == .title, value.isEmpty { throw CLIError("title cannot be empty") }
     if field == .favorite { _ = try parseBool(value) }
     if field == .category { _ = try parseCategory(value) }
+    if field == .totp, !value.isEmpty { _ = try parseTOTP(value) }
     return .set(field, value)
   }
 
@@ -191,6 +201,7 @@ enum EditOp: Sendable {
     case .notes: payload.notes = optional
     case .favorite: payload.favorite = (try? parseBool(value)) ?? payload.favorite
     case .category: payload.category = (try? parseCategory(value)) ?? payload.category
+    case .totp: payload.totp = value.isEmpty ? nil : (try? parseTOTP(value)) ?? payload.totp
     }
   }
 }
@@ -279,7 +290,9 @@ func printAccount(_ account: Account) {
   if !payload.recoveryCodes.isEmpty {
     row("recovery codes", payload.recoveryCodes.joined(separator: ", "))
   }
-  if payload.totp != nil { row("totp", "configured (use `export` for the seed)") }
+  if let totp = payload.totp {
+    row("totp", "\(totp.code()) (\(totp.secondsRemaining())s left; `export` for the seed)")
+  }
   if !payload.securityQuestions.isEmpty {
     row("sec questions", String(payload.securityQuestions.count))
   }

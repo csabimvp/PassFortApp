@@ -10,7 +10,7 @@ struct PassFortCLI: AsyncParsableCommand {
     abstract: "PassFort vault tool -- create an encrypted SQLite vault and manage accounts in it.",
     subcommands: [
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
-      Add.self, List.self, Get.self, History.self, Edit.self, Remove.self,
+      Add.self, List.self, Get.self, Code.self, History.self, Edit.self, Remove.self,
       Dump.self, Export.self, Backup.self, Restore.self, Recover.self, Passwd.self, Seam.self,
     ]
   )
@@ -161,6 +161,8 @@ struct Add: AsyncParsableCommand {
   @Option(help: "Category (default: login).") var category: String?
   @Option(name: .customLong("tag"), help: "A tag (repeatable).") var tags: [String] = []
   @Flag(help: "Mark as a favorite.") var favorite = false
+  @Option(help: "One-time-code secret: an otpauth://totp/... URI or a Base32 secret.")
+  var totp: String?
 
   func run() async throws {
     let sources = [password != nil, promptPassword, generatePassword].filter { $0 }.count
@@ -179,12 +181,13 @@ struct Add: AsyncParsableCommand {
     }
     let parsedURLs = try urls.map(parseURL)
     let cat = try category.map(parseCategory) ?? .login
+    let otp = try totp.map(parseTOTP)
 
     let repo = try await VaultCLI.open(vault)
     let account = try await repo.create(
       AccountPayload(
         title: title, username: username, password: secret, email: email,
-        urls: parsedURLs, notes: note, category: cat, tags: tags, favorite: favorite))
+        urls: parsedURLs, notes: note, totp: otp, category: cat, tags: tags, favorite: favorite))
     print(account.id.uuidString)
   }
 }
@@ -243,6 +246,31 @@ struct Get: AsyncParsableCommand {
   }
 }
 
+// MARK: - code
+
+struct Code: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract: "Print an account's current one-time code (TOTP) and how long it stays valid.")
+
+  @Argument(help: "Path to the vault file.") var vault: String
+  @Argument(help: "Account id (UUID) or title.") var account: String
+
+  func run() async throws {
+    let repo = try await VaultCLI.open(vault)
+    let id = try await resolveAccountID(account, in: repo)
+    guard let account = try await repo.account(id: id) else {
+      throw CLIError("no account with id \(id.uuidString)")
+    }
+    guard let totp = account.payload.totp else {
+      throw CLIError(
+        "\(account.payload.title) has no one-time code -- add one with `edit --set totp=...`")
+    }
+    let now = Date()
+    print(totp.code(at: now))
+    FileHandle.standardError.write(Data("valid for \(totp.secondsRemaining(at: now))s\n".utf8))
+  }
+}
+
 // MARK: - history
 
 struct History: AsyncParsableCommand {
@@ -294,7 +322,8 @@ struct Edit: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: """
       Update an account. Repeatable --set key=value; keys: title, username, \
-      password, email, notes, favorite, category.
+      password, email, notes, favorite, category, totp (an otpauth:// URI or \
+      Base32 secret; empty clears it).
       """)
 
   @Argument(help: "Path to the vault file.") var vault: String
