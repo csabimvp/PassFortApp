@@ -10,7 +10,6 @@ struct AccountDetailView: View {
   let accountID: UUID
 
   @State private var account: Account?
-  @State private var revealPassword = false
   @State private var revealHistory = false
   @State private var editing = false
   @State private var togglingFavorite = false
@@ -26,7 +25,6 @@ struct AccountDetailView: View {
       }
     }
     .task(id: accountID) {
-      revealPassword = false
       revealHistory = false
       await load()
     }
@@ -35,7 +33,7 @@ struct AccountDetailView: View {
     }
     .onDisappear {
       account = nil
-      revealPassword = false
+      revealHistory = false
     }
   }
 
@@ -51,7 +49,7 @@ struct AccountDetailView: View {
       Section {
         LabeledContent("Title", value: payload.title)
         copyableRow("Username", payload.username)
-        passwordRow(payload.password)
+        concealedRow("Password", payload.password)
         copyableRow("Email", payload.email)
         row("Notes", payload.notes)
       }
@@ -74,8 +72,8 @@ struct AccountDetailView: View {
         if !payload.tags.isEmpty {
           LabeledContent("Tags", value: payload.tags.joined(separator: ", "))
         }
-        row("PIN", payload.pin)
-        row("Memorable word", payload.memorableWord)
+        concealedRow("PIN", payload.pin)
+        concealedRow("Memorable word", payload.memorableWord)
         if payload.totp != nil { LabeledContent("TOTP", value: "configured") }
         if !payload.securityQuestions.isEmpty {
           LabeledContent("Security questions", value: "\(payload.securityQuestions.count)")
@@ -91,6 +89,7 @@ struct AccountDetailView: View {
       statsSection(account)
     }
     .formStyle(.grouped)
+    .id(account.id)  // a fresh ConcealedRow identity per account: switching re-conceals
     .navigationTitle(payload.title)
     .toolbar {
       Button {
@@ -122,17 +121,9 @@ struct AccountDetailView: View {
   }
 
   @ViewBuilder
-  private func passwordRow(_ password: String?) -> some View {
-    if let password {
-      LabeledContent("Password") {
-        HStack {
-          Text(revealPassword ? password : String(repeating: "•", count: 12))
-            .font(.system(.body, design: .monospaced))
-          Spacer()
-          Button(revealPassword ? "Hide" : "Reveal") { revealPassword.toggle() }
-          Button("Copy") { Pasteboard.copyTransient(password) }
-        }
-      }
+  private func concealedRow(_ label: String, _ value: String?) -> some View {
+    if let value, !value.isEmpty {
+      ConcealedRow(label: label, value: value)
     }
   }
 
@@ -153,8 +144,8 @@ struct AccountDetailView: View {
             "Previous passwords (\(payload.passwordHistory.count))", isExpanded: $revealHistory
           ) {
             ForEach(Array(payload.passwordHistory.enumerated()), id: \.offset) { _, entry in
-              LabeledContent(
-                entry.replacedAt.formatted(date: .abbreviated, time: .omitted),
+              ConcealedRow(
+                label: entry.replacedAt.formatted(date: .abbreviated, time: .omitted),
                 value: entry.password)
             }
           }
