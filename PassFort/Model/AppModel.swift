@@ -39,7 +39,9 @@ final class AppModel {
   private var autoLock: AutoLock?
   /// The open vault held between `createVault` and the recovery-key confirmation
   /// (so "repo is non-nil only in .unlocked" stays true during `.showingRecoveryKey`).
-  private var stagedRepo: VaultRepository?
+  /// Dropped by `lock()` like `repo` -- an auto-lock while the key is on screen must not leave
+  /// an open session behind.
+  private(set) var stagedRepo: VaultRepository?
 
   init(databasePath: String = VaultDatabase.defaultPath, highWaterURL: URL? = nil) {
     self.service = VaultService(databasePath: databasePath, highWaterURL: highWaterURL)
@@ -108,6 +110,7 @@ final class AppModel {
     autoLock?.invalidate()
     autoLock = nil
     repo = nil
+    stagedRepo = nil
     summaries = []
     Pasteboard.clearTransient()
     state = .locked()

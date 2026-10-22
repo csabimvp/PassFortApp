@@ -122,6 +122,21 @@ struct AppModelTests {
     #expect(model.repo != nil)
   }
 
+  @Test func lockingWhileTheRecoveryKeyIsShownReleasesTheStagedVault() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+
+    let model = AppModel(databasePath: path)
+    _ = await model.createVault(password: Data("new".utf8), recovery: true)
+    #expect(model.stagedRepo != nil)
+
+    model.lock()  // the auto-lock firing while the key is on screen
+    #expect(model.state == .locked())
+    #expect(model.stagedRepo == nil)
+    #expect(model.repo == nil)
+  }
+
   // MARK: - Account writes
 
   @Test func accountWritesRefreshTheIndexAndBumpTheCounter() async throws {
