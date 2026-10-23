@@ -5,19 +5,48 @@
 //
 // Pure CoreGraphics/ImageIO, so there is nothing to install. Each size is drawn directly from the
 // vector description below (not downscaled from the 1024 master), which keeps the 16 and 32 px
-// versions crisp. Colours follow `Palette.swift`; edit the constants here to retheme the icon.
+// versions crisp. The colours are read from the brand in `UI/tokens.json`, so the icon matches the
+// app's accent: the tile runs from the dark-mode brand at the top to the light-mode brand at the
+// bottom, and the keyhole is the light-mode brand. Retheme in the tokens, then re-run this.
 
 import CoreGraphics
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+// MARK: - Brand colours, from UI/tokens.json
+
+func fail(_ message: String) -> Never {
+  FileHandle.standardError.write(Data("make_icon: \(message)\n".utf8))
+  exit(1)
+}
+
+/// `"#RRGGBB"` → an sRGB colour.
+func color(_ hex: String) -> CGColor {
+  guard hex.count == 7, hex.hasPrefix("#"), let rgb = Int(hex.dropFirst(), radix: 16) else {
+    fail("\"\(hex)\" is not #RRGGBB")
+  }
+  return CGColor(
+    srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+    blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+}
+
+let script = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+let tokensURL = script.deletingLastPathComponent().deletingLastPathComponent()
+  .appending(path: "UI/tokens.json")
+guard
+  let data = try? Data(contentsOf: tokensURL),
+  let tokens = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+  let brand = tokens["brand"] as? [String: String],
+  let brandLight = brand["light"], let brandDark = brand["dark"]
+else { fail("can't read brand.light / brand.dark from \(tokensURL.path)") }
+
 // MARK: - Design (all in a 1024 x 1024 space, origin bottom-left)
 
-let tileTop = CGColor(srgbRed: 0.992, green: 0.729, blue: 0.455, alpha: 1)  // #FDBA74
-let tileBottom = CGColor(srgbRed: 0.918, green: 0.345, blue: 0.047, alpha: 1)  // #EA580C
+let tileTop = color(brandDark)
+let tileBottom = color(brandLight)
 let glyph = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
-let keyhole = CGColor(srgbRed: 0.761, green: 0.255, blue: 0.047, alpha: 1)  // #C2410C
+let keyhole = color(brandLight)
 
 func draw(into ctx: CGContext, pixels: Int) {
   let s = CGFloat(pixels) / 1024

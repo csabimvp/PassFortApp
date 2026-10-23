@@ -79,13 +79,13 @@ struct VaultLocationSettingsView: View {
       EmptyView()
     case .failed(let message):
       VStack(alignment: .leading, spacing: 6) {
-        Label(message, systemImage: "xmark.octagon").foregroundStyle(.red)
+        Label(message, systemImage: "xmark.octagon").foregroundStyle(Palette.danger)
         Button("OK") { location.dismiss() }.controlSize(.small)
       }
     case .movedNeedsRelaunch(let moved):
       VStack(alignment: .leading, spacing: 6) {
         Label("The vault was moved to \(moved.destination).", systemImage: "checkmark.circle")
-          .foregroundStyle(.green)
+          .foregroundStyle(Palette.success)
         Text("Restart PassFort to start using it. Until then, leave the vault locked.")
           .font(.caption)
         Button("Restart PassFort") { AppRelauncher.relaunch() }

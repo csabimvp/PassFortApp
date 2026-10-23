@@ -35,11 +35,11 @@ struct VaultLocationUnavailableView: View {
 
       switch location.step {
       case .failed(let message):
-        Label(message, systemImage: "xmark.octagon").font(.callout).foregroundStyle(.red)
+        Label(message, systemImage: "xmark.octagon").font(.callout).foregroundStyle(Palette.danger)
       case .movedNeedsRelaunch:
         VStack(spacing: 6) {
           Label("Saved. Restart PassFort to use the new location.", systemImage: "checkmark.circle")
-            .foregroundStyle(.green)
+            .foregroundStyle(Palette.success)
           Button("Restart PassFort") { AppRelauncher.relaunch() }
         }
       case .idle, .working:

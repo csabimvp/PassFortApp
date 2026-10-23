@@ -2,7 +2,7 @@ import PassFortVault
 import SwiftUI
 
 /// The live one-time code: recomputed every second (a `TimelineView`, so nothing runs while the row
-/// is off screen), with the seconds left and a self-clearing copy. The code is shown, unlike the
+/// is off screen), with the seconds left as a ring and a self-clearing copy. The code is shown, unlike the
 /// password — it is useless half a minute later, and it is what the user came to read.
 struct OneTimeCodeRow: View {
   let config: TOTPConfig
@@ -16,11 +16,15 @@ struct OneTimeCodeRow: View {
           Text(Self.grouped(code))
             .font(.system(.body, design: .monospaced))
             .monospacedDigit()
-          Text("\(remaining)s")
+          CountdownRing(remaining: remaining, period: config.period)
+          Text("\(remaining) s")
             .font(.caption).monospacedDigit()
-            .foregroundStyle(remaining <= 5 ? Color.red : Color.secondary)
+            .foregroundStyle(remaining <= 5 ? Palette.danger : Color.secondary)
+            .accessibilityHidden(true)
           Spacer()
-          Button("Copy") { Pasteboard.copyTransient(code) }
+          IconButton("Copy one-time code", systemImage: "doc.on.doc") {
+            Pasteboard.copyTransient(code)
+          }
         }
       }
     }

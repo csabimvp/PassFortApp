@@ -19,7 +19,7 @@ struct BackupSettingsView: View {
             .disabled(!backup.hasFolder)
         }
         if let pickerError {
-          Label(pickerError, systemImage: "xmark.octagon").foregroundStyle(.red)
+          Label(pickerError, systemImage: "xmark.octagon").foregroundStyle(Palette.danger)
         }
       }
 
@@ -85,7 +85,7 @@ struct BackupSettingsView: View {
       .font(.caption).foregroundStyle(.secondary)
     case .failed(let message):
       Label(message, systemImage: "exclamationmark.triangle")
-        .font(.caption).foregroundStyle(.orange)
+        .font(.caption).foregroundStyle(Palette.warning)
     }
   }
 

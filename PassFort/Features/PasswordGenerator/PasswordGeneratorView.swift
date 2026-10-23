@@ -40,8 +40,8 @@ struct PasswordGeneratorView: View {
       Text("Generate Password").font(.headline)
 
       HStack(spacing: 8) {
-        Text(generated.isEmpty ? " " : generated)
-          .font(.system(.body, design: .monospaced))
+        ClassedPassword.text(generated.isEmpty ? " " : generated)
+          .font(.system(.title3, design: .monospaced))
           .textSelection(.enabled)
           .lineLimit(2)
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -52,10 +52,24 @@ struct PasswordGeneratorView: View {
       .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
 
       if !generated.isEmpty {
-        Text(entropyLabel).font(.caption).foregroundStyle(.secondary)
+        let level = StrengthLevel(password: generated)
+        VStack(alignment: .leading, spacing: 6) {
+          StrengthMeter(level: level)
+          HStack {
+            Text(level.title).foregroundStyle(level.color).fontWeight(.medium)
+            Spacer()
+            Text(entropyLabel).foregroundStyle(.secondary)
+          }
+          .font(.caption)
+        }
       }
 
-      Stepper("Length: \(length)", value: $length, in: 8...128)
+      LabeledContent("Length") {
+        HStack {
+          Slider(value: lengthValue, in: 8...128)  // no `step`: it would draw 120 tick marks
+          Text("\(length)").monospacedDigit().frame(width: 30, alignment: .trailing)
+        }
+      }
 
       Toggle("Lowercase  a–z", isOn: $lowercase).disabled(isOnlyClass(lowercase))
       Toggle("Uppercase  A–Z", isOn: $uppercase).disabled(isOnlyClass(uppercase))
@@ -92,7 +106,12 @@ struct PasswordGeneratorView: View {
 
   private var entropyLabel: String {
     guard let bits = try? policy.entropyBits() else { return "" }
-    return "~\(Int(bits.rounded())) bits of entropy"
+    return "about \(Int(bits.rounded())) bits"
+  }
+
+  /// `length` as the `Double` a `Slider` needs.
+  private var lengthValue: Binding<Double> {
+    Binding(get: { Double(length) }, set: { length = Int($0.rounded()) })
   }
 
   /// True when `thisOne` is the last character class still on — so its toggle is

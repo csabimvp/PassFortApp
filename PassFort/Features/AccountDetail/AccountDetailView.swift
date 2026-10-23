@@ -54,14 +54,17 @@ struct AccountDetailView: View {
     let payload = account.payload
     Form {
       Section {
-        LabeledContent("Title", value: payload.title)
         copyableRow("Username", payload.username)
-        concealedRow("Password", payload.password)
+        if let password = payload.password, !password.isEmpty {
+          ConcealedRow(label: "Password", value: password, showsStrength: true)
+        }
         if let totp = payload.totp { OneTimeCodeRow(config: totp) }
         copyableRow("Email", payload.email)
         concealedRow("PIN", payload.pin)
         concealedRow("Memorable word", payload.memorableWord)
         row("Notes", payload.notes)
+      } header: {
+        header(payload)
       }
 
       if !payload.securityQuestions.isEmpty {
@@ -99,6 +102,7 @@ struct AccountDetailView: View {
             Link(destination: url) {
               Label(url.absoluteString, systemImage: "safari")
             }
+            .foregroundStyle(Palette.primary)
             .lineLimit(1)
             .truncationMode(.middle)
           }
@@ -106,15 +110,28 @@ struct AccountDetailView: View {
       }
 
       Section("Details") {
-        LabeledContent("Category", value: payload.category.singularName)
+        LabeledContent("Category") {
+          Text(payload.category.singularName).foregroundStyle(
+            Palette.color(payload.category.family))
+        }
         if payload.favorite { LabeledContent("Favorite", value: "Yes") }
         if !payload.tags.isEmpty {
-          LabeledContent("Tags", value: payload.tags.joined(separator: ", "))
+          LabeledContent("Tags") {
+            HStack(spacing: 6) {
+              ForEach(payload.tags, id: \.self) { tag in
+                Text(tag)
+                  .font(.caption)
+                  .padding(.horizontal, 8)
+                  .padding(.vertical, 2)
+                  .background(.quaternary, in: Capsule())
+              }
+            }
+          }
         }
         if let expiresAt = payload.expiresAt {
           LabeledContent("Expires") {
             Text(expiresAt.formatted(date: .abbreviated, time: .omitted))
-              .foregroundStyle(expiresAt < .now ? Color.red : Color.primary)
+              .foregroundStyle(expiresAt < .now ? Palette.danger : Color.primary)
           }
         }
         LabeledContent("Created", value: stamp(payload.createdAt))
@@ -138,7 +155,7 @@ struct AccountDetailView: View {
           payload.favorite ? "Remove Favorite" : "Mark as Favorite",
           systemImage: payload.favorite ? "star.fill" : "star"
         )
-        .foregroundStyle(payload.favorite ? .yellow : .primary)
+        .foregroundStyle(payload.favorite ? Palette.favorite : Color.primary)
       }
       .disabled(togglingFavorite)
       .help(payload.favorite ? "Remove from Favorites" : "Add to Favorites")
@@ -148,6 +165,31 @@ struct AccountDetailView: View {
     .sheet(isPresented: $editing) {
       AccountFormView(mode: .edit(account))
     }
+  }
+
+  /// The large category tile, the title, and the host · category line above the first section.
+  private func header(_ payload: AccountPayload) -> some View {
+    HStack(spacing: 14) {
+      CategoryTile(title: payload.title, category: payload.category, size: 52)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(payload.title)
+          .font(.title2.weight(.semibold))
+          .foregroundStyle(.primary)
+          .textSelection(.enabled)
+        HStack(spacing: 6) {
+          if let host = payload.urls.first?.host() {
+            Text(host)
+            Text("·").accessibilityHidden(true)
+          }
+          Text(payload.category.singularName)
+            .foregroundStyle(Palette.color(payload.category.family))
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .textCase(nil)
+    .padding(.bottom, 8)
   }
 
   private func toggleFavorite(_ account: Account) async {
@@ -234,11 +276,9 @@ struct AccountDetailView: View {
       LabeledContent(label) {
         HStack(spacing: 6) {
           Text(value).textSelection(.enabled)
-          Button("Copy \(label.lowercased())", systemImage: "doc.on.doc") {
+          IconButton("Copy \(label.lowercased())", systemImage: "doc.on.doc") {
             Pasteboard.copy(value)
           }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.borderless)
         }
       }
     }

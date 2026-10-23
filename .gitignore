@@ -34,6 +34,9 @@ node_modules/
 Cloud/api/local.settings.json
 Cloud/api/dist/
 
+# Design mockups — kept locally, never published (UI/README.md)
+UI/mockups/
+
 # Claude — local-only by choice
 .claude
 CLAUDE.md

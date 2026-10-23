@@ -2,8 +2,8 @@ import AppKit
 import Foundation
 import SwiftUI
 
-/// The `.locked` / `.unlocking` screen: a `SecureField`, an Unlock button, and a
-/// banner for the last failure. The rollback banner carries the one action the
+/// The `.locked` / `.unlocking` screen: a `SecureField` (with a Caps Lock warning), an Unlock
+/// button, and a banner for the last failure. The rollback banner carries the one action the
 /// user can take themselves — the GUI's `verify --accept-restore`.
 struct UnlockView: View {
   @Environment(AppModel.self) private var model
@@ -11,6 +11,7 @@ struct UnlockView: View {
   @Environment(BackupModel.self) private var backup: BackupModel?
   @State private var password = ""
   @FocusState private var passwordFocused: Bool
+  @State private var capsLockOn = false
 
   var body: some View {
     VStack(spacing: 16) {
@@ -21,10 +22,17 @@ struct UnlockView: View {
       Text("PassFort")
         .font(.title2.weight(.semibold))
 
-      SecureField("Master password", text: $password)
-        .textFieldStyle(.roundedBorder)
-        .frame(maxWidth: 280)
-        .focused($passwordFocused)
+      VStack(alignment: .leading, spacing: 6) {
+        SecureField("Master password", text: $password)
+          .textFieldStyle(.roundedBorder)
+          .focused($passwordFocused)
+        if capsLockOn {
+          Label("Caps Lock is on", systemImage: "capslock.fill")
+            .font(.caption)
+            .foregroundStyle(Palette.warning)
+        }
+      }
+      .frame(maxWidth: 280)
 
       if case .locked(let error?) = model.state {
         errorBanner(error)
@@ -32,9 +40,14 @@ struct UnlockView: View {
           .transition(.opacity)
       }
 
-      Button("Unlock", action: unlock)
-        .keyboardShortcut(.defaultAction)
-        .disabled(password.isEmpty || model.state.isUnlocking)
+      Button(action: unlock) {
+        Text("Unlock").frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.borderedProminent)
+      .controlSize(.large)
+      .frame(maxWidth: 280)
+      .keyboardShortcut(.defaultAction)
+      .disabled(password.isEmpty || model.state.isUnlocking)
 
       if model.state.isUnlocking {
         ProgressView("Deriving key…")
@@ -43,6 +56,7 @@ struct UnlockView: View {
       if !model.state.isUnlocking {
         RestoreBackupButton()
           .buttonStyle(.link)
+          .foregroundStyle(Palette.primary)
           .font(.caption)
       }
 
@@ -50,11 +64,12 @@ struct UnlockView: View {
       if let failure = backup?.failureMessage {
         Label("Last backup failed. \(failure)", systemImage: "exclamationmark.triangle")
           .font(.caption)
-          .foregroundStyle(.orange)
+          .foregroundStyle(Palette.warning)
           .frame(maxWidth: 320)
       }
     }
     .padding(40)
+    .onModifierKeysChanged { _, keys in capsLockOn = keys.contains(.capsLock) }
     .animation(.default, value: model.state)
     .onAppear { passwordFocused = true }
     .onChange(of: model.state) { _, state in
@@ -87,7 +102,7 @@ struct UnlockView: View {
 
     default:
       Label(error.message, systemImage: "xmark.octagon")
-        .foregroundStyle(.red)
+        .foregroundStyle(Palette.danger)
     }
   }
 }

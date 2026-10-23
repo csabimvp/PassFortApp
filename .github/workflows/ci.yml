@@ -58,6 +58,14 @@ jobs:
         working-directory: Packages/PassFortKit
         run: swift format lint --strict --recursive Sources Tests
 
+      # The app's colours are generated from UI/tokens.json and committed; a hand edit to
+      # either output, or a token change without regenerating, shows up as a diff here.
+      - name: Palette matches UI/tokens.json
+        run: |
+          swift scripts/gen_palette.swift
+          git diff --exit-code PassFort/Support/PaletteTokens.swift \
+            PassFort/Assets.xcassets/AccentColor.colorset/Contents.json
+
       # The M3 app compiles, unsigned (architecture.md §13.4). Needs the PassFort
       # scheme shared into xcshareddata/. This resolves + builds the local package
       # through Xcode (a second Botan compile), so it is the slow step -- see

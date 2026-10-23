@@ -22,7 +22,7 @@ struct CreateVaultView: View {
       SecureField("Repeat password", text: $confirm)
         .textFieldStyle(.roundedBorder)
       if !confirm.isEmpty, password != confirm {
-        Text("Passwords don't match.").font(.caption).foregroundStyle(.red)
+        Text("Passwords don't match.").font(.caption).foregroundStyle(Palette.danger)
       }
 
       Toggle("Also create a recovery key", isOn: $withRecovery)
@@ -31,7 +31,7 @@ struct CreateVaultView: View {
 
       if let error {
         Label(error.message, systemImage: "xmark.octagon")
-          .font(.callout).foregroundStyle(.red)
+          .font(.callout).foregroundStyle(Palette.danger)
       }
 
       HStack {

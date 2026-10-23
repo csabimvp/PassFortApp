@@ -25,7 +25,7 @@ struct ChangePasswordView: View {
       SecureField("New password", text: $new)
       SecureField("Repeat new password", text: $confirm)
       if !confirm.isEmpty, new != confirm {
-        Text("Passwords don't match.").font(.caption).foregroundStyle(.red)
+        Text("Passwords don't match.").font(.caption).foregroundStyle(Palette.danger)
       }
 
       Toggle("Issue a new recovery key", isOn: $issueRecoveryKey)
@@ -38,7 +38,7 @@ struct ChangePasswordView: View {
 
       if let error {
         Label(error.message, systemImage: "xmark.octagon")
-          .font(.callout).foregroundStyle(.red)
+          .font(.callout).foregroundStyle(Palette.danger)
       }
 
       HStack {

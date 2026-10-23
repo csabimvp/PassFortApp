@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200.0" height="560.0" viewBox="0 0 1200.0 560.0" role="img" aria-label="PassFort: the app icon and the vault window">
+<defs>
+  <linearGradient id="iconTile" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#EA580C"/><stop offset="1" stop-color="#C2410C"/>
+  </linearGradient>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="150%">
+    <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.28"/>
+  </filter>
+  <filter id="window" x="-10%" y="-10%" width="120%" height="125%">
+    <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.5"/>
+  </filter>
+  <clipPath id="windowClip"><rect x="470" y="48" width="690" height="464" rx="12"/></clipPath>
+</defs>
+<rect x="0.5" y="0.5" width="1199.0" height="559.0" rx="24.0" fill="#161618" stroke="#2C2C2E" stroke-width="1"/>
+<g transform="translate(64.0 118.0) scale(0.13592233009708737) translate(-100 -100)">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#iconTile)" filter="url(#soft)"/>
+  <path d="M398 484 V394 A114 114 0 0 1 626 394 V484" fill="none" stroke="#FFFFFF" stroke-width="76" stroke-linecap="round"/>
+  <rect x="300" y="454" width="424" height="330" rx="64" fill="#FFFFFF"/>
+  <circle cx="512" cy="594" r="52" fill="#C2410C"/>
+  <path d="M482 614 H542 L556 704 H468 Z" fill="#C2410C"/>
+</g>
+<text x="60.0" y="302.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="54.0" font-weight="700" fill="#F5F5F7" text-anchor="start" letter-spacing="-1.0">PassFort</text>
+<text x="62.0" y="344.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20.0" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">A macOS password manager.</text>
+<text x="62.0" y="372.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20.0" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">Every key stays in a tiny C++ core.</text>
+<rect x="62.0" y="404.0" width="88.0" height="28.0" rx="14.0" fill="rgba(234,88,12,0.2)"/>
+<text x="106.0" y="423.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="600" fill="#EA580C" text-anchor="middle" letter-spacing="0.0">Argon2id</text>
+<rect x="158.0" y="404.0" width="170.0" height="28.0" rx="14.0" fill="rgba(234,88,12,0.2)"/>
+<text x="243.0" y="423.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="600" fill="#EA580C" text-anchor="middle" letter-spacing="0.0">XChaCha20-Poly1305</text>
+<rect x="336.0" y="404.0" width="104.0" height="28.0" rx="14.0" fill="rgba(234,88,12,0.2)"/>
+<text x="388.0" y="423.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="600" fill="#EA580C" text-anchor="middle" letter-spacing="0.0">Local-first</text>
+<rect x="470.0" y="48.0" width="690.0" height="464.0" rx="12.0" fill="#1E1E1E" filter="url(#window)"/>
+<g clip-path="url(#windowClip)">
+<rect x="470.0" y="48.0" width="172.0" height="464.0" rx="0.0" fill="#262628"/>
+<circle cx="488.0" cy="68.0" r="6" fill="#FF5F57"/>
+<circle cx="506.0" cy="68.0" r="6" fill="#FEBC2E"/>
+<circle cx="524.0" cy="68.0" r="6" fill="#28C840"/>
+<rect x="478.0" y="96.0" width="156.0" height="24.0" rx="6.0" fill="rgba(255,255,255,0.10)"/>
+<g transform="translate(486.0 100.0) scale(0.6666666666666666)" fill="none" stroke="#EA580C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M16 7l3 3M14 9l2 2"/></g>
+<text x="510.0" y="112.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">All Accounts</text>
+<text x="626.0" y="112.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="end" letter-spacing="0.0">42</text>
+<g transform="translate(486.0 126.0) scale(0.6666666666666666)" fill="none" stroke="#FACC15" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></g>
+<text x="510.0" y="138.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Favorites</text>
+<text x="626.0" y="138.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="end" letter-spacing="0.0">6</text>
+<text x="486.0" y="164.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="600" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">Categories</text>
+<g transform="translate(486.0 176.0) scale(0.6666666666666666)" fill="none" stroke="#60A5FA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></g>
+<text x="510.0" y="188.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Logins</text>
+<text x="626.0" y="188.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="end" letter-spacing="0.0">27</text>
+<g transform="translate(486.0 202.0) scale(0.6666666666666666)" fill="none" stroke="#34D399" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h18M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18M12 3l9 5H3z"/></g>
+<text x="510.0" y="214.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Bank Accounts</text>
+<text x="626.0" y="214.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="end" letter-spacing="0.0">3</text>
+<g transform="translate(486.0 228.0) scale(0.6666666666666666)" fill="none" stroke="#2DD4BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/></g>
+<text x="510.0" y="240.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Wi-Fi</text>
+<text x="626.0" y="240.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="end" letter-spacing="0.0">2</text>
+<g transform="translate(486.0 254.0) scale(0.6666666666666666)" fill="none" stroke="#A78BFA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></g>
+<text x="510.0" y="266.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Servers</text>
+<text x="626.0" y="266.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="end" letter-spacing="0.0">3</text>
+<g transform="translate(486.0 280.0) scale(0.6666666666666666)" fill="none" stroke="#94A3B8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h5"/></g>
+<text x="510.0" y="292.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Secure Notes</text>
+<text x="626.0" y="292.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="end" letter-spacing="0.0">2</text>
+<g transform="translate(486.0 318.0) scale(0.6666666666666666)" fill="none" stroke="#F87171" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 8.6a5 5 0 0 0-8.8-3.2 5 5 0 0 0-8.8 3.2c0 5.4 8.8 11.4 8.8 11.4s8.8-6 8.8-11.4z"/><path d="M5 12h3l2-3 3 6 2-3h4"/></g>
+<text x="510.0" y="330.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Password Health</text>
+<rect x="608.0" y="318.0" width="20.0" height="16.0" rx="8.0" fill="#F87171"/>
+<text x="618.0" y="330.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.0">3</text>
+<g transform="translate(486.0 344.0) scale(0.6666666666666666)" fill="none" stroke="#A1A1A6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></g>
+<text x="510.0" y="356.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Recently Deleted</text>
+<text x="626.0" y="356.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="end" letter-spacing="0.0">2</text>
+<line x1="642.0" y1="48.0" x2="642.0" y2="512.0" stroke="#38383A"/>
+<text x="656.0" y="76.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14.0" font-weight="600" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">All Accounts</text>
+<rect x="770.0" y="60.0" width="108.0" height="24.0" rx="6.0" fill="rgba(255,255,255,0.08)"/>
+<text x="782.0" y="76.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.0" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">Search</text>
+<line x1="642.0" y1="94.0" x2="892.0" y2="94.0" stroke="#38383A"/>
+<rect x="650.0" y="102.0" width="234.0" height="46.0" rx="7.0" fill="#C2410C"/>
+<rect x="658.0" y="110.0" width="30.0" height="30.0" rx="8.0" fill="rgba(255,255,255,0.22)"/>
+<text x="673.0" y="130.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14.0" font-weight="600" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.0">G</text>
+<text x="698.0" y="122.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="500" fill="#FFFFFF" text-anchor="start" letter-spacing="0.0">GitHub<tspan fill="#FFFFFF" font-size="11.0">  ★</tspan></text>
+<text x="698.0" y="138.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="rgba(255,255,255,0.85)" text-anchor="start" letter-spacing="0.0">me@example.com</text>
+<rect x="658.0" y="158.0" width="30.0" height="30.0" rx="7.800000000000001" fill="rgba(52,211,153,0.22)"/><text x="673.0" y="178.1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.8" font-weight="600" fill="#34D399" text-anchor="middle" letter-spacing="0.0">C</text>
+<text x="698.0" y="170.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="500" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Current account<tspan fill="#FACC15" font-size="11.0">  ★</tspan></text>
+<text x="698.0" y="186.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">•••• 3812</text>
+<rect x="658.0" y="206.0" width="30.0" height="30.0" rx="7.800000000000001" fill="rgba(45,212,191,0.22)"/><text x="673.0" y="226.1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.8" font-weight="600" fill="#2DD4BF" text-anchor="middle" letter-spacing="0.0">H</text>
+<text x="698.0" y="218.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="500" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Home Wi-Fi</text>
+<text x="698.0" y="234.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">PassFort-5G</text>
+<rect x="658.0" y="254.0" width="30.0" height="30.0" rx="7.800000000000001" fill="rgba(167,139,250,0.22)"/><text x="673.0" y="274.1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.8" font-weight="600" fill="#A78BFA" text-anchor="middle" letter-spacing="0.0">N</text>
+<text x="698.0" y="266.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="500" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">NAS admin</text>
+<text x="698.0" y="282.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">nas.local</text>
+<rect x="658.0" y="302.0" width="30.0" height="30.0" rx="7.800000000000001" fill="rgba(167,139,250,0.22)"/><text x="673.0" y="322.1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.8" font-weight="600" fill="#A78BFA" text-anchor="middle" letter-spacing="0.0">P</text>
+<text x="698.0" y="314.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="500" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Postgres (prod)</text>
+<text x="698.0" y="330.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">db.internal</text>
+<rect x="658.0" y="350.0" width="30.0" height="30.0" rx="7.800000000000001" fill="rgba(148,163,184,0.22)"/><text x="673.0" y="370.1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.8" font-weight="600" fill="#94A3B8" text-anchor="middle" letter-spacing="0.0">R</text>
+<text x="698.0" y="362.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="500" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Recovery plan</text>
+<text x="698.0" y="378.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">Secure note</text>
+<rect x="658.0" y="398.0" width="30.0" height="30.0" rx="7.800000000000001" fill="rgba(52,211,153,0.22)"/><text x="673.0" y="418.1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.8" font-weight="600" fill="#34D399" text-anchor="middle" letter-spacing="0.0">V</text>
+<text x="698.0" y="410.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.0" font-weight="500" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Visa Debit</text>
+<text x="698.0" y="426.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">•••• 4421</text>
+<line x1="892.0" y1="48.0" x2="892.0" y2="512.0" stroke="#38383A"/>
+<rect x="892.0" y="48.0" width="268.0" height="464.0" rx="0.0" fill="#1A1A1C"/>
+<rect x="914.0" y="78.0" width="46.0" height="46.0" rx="11.96" fill="rgba(96,165,250,0.22)"/><text x="937.0" y="108.82" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="21.16" font-weight="600" fill="#60A5FA" text-anchor="middle" letter-spacing="0.0">G</text>
+<text x="972.0" y="98.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="19.0" font-weight="600" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">GitHub</text>
+<text x="972.0" y="118.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.0" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">github.com · <tspan fill="#60A5FA">Login</tspan></text>
+<rect x="910.0" y="148.0" width="232.0" height="132.0" rx="10.0" fill="#2C2C2E" stroke="#2C2C2E" stroke-width="1"/>
+<line x1="910.0" y1="192.0" x2="1142.0" y2="192.0" stroke="#38383A"/>
+<line x1="910.0" y1="236.0" x2="1142.0" y2="236.0" stroke="#38383A"/>
+<text x="922.0" y="174.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">Username</text>
+<text x="1002.0" y="174.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.0" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">me@example.com</text>
+<g transform="translate(1118.0 163.0) scale(0.5416666666666666)" fill="none" stroke="#A1A1A6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></g>
+<text x="922.0" y="218.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">Password</text>
+<text x="1002.0" y="218.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.0" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">••••••••</text>
+<rect x="1068.0" y="206.0" width="50.0" height="17.0" rx="8.5" fill="rgba(74,222,128,0.18)"/>
+<text x="1093.0" y="218.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.0" font-weight="700" fill="#4ADE80" text-anchor="middle" letter-spacing="0.0">Strong</text>
+<text x="922.0" y="262.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">Code</text>
+<text x="1002.0" y="263.0" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.0" font-weight="500" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">482 913</text>
+<circle cx="1080.0" cy="258.0" r="7" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="2.5"/>
+<circle cx="1080.0" cy="258.0" r="7" fill="none" stroke="#EA580C" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="26.4 44" transform="rotate(-90 1080.0 258.0)"/>
+<text x="1092.0" y="262.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">18 s</text>
+<rect x="910.0" y="296.0" width="232.0" height="84.0" rx="10.0" fill="#2C2C2E" stroke="#2C2C2E" stroke-width="1"/>
+<text x="922.0" y="318.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.0" font-weight="400" fill="#A1A1A6" text-anchor="start" letter-spacing="0.0">Notes</text>
+<text x="922.0" y="340.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.0" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">Personal account. Recovery</text>
+<text x="922.0" y="358.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.0" font-weight="400" fill="#F5F5F7" text-anchor="start" letter-spacing="0.0">codes are in their section.</text>
+<rect x="667.0" y="468.0" width="200.0" height="28.0" rx="14.0" fill="rgba(74,222,128,0.18)"/>
+<g transform="translate(679.0 475.0) scale(0.58)" fill="none" stroke="#4ADE80" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></g>
+<text x="701.0" y="486.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.0" font-weight="500" fill="#4ADE80" text-anchor="start" letter-spacing="0.0">Password copied</text>
+</g>
+<rect x="470.0" y="48.0" width="690.0" height="464.0" rx="12.0" fill="none" stroke="#3A3A3C" stroke-width="1"/>
+</svg>

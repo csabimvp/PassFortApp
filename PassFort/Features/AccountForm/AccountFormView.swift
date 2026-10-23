@@ -111,7 +111,7 @@ struct AccountFormView: View {
         }
 
         if let error {
-          Label(error, systemImage: "xmark.octagon").foregroundStyle(.red)
+          Label(error, systemImage: "xmark.octagon").foregroundStyle(Palette.danger)
         }
       }
       .formStyle(.grouped)
@@ -173,10 +173,10 @@ struct AccountFormView: View {
         name.isEmpty ? "Valid one-time code secret" : name,
         systemImage: "checkmark.circle"
       )
-      .foregroundStyle(.green)
+      .foregroundStyle(Palette.success)
     case .failure(let error):
       Label(Self.describe(error), systemImage: "exclamationmark.triangle")
-        .foregroundStyle(.orange)
+        .foregroundStyle(Palette.warning)
     }
   }
 
