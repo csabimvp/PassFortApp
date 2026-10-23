@@ -1,3 +1,9 @@
+# Six jobs (architecture.md §13.2): swift (the Swift build and tests), native (CMake + Catch2 over
+# PFCrypto, plain and under ASan/UBSan), deps (Package.resolved drift), lint (shellcheck,
+# clang-format), secrets (gitleaks, full history), cloud (Cloud/api: typecheck, DTO drift, unit +
+# HTTP contract tests on the memory store and on Azurite).
+# Verifies a clean build only: never regenerates the Botan amalgamation or the WASM blob, and never
+# holds Azure credentials -- deploys are deploy.yml's job (m5-sync.md Phase 12).
 name: CI
 
 on:

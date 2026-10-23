@@ -804,6 +804,26 @@ its own reviewed commit (§3.2 A7).
 
 **Checkpoint:** `npm test` green locally and in CI; the `ci.yml` header comment lists `cloud`.
 
+**Done (2026-10-23), CI run pending.** `test/contract.test.ts` has one test per row above, by name, plus
+a check that every response is JSON with `Cache-Control: no-store`. It runs locally on the memory
+store (76 tests in all, green); the Azurite run happens on the next CI push. Where it differs from the
+text above:
+
+- **Over HTTP, in-process.** The dev server's request handling moved into `src/server.ts`
+  (`createApiServer`), and the suite starts it on an ephemeral `127.0.0.1` port with `fetch` as the
+  client -- real sockets, headers and JSON, with no child process. That also lets the tests inject
+  the clock (`lockoutBacksOff`, the expired token) and the log sink, so `loggerRedacts` captures the
+  sink rather than stdout. `dev-server.ts` is now only settings + `listen`.
+- **`seqIsGapFreeUnderRace` retries `503`.** A `503` writes nothing and the contract says retry
+  (A.3), so the test's client does, and asserts the landed seqs are exactly `1..20`. On Table
+  Storage, 20 pushers can outlast the server's five tries.
+- **Extra cases:** `framingAndSize` also checks 296 and 65,320 bytes are accepted, 100 records is `400`,
+  and a body over 3 MiB is `413`. `serverRejectsKeyShapedFields` also covers a session body with
+  `dek`. `loggerRedacts` checks failures (wrong key, forged token, a body with `dek`) as well as the
+  happy path, and that every line has only the allowed fields.
+- Shared helpers (`newVault`, `create`, `session`, `push`) moved to `test/support/vaults.ts`;
+  `test/api.test.ts` keeps the in-process suite.
+
 ---
 
 ## Phase 5 — The crypto-core change: `k_auth`
