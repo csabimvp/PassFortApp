@@ -11,7 +11,7 @@ struct PassFortCLI: AsyncParsableCommand {
     subcommands: [
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
       Add.self, List.self, Get.self, Code.self, History.self, Edit.self, Remove.self,
-      Undelete.self, Audit.self, Import.self,
+      Undelete.self, Audit.self, Import.self, ImportVault.self,
       Dump.self, Export.self, Backup.self, Restore.self, Recover.self, Passwd.self, Seam.self,
     ]
   )
@@ -504,6 +504,112 @@ struct Import: AsyncParsableCommand {
     let written = try await repo.importAccounts(chosen.map { plan.accounts[$0].payload })
     print("imported \(written) -- \(summary)")
     print("the export file holds every password in plain text: delete it now")
+  }
+}
+
+// MARK: - import-vault
+
+struct ImportVault: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "import-vault",
+    abstract:
+      "Copy accounts from another PassFort vault into this one (§7.6). Prints titles, never secrets."
+  )
+
+  @Argument(help: "Path to the vault to import into.") var vault: String
+  @Argument(help: "Path to the vault to copy from. Opened read-only.") var source: String
+  @Option(
+    help: ArgumentHelp(
+      "Import only accounts whose title contains this (case-insensitive). Repeatable.",
+      valueName: "title"))
+  var only: [String] = []
+  @Option(help: "Unlock the source with its grouped recovery key instead of its password.")
+  var recoveryKey: String?
+  @Flag(help: "Show what would be imported; write nothing.") var dryRun = false
+  @Flag(help: "Import accounts that look like ones already in the vault, too.")
+  var includeDuplicates = false
+
+  func run() async throws {
+    guard Vault.exists(databasePath: source) else {
+      throw CLIError("\(source) is not a PassFort vault")
+    }
+    var key: RecoveryKey?
+    if let recoveryKey {
+      do {
+        key = try RecoveryKey(grouped: recoveryKey)
+      } catch {
+        throw CLIError("that does not parse as a recovery key (\(error))")
+      }
+    }
+
+    let repo = try await VaultCLI.open(vault)
+    let credential: VaultImport.Credential =
+      if let key { .recoveryKey(key) } else {
+        .password(try Password.prompt("Source vault password: "))
+      }
+    let plan = try await plan(credential: credential, into: repo)
+
+    let titles = plan.accounts.map(\.payload.title)
+    func matches(_ title: String, _ filter: String) -> Bool {
+      title.range(of: filter, options: .caseInsensitive) != nil
+    }
+    for filter in only where !titles.contains(where: { matches($0, filter) }) {
+      throw CLIError("--only \"\(filter)\" matches no account in \(source)")
+    }
+    let selected = titles.indices.filter { i in
+      only.isEmpty || only.contains { matches(titles[i], $0) }
+    }
+    let duplicates = plan.duplicates(of: try await repo.summaries())
+    let chosen = selected.filter { includeDuplicates || !duplicates.contains($0) }
+
+    for index in plan.accounts.indices {
+      let payload = plan.accounts[index].payload
+      let mark = chosen.contains(index) ? "+" : selected.contains(index) ? "=" : "-"
+      let extras = [payload.totp != nil ? "one-time code" : nil, payload.tags.first]
+        .compactMap { $0 }.joined(separator: ", ")
+      print("\(mark) \(payload.title)\(extras.isEmpty ? "" : "  (\(extras))")")
+    }
+    for warning in plan.warnings { print("! \(warning)") }
+
+    let skippedDuplicates = selected.count - chosen.count
+    let unselected = plan.accounts.count - selected.count
+    var summary =
+      "\(chosen.count) to import, \(skippedDuplicates) duplicate\(skippedDuplicates == 1 ? "" : "s") "
+      + "skipped (=)"
+    if !only.isEmpty { summary += ", \(unselected) not selected (-)" }
+    if dryRun {
+      print("dry run -- \(summary)")
+      return
+    }
+    let written = try await repo.importAccounts(chosen.map { plan.accounts[$0].payload })
+    print("imported \(written) -- \(summary)")
+  }
+
+  private func plan(
+    credential: VaultImport.Credential, into repo: VaultRepository
+  ) async throws -> ImportPlan {
+    do {
+      return try await VaultImport.plan(
+        fromVaultAt: source, unlockingWith: credential, into: repo)
+    } catch PassFortError.authFailed {
+      throw CLIError(
+        "AuthFailed -- wrong password or recovery key for \(source), or a corrupt vault")
+    } catch PassFortError.notFound {
+      throw CLIError("\(source) has no recovery slot -- unlock it with its password")
+    } catch VaultImport.Failure.notAVault {
+      throw CLIError("\(source) is not a PassFort vault (no header row)")
+    } catch VaultImport.Failure.sameVault {
+      throw CLIError("\(source) is \(vault) itself, or a copy of it -- nothing to import")
+    } catch VaultImport.Failure.unsupportedSchema {
+      throw CLIError(
+        """
+        \(source) is on a different schema than this build. If it is older, upgrade it first \
+        with `passfort-cli unlock \(source)`; if it is newer, update passfort-cli.
+        """)
+    } catch VaultManifest.Failure.macMismatch {
+      throw CLIError(
+        "manifest MAC mismatch -- \(source) was edited outside PassFort; not importing from it")
+    }
   }
 }
 

@@ -420,6 +420,25 @@ a design promise, and a tested way out is mandatory.
 
 **Delete `export.json` when you are done with it** — nothing does that for you.
 
+### 5.3 `import-vault` — move accounts between vaults
+
+```text
+$ passfort-cli import-vault prod.sqlite dev.sqlite --only aws --only git --dry-run
+Vault password:
+Source vault password:
++ AWS console
+= GitHub
+- Test junk 1
+! 1 deleted account is not offered
+dry run -- 1 to import, 1 duplicate skipped (=), 1 not selected (-)
+```
+
+The first prompt is the vault you import **into**, the second the source. `+` will be imported, `=` looks
+like an account already there (same title or host, same username) and is skipped unless you pass
+`--include-duplicates`, `-` is left out by `--only`. Drop `--dry-run` to write: everything chosen lands in
+one transaction, re-sealed under the target's key with new ids (§7.6). The source is opened read-only and
+is not changed; `--recovery-key` unlocks it without using up its recovery slot.
+
 ---
 
 ## 6. Integrity and anti-rollback
@@ -746,6 +765,7 @@ clean.
 | `undelete <vault> <id\|title>` | password | one row + MAC | restore a tombstoned account as a new version; titles match deleted accounts only |
 | `audit <vault>` | password | — | password health findings by account title — no secret values printed |
 | `import <vault> <file> [--dry-run] [--include-duplicates]` | password | all rows + MAC, one transaction | import a Password Safe plain-text export; prints titles only; skips likely duplicates unless told otherwise |
+| `import-vault <vault> <source> [--only T …] [--recovery-key K] [--dry-run] [--include-duplicates]` | password, then the source's (unless `--recovery-key`) | all rows + MAC, one transaction | copy accounts from another PassFort vault, opened read-only; `--only` keeps titles containing `T`; prints titles only; skips likely duplicates unless told otherwise |
 | `dump <vault>` | password | — | every record decrypted, JSON, stdout |
 | `export <vault> -o FILE` | phrase, then password | `FILE` (0600) | plaintext snapshot of the whole vault |
 | `recover <vault> --key GROUPED` | new password ×2 | header + fresh recovery slot | reset the master password via the recovery key |

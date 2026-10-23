@@ -320,6 +320,8 @@ public struct ImportPlan: Sendable {
 
 /// One account to import, with the line it came from (for messages).
 public struct ImportedAccount: Sendable {
+  /// Where it came from: the export's 1-based line, or its 1-based position in a source vault's
+  /// title order (`VaultImport`).
   public let line: Int
   public var payload: AccountPayload
 }

@@ -104,6 +104,12 @@ public actor VaultRepository {
     }
   }
 
+  /// The plaintext §5.3 vault id -- what `VaultImport` compares to refuse importing a vault into
+  /// itself.
+  func vaultUUID() async throws -> UUID {
+    try await session.vaultUUID()
+  }
+
   /// Replace the vault's recovery slot with a fresh key -- or add one if there is
   /// none (§5.6). Rewrites the stored header; the DEK, records and manifest are
   /// untouched, so `vault_version` does not move. The returned `RecoveryKey` is

@@ -26,6 +26,25 @@ public struct VaultDatabase: Sendable {
     try Self.restrictPermissions(path: path)
     try Self.migrator.migrate(dbQueue)
   }
+
+  /// Open an existing vault file **read-only**, for a vault this process only reads from (an
+  /// import source, `VaultImport`): no directory set-up, no chmod, no migration, and SQLite
+  /// refuses any write. Check `hasCurrentSchema` before reading rows.
+  init(readOnlyAt path: String) throws {
+    var config = Configuration()
+    config.readonly = true
+    dbQueue = try DatabaseQueue(path: path, configuration: config)
+  }
+
+  /// True if the file has run exactly this build's migrations -- not fewer (an older vault that
+  /// `init(path:)` would migrate), not more (one written by a later build).
+  var hasCurrentSchema: Bool {
+    get throws {
+      try dbQueue.read { db in
+        try Self.migrator.hasCompletedMigrations(db) && !Self.migrator.hasBeenSuperseded(db)
+      }
+    }
+  }
 }
 
 // MARK: - Location and hardening
