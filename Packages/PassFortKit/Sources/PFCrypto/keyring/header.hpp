@@ -57,7 +57,8 @@ Status header_decode(const uint8_t *header, size_t header_len, const uint8_t *pw
 
 // Parse and verify a header against `recovery_key` (slot 1). No Argon2 -- the KEK
 // is HKDF(recovery_key). Fills `info` and `dek_out`; there is no password-derived
-// RootKeys, so a recovery session must re-wrap to a password before it can sync.
+// RootKeys, so a recovery session must re-wrap to a password before it can add a
+// recovery slot. It can sync: k_auth hangs off the DEK (ADR-0009).
 //   - slot_count != 2 (no recovery slot) -> Status::NotFound
 //   - wrong key or tampering              -> Status::AuthFailed
 //   - buffer too short / bad magic        -> Status::BadInput

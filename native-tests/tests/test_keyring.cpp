@@ -73,38 +73,38 @@ TEST_CASE("keyring calibrate returns pinned t/p and an in-range m", "[keyring][k
 
 // -- the HKDF hierarchy --------------------------------------------------------
 
-TEST_CASE("keyring derive_root splits argon64 into two distinct 32B keys", "[keyring][hkdf]") {
+TEST_CASE("keyring derive_root expands argon64 into a deterministic 32B KEK", "[keyring][hkdf]") {
     const pf::SecureBytes argon64(64, 0x5A);
 
     const auto r1 = pf::keyring::derive_root(argon64);
     const auto r2 = pf::keyring::derive_root(argon64);
 
     REQUIRE(r1.kek.size() == 32);
-    REQUIRE(r1.auth_secret.size() == 32);
-    REQUIRE(r1.kek == r2.kek);                 // deterministic
-    REQUIRE(r1.auth_secret == r2.auth_secret); // deterministic
-    REQUIRE(r1.kek != r1.auth_secret);         // domain-separated by info label
+    REQUIRE(r1.kek == r2.kek);
 }
 
-TEST_CASE("keyring derive_dek_subkeys yields three distinct 32B keys", "[keyring][hkdf]") {
+TEST_CASE("keyring derive_dek_subkeys yields four distinct 32B keys", "[keyring][hkdf]") {
     const pf::SecureBytes dek(32, 0x11);
 
     const auto s = pf::keyring::derive_dek_subkeys(dek);
+    const std::array<const pf::SecureBytes *, 4> keys{&s.k_record, &s.k_index, &s.k_manifest,
+                                                      &s.k_auth};
 
-    REQUIRE(s.k_record.size() == 32);
-    REQUIRE(s.k_index.size() == 32);
-    REQUIRE(s.k_manifest.size() == 32);
-    REQUIRE(s.k_record != s.k_index);
-    REQUIRE(s.k_record != s.k_manifest);
-    REQUIRE(s.k_index != s.k_manifest);
+    for (size_t i = 0; i < keys.size(); ++i) {
+        REQUIRE(keys[i]->size() == 32);
+        for (size_t j = i + 1; j < keys.size(); ++j)
+            REQUIRE(*keys[i] != *keys[j]); // domain-separated by info label
+    }
 }
 
 TEST_CASE("keyring subkeys change with the input key material", "[keyring][hkdf]") {
     const pf::SecureBytes dek_a(32, 0x11);
     const pf::SecureBytes dek_b(32, 0x12);
 
-    REQUIRE(pf::keyring::derive_dek_subkeys(dek_a).k_record !=
-            pf::keyring::derive_dek_subkeys(dek_b).k_record);
+    const auto a = pf::keyring::derive_dek_subkeys(dek_a);
+    const auto b = pf::keyring::derive_dek_subkeys(dek_b);
+    REQUIRE(a.k_record != b.k_record);
+    REQUIRE(a.k_auth != b.k_auth);
 }
 
 // A frozen vector: if the HKDF label, hash, or empty-salt convention ever
@@ -119,6 +119,19 @@ TEST_CASE("keyring derive_root KEK is stable (format regression)", "[keyring][hk
     const auto kek = pf::keyring::derive_root(argon64).kek;
     REQUIRE(Botan::hex_encode(kek, /*uppercase=*/false) ==
             "0e912dcef7615a65cff5ad95804ced476233180ecb60d942c86575f368accad7");
+}
+
+// The sync credential (ADR-0009). Not vault format, but the server holds
+// SHA-256(k_auth) for every synced vault, so a change here locks every device
+// out -- and the Swift / WASM hosts must agree byte for byte. The expected value
+// was computed outside this codebase, with Python's standard library:
+//   hmac.new(b"\x11" * 32, b"sync-auth" + b"\x01", hashlib.sha256).hexdigest()
+// (HKDF-Expand to 32 bytes is that single HMAC block, RFC 5869 section 2.3.)
+TEST_CASE("keyring k_auth is stable (sync credential regression)", "[keyring][hkdf][kat]") {
+    const pf::SecureBytes dek(32, 0x11);
+    const auto k_auth = pf::keyring::derive_dek_subkeys(dek).k_auth;
+    REQUIRE(Botan::hex_encode(k_auth, /*uppercase=*/false) ==
+            "46e9c595bdafdef1c21c3130ddd99fc965a44f40e551886cbb8ad7488ff056f9");
 }
 
 // The recovery-slot KEK (ADR-0007). Same on-disk-format contract as the vector

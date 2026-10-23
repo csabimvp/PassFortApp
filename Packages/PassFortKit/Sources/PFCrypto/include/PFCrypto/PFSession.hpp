@@ -81,7 +81,8 @@ BytesResult pf_recovery_wrap(Session *PF_NONNULL s, const uint8_t *recovery_key)
 // Open a session from a header + `recovery_key` (exactly 32 bytes), via slot 1.
 // A vault with no recovery slot returns NotFound; a wrong key or tampering
 // returns AuthFailed -- no oracle. The session carries no password RootKeys, so
-// the caller must pf_session_rewrap to a password before it syncs (M5).
+// the caller must pf_session_rewrap to a password before pf_recovery_wrap. It can
+// sync as-is: k_auth hangs off the DEK (ADR-0009).
 SessionResult pf_recovery_open(const uint8_t *header, size_t header_len,
                                const uint8_t *recovery_key) noexcept;
 
@@ -89,6 +90,17 @@ SessionResult pf_recovery_open(const uint8_t *header, size_t header_len,
 // -- it identifies the vault for sync (M5) and plaintext export (§7.6). A stale
 // handle returns Locked.
 Status pf_session_vault_uuid(Session *PF_NONNULL s, uint8_t *out) noexcept;
+
+// Length of the sync credential pf_session_auth_key copies out.
+inline constexpr size_t kAuthKeyLen = 32;
+
+// Copy k_auth = HKDF-Expand(DEK, "sync-auth", 32) into `out` (ADR-0009). The one
+// DEK-derived value that leaves C++: the sync server authenticates the vault
+// with it and stores only its SHA-256. HKDF domain-separates it from every other
+// subkey. It survives rewrap and recovery (the DEK is unchanged). `out_len` must
+// be kAuthKeyLen; null `s` / `out` or another length returns BadInput, a stale
+// handle Locked.
+Status pf_session_auth_key(Session *PF_NONNULL s, uint8_t *out, size_t out_len) noexcept;
 
 // Zeroize RootKeys + DEK + DekSubkeys and free. Safe on nil (no-op).
 void pf_session_close(Session *PF_NULLABLE s) noexcept;

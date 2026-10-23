@@ -34,7 +34,7 @@ bool kdf_params_sane(const KdfParams &params) noexcept;
 
 // Argon2id(password, params.salt) with params.{m_kib,t,p} -> 64 bytes.
 // The 64 bytes are the single expensive KDF output that hkdf.hpp expands into
-// the KEK and auth_secret (§5.1). Throws Botan::Exception on invalid params.
+// the KEK (§5.1). Throws Botan::Exception on invalid params.
 SecureBytes argon2id_64(const uint8_t *pw, size_t pw_len, const KdfParams &params);
 
 // Measure Argon2id on THIS machine and return params that take ~target_ms.

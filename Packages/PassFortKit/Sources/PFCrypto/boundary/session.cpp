@@ -117,10 +117,9 @@ BytesResult pf_session_rewrap(Session *s, const uint8_t *new_pw, size_t new_pw_l
         const SecureBytes header =
             keyring::header_encode(new_pw, new_pw_len, kdf, s->vault_uuid, s->dek, root);
 
-        // Only the old KEK / auth_secret are stale. DEK and its subkeys are
+        // Only the old KEK is stale. DEK and its subkeys (k_auth included) are
         // unchanged -- re-wrap re-encrypts 32 bytes, it does not re-key the vault.
         pf::scrub(s->root.kek);
-        pf::scrub(s->root.auth_secret);
         s->kdf = kdf;
         s->root = std::move(root);
         return {header_bytes(header), Status::Ok};
@@ -167,7 +166,7 @@ SessionResult pf_recovery_open(const uint8_t *header, size_t header_len,
         s->vault_uuid = info.vault_uuid;
         s->kdf = info.kdf;
         // No password RootKeys -- a recovery session must rewrap to a password
-        // before sync (M5). root stays default (empty SecureBytes).
+        // before pf_recovery_wrap. root stays default (empty SecureBytes).
         s->dek = std::move(dek);
         s->sub = keyring::derive_dek_subkeys(s->dek);
         return {s, Status::Ok};
@@ -182,6 +181,17 @@ Status pf_session_vault_uuid(Session *s, uint8_t *out) noexcept {
     if (!s->alive())
         return Status::Locked;
     std::memcpy(out, s->vault_uuid.data(), s->vault_uuid.size());
+    return Status::Ok;
+}
+
+Status pf_session_auth_key(Session *s, uint8_t *out, size_t out_len) noexcept {
+    if (s == nullptr || out == nullptr || out_len != kAuthKeyLen)
+        return Status::BadInput;
+    if (!s->alive())
+        return Status::Locked;
+    if (s->sub.k_auth.size() != kAuthKeyLen)
+        return Status::Internal; // unreachable: every open derives the subkeys
+    std::memcpy(out, s->sub.k_auth.data(), kAuthKeyLen);
     return Status::Ok;
 }
 

@@ -261,6 +261,66 @@ TEST_CASE("pf_recovery_wrap on a recovery-opened session is BadInput", "[recover
     pf::pf_session_close(rec.handle);
 }
 
+// ADR-0009: k_auth hangs off the DEK, so re-wrapping (a password change) and
+// opening through the recovery slot both leave the sync credential unchanged --
+// no server-side re-registration -- while another vault's DEK gives another key.
+TEST_CASE("pf_session_auth_key survives rewrap and recovery, and differs per vault",
+          "[recovery][session]") {
+    const auto pw = bytes_of("before");
+    const auto new_pw = bytes_of("after");
+    std::array<uint8_t, 32> rk{};
+    rk.fill(0x2A);
+
+    const auto auth_key_of = [](pf::Session *s) {
+        std::array<uint8_t, pf::kAuthKeyLen> key{};
+        REQUIRE(pf::pf_session_auth_key(s, key.data(), key.size()) == pf::Status::Ok);
+        return key;
+    };
+
+    const auto created = pf::pf_vault_create(pw.data(), pw.size(), fast_pod_kdf());
+    REQUIRE(created.status == pf::Status::Ok);
+    const auto header0 = header_from(created);
+    pf::pf_bytes_free(created.handle);
+
+    auto opened = pf::pf_session_open(header0.data(), header0.size(), pw.data(), pw.size());
+    REQUIRE(opened.status == pf::Status::Ok);
+    const auto original = auth_key_of(opened.handle);
+    REQUIRE(original != std::array<uint8_t, pf::kAuthKeyLen>{});
+
+    const auto wrapped = pf::pf_recovery_wrap(opened.handle, rk.data());
+    REQUIRE(wrapped.status == pf::Status::Ok);
+    const auto header1 = header_from(wrapped);
+    pf::pf_bytes_free(wrapped.handle);
+
+    const auto rewrapped = pf::pf_session_rewrap(opened.handle, new_pw.data(), new_pw.size());
+    REQUIRE(rewrapped.status == pf::Status::Ok);
+    const auto header2 = header_from(rewrapped);
+    pf::pf_bytes_free(rewrapped.handle);
+    REQUIRE(auth_key_of(opened.handle) == original); // the live session, after rewrap
+    pf::pf_session_close(opened.handle);
+
+    auto reopened =
+        pf::pf_session_open(header2.data(), header2.size(), new_pw.data(), new_pw.size());
+    REQUIRE(reopened.status == pf::Status::Ok);
+    REQUIRE(auth_key_of(reopened.handle) == original); // a fresh session on the new password
+    pf::pf_session_close(reopened.handle);
+
+    auto recovered = pf::pf_recovery_open(header1.data(), header1.size(), rk.data());
+    REQUIRE(recovered.status == pf::Status::Ok);
+    REQUIRE(auth_key_of(recovered.handle) == original); // the recovery slot
+    pf::pf_session_close(recovered.handle);
+
+    const auto other_created = pf::pf_vault_create(pw.data(), pw.size(), fast_pod_kdf());
+    REQUIRE(other_created.status == pf::Status::Ok);
+    const auto other_header = header_from(other_created);
+    pf::pf_bytes_free(other_created.handle);
+    auto other =
+        pf::pf_session_open(other_header.data(), other_header.size(), pw.data(), pw.size());
+    REQUIRE(other.status == pf::Status::Ok);
+    REQUIRE(auth_key_of(other.handle) != original); // same password, another DEK
+    pf::pf_session_close(other.handle);
+}
+
 TEST_CASE("recovery: null-pointer fuzz -> BadInput, never a crash", "[recovery][fuzz]") {
     std::array<uint8_t, 32> rk{};
     rk.fill(0x2A);

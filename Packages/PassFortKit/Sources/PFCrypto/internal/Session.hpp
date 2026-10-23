@@ -24,19 +24,19 @@ struct Session {
 
     std::array<uint8_t, 16> vault_uuid{};
     keyring::KdfParams kdf{};
-    keyring::RootKeys root;  // kek, auth_secret
+    keyring::RootKeys root;  // kek
     SecureBytes dek;         // 32B, unwrapped
-    keyring::DekSubkeys sub; // k_record, k_index, k_manifest
+    keyring::DekSubkeys sub; // k_record, k_index, k_manifest, k_auth
 
     bool alive() const noexcept { return magic == kLiveMagic; }
 
     void scrub() noexcept {
         pf::scrub(root.kek);
-        pf::scrub(root.auth_secret);
         pf::scrub(dek);
         pf::scrub(sub.k_record);
         pf::scrub(sub.k_index);
         pf::scrub(sub.k_manifest);
+        pf::scrub(sub.k_auth);
     }
 };
 

@@ -26,7 +26,6 @@ SecureBytes expand(const SecureBytes &key, std::string_view info) {
 RootKeys derive_root(const SecureBytes &argon64) {
     return {
         .kek = expand(argon64, kInfoKek),
-        .auth_secret = expand(argon64, kInfoAuth),
     };
 }
 
@@ -35,6 +34,7 @@ DekSubkeys derive_dek_subkeys(const SecureBytes &dek) {
         .k_record = expand(dek, kInfoRecord),
         .k_index = expand(dek, kInfoIndex),
         .k_manifest = expand(dek, kInfoManifest),
+        .k_auth = expand(dek, kInfoSyncAuth),
     };
 }
 

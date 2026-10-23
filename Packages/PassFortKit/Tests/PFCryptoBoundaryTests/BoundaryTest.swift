@@ -154,6 +154,31 @@ import Testing
     }
   }
 
+  // MARK: - Sync auth key (ADR-0009)
+
+  @Test func authKeySurvivesRewrapAndRecoveryAndDiffersPerVault() async throws {
+    let password = Data("before".utf8)
+    let header = try VaultSession.create(password: password, params: fastParams)
+    let session = try VaultSession.open(header: header, password: password)
+    let authKey = try await session.authKey()
+    #expect(authKey.count == 32)
+    #expect(authKey != Data(count: 32))
+
+    let recoveryKey = Data(repeating: 0x2A, count: 32)
+    let twoSlot = try await session.addRecoverySlot(recoveryKey: recoveryKey)
+    let rewrapped = try await session.rewrap(newPassword: Data("after".utf8))
+    #expect(try await session.authKey() == authKey)
+
+    let reopened = try VaultSession.open(header: rewrapped, password: Data("after".utf8))
+    #expect(try await reopened.authKey() == authKey)
+    let recovered = try VaultSession.openWithRecovery(header: twoSlot, recoveryKey: recoveryKey)
+    #expect(try await recovered.authKey() == authKey)
+
+    let other = try VaultSession.open(
+      header: try VaultSession.create(password: password, params: fastParams), password: password)
+    #expect(try await other.authKey() != authKey)  // same password, another DEK
+  }
+
   @Test func calibrateProducesUsableParameters() throws {
     let params = try VaultSession.calibrate(targetMs: 1)
     #expect(params.kdfID == 1)

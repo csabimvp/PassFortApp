@@ -846,6 +846,25 @@ The only `PFCrypto` change in M5 (D1, D5).
 **Checkpoint:** `ctest` (incl. ASan/UBSan) and `swift test --filter PFCryptoBoundaryTests` green.
 Commit: `PFCrypto: k_auth under the DEK + pf_session_auth_key (ADR-0009)`.
 
+**Done (2026-10-23).** `ctest` green (62 cases; 59 under ASan/UBSan, which skips the use-after-free
+cases as before), `swift test` green, clang-format clean. `k_auth` is a fourth `DekSubkeys` field,
+derived and scrubbed with the others; `RootKeys` keeps only the KEK, and the expand still reads all 64
+Argon2 bytes, so no existing vault's KEK changes. Where it differs from the text above:
+
+- **The label is `"sync-auth"`**, exactly as ADR-0009 and `openapi.yaml` say, not the `pf-*-v1`
+  pattern of the other labels. It isn't vault format (nothing on disk depends on it), but the server
+  holds `SHA-256(k_auth)`, so changing it later locks every device out.
+- **A closed session returns `Locked`**, like every other boundary function, not `BadInput`; a null
+  session, null `out` or any `out_len` other than 32 is `BadInput`, and a failed call writes nothing.
+  Double close isn't tested: it is a use-after-free, as for the existing functions.
+- **Where the tests live:** the KAT (`46e9c595…`, from Python's `hmac`) and domain separation in
+  `native-tests/tests/test_keyring.cpp`; the seam fuzz in `test_seam_fuzz.cpp` with the rest of the
+  fuzz suite (`PFCryptoBoundaryTests` calls no `pf_*` directly); "same key after rewrap, after a
+  fresh open on the new password and via the recovery slot, another key for another vault" in
+  `test_recovery.cpp` and again through `VaultSession.authKey()` in `PFCryptoBoundaryTests`.
+- **A recovery-opened session can now sync** -- the old "rewrap before sync" comments came from the
+  password-derived `auth_secret`. It still has to rewrap before `pf_recovery_wrap`.
+
 ---
 
 ## Phase 6 — Local schema v2, HLC clock, device identity, dirty tracking

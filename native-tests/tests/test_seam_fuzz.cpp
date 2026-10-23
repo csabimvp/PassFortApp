@@ -4,6 +4,7 @@
 #include "PFCrypto/PFSession.hpp"
 #include "support/test_vault.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -46,6 +47,25 @@ TEST_CASE("seam fuzz: null pointer with non-zero length -> BadInput", "[fuzz]") 
     REQUIRE(mac.status == pf::Status::Ok);
     REQUIRE(pf::pf_mac_update(mac.handle, id.data(), 1, nullptr, 8) == pf::Status::BadInput);
     pf::pf_mac_free(mac.handle);
+}
+
+TEST_CASE("seam fuzz: pf_session_auth_key takes exactly 32 bytes and writes nothing on failure",
+          "[fuzz]") {
+    Vault v;
+    std::array<uint8_t, 64> out{};
+    out.fill(0xEE);
+    const auto untouched = out;
+
+    pf::Session *none = nullptr; // a literal nullptr won't compile: the parameter is _Nonnull
+    REQUIRE(pf::pf_session_auth_key(none, out.data(), pf::kAuthKeyLen) == pf::Status::BadInput);
+    REQUIRE(pf::pf_session_auth_key(v.session, nullptr, pf::kAuthKeyLen) == pf::Status::BadInput);
+    for (const size_t len : {size_t{0}, size_t{31}, size_t{33}, size_t{64}, kHuge})
+        REQUIRE(pf::pf_session_auth_key(v.session, out.data(), len) == pf::Status::BadInput);
+    REQUIRE(out == untouched);
+
+    REQUIRE(pf::pf_session_auth_key(v.session, out.data(), pf::kAuthKeyLen) == pf::Status::Ok);
+    // Nothing written past the 32 bytes.
+    REQUIRE(std::equal(out.begin() + pf::kAuthKeyLen, out.end(), untouched.begin()));
 }
 
 TEST_CASE("seam fuzz: zero length is handled per contract, never a crash", "[fuzz]") {
@@ -135,5 +155,7 @@ TEST_CASE("seam fuzz: a call on a closed session returns Locked", "[fuzz]") {
             pf::Status::Locked);
     REQUIRE(pf::pf_mac_init(stale, 1).status == pf::Status::Locked);
     REQUIRE(drain(pf::pf_session_rewrap(stale, pw.data(), pw.size())) == pf::Status::Locked);
+    std::array<uint8_t, pf::kAuthKeyLen> auth{};
+    REQUIRE(pf::pf_session_auth_key(stale, auth.data(), auth.size()) == pf::Status::Locked);
 }
 #endif // PF_ASAN_BUILD

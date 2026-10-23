@@ -85,7 +85,8 @@ public actor VaultSession {
   /// Open a session from a stored header via the recovery slot. Throws
   /// `.notFound` if the vault has no recovery slot, `.authFailed` for a wrong
   /// key. The session carries no password keys, so the caller must `rewrap` to a
-  /// new password before it is fully usable (sync, M5).
+  /// new password before it can `addRecoverySlot`. It can sync as-is: `authKey()`
+  /// hangs off the DEK (ADR-0009).
   public static func openWithRecovery(header: Data, recoveryKey: Data) throws -> VaultSession {
     guard recoveryKey.count == 32 else { throw PassFortError.badInput }
     let handle = try header.withUnsafeBytes { h in
@@ -108,6 +109,20 @@ public actor VaultSession {
     }
     guard status == pf.Status.Ok else { throw PassFortError(status) }
     return UUID(uuid: bytes)
+  }
+
+  /// The sync credential `k_auth` (ADR-0009): 32 bytes the sync server
+  /// authenticates this vault with, storing only their SHA-256. Derived from the
+  /// DEK, so it is the same on every device and survives `rewrap` and recovery.
+  /// The one key-derived value that leaves the C++ core -- send it to the sync
+  /// server over TLS and nowhere else; never log or persist it.
+  public func authKey() throws -> Data {
+    var key = Data(count: 32)
+    let status = key.withUnsafeMutableBytes { buffer in
+      pf.pf_session_auth_key(handle, buffer.bindMemory(to: UInt8.self).baseAddress, buffer.count)
+    }
+    guard status == pf.Status.Ok else { throw PassFortError(status) }
+    return key
   }
 
   // MARK: - Records
