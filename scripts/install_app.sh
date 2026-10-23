@@ -4,6 +4,12 @@
 #   scripts/install_app.sh                 # -> /Applications/PassFort.app
 #   scripts/install_app.sh ~/Applications  # -> a folder of your choice
 #   scripts/install_app.sh --build-only DIR  # build into DIR, install nothing
+#   scripts/install_app.sh --keep-build      # keep Build/ (~1 GB) so the next run is incremental
+#
+# By default Build/ is deleted once the app has been copied out: it is only a cache, and installs are
+# rare enough that a full rebuild next time (a few minutes, mostly the Botan compile) is the better
+# trade. The SwiftPM (.build/) and CMake (native-tests/build*/) caches belong to other loops and are
+# left alone.
 #
 # Signs with your own development certificate (the project's DEVELOPMENT_TEAM), so there is no
 # notarization and no Developer ID: an app you built yourself runs without either. Hardened runtime
@@ -14,8 +20,26 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 build_only=false
-if [[ "${1:-}" == "--build-only" ]]; then build_only=true; shift; fi
+keep_build=false
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --build-only) build_only=true ;;
+    --keep-build) keep_build=true ;;
+    *) echo "error: unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 dest="${1:-/Applications}"
+
+# Runs only after the app has been copied to its destination -- never on a failed build.
+clean_build() {
+  if $keep_build; then
+    echo "==> Kept Build/ for an incremental next run"
+  else
+    rm -rf ./Build
+    echo "==> Removed Build/ (pass --keep-build to keep it)"
+  fi
+}
 
 echo "==> Building Release"
 # Apple silicon only: pin the destination (otherwise xcodebuild warns that "My Mac" matches both
@@ -39,6 +63,7 @@ codesign -dv "$app" 2>&1 | grep -E "flags|Authority=Apple Development|Identifier
 if $build_only; then
   mkdir -p "$dest"; rm -rf "$dest/PassFort.app"; cp -R "$app" "$dest/PassFort.app"
   echo "==> Built (not installed): $dest/PassFort.app"
+  clean_build
   exit 0
 fi
 
@@ -53,4 +78,5 @@ touch "$dest/PassFort.app"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
   -f "$dest/PassFort.app" >/dev/null 2>&1 || true
 echo "==> Installed $dest/PassFort.app"
+clean_build
 echo "    If the Dock still shows a generic icon, run: killall Dock"
