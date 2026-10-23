@@ -257,27 +257,68 @@ struct PasswordGeneratorView: View {
     }
   }
 
-  /// A labelled slider with its value on the right, as the mockup's Length row.
+  /// A labelled slider with its value typable on the right, as the mockup's Length row.
   private func labeledSlider(_ title: String, value: Binding<Int>, in range: ClosedRange<Int>)
     -> some View
   {
-    HStack(spacing: 12) {
+    // Clamped on the way out, so a value saved by an older, wider slider shows in range.
+    let clamped = Binding(
+      get: { value.wrappedValue.clamped(to: range) },
+      set: { value.wrappedValue = $0.clamped(to: range) })
+    return HStack(spacing: 12) {
       Text(title).frame(width: 70, alignment: .leading)
       // No `step`: on a wide range it would draw a tick mark per value.
       Slider(
         value: Binding(
-          get: { Double(value.wrappedValue.clamped(to: range)) },
-          set: { value.wrappedValue = Int($0.rounded()) }),
+          get: { Double(clamped.wrappedValue) },
+          set: { clamped.wrappedValue = Int($0.rounded()) }),
         in: Double(range.lowerBound)...Double(range.upperBound))
-      Text("\(value.wrappedValue.clamped(to: range))")
-        .monospacedDigit()
-        .frame(width: 24, alignment: .trailing)
+      RangeNumberField(title: title, value: clamped, range: range)
     }
   }
 
   private func regenerate() {
     copied = false
     generated = request.generate()
+  }
+}
+
+// MARK: - Typable number
+
+/// The slider's value as a small text field. A typed number applies as soon as it is a whole
+/// number inside `range`, not on Return: Return also presses the sheet's default button, which
+/// must act on the password for the number just typed. A partial entry (the `1` of `10`) waits;
+/// leaving the field puts back the current value.
+struct RangeNumberField: View {
+  let title: String
+  @Binding var value: Int
+  let range: ClosedRange<Int>
+
+  @State private var text = ""
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    TextField(title, text: $text)
+      .labelsHidden()
+      .monospacedDigit()
+      .multilineTextAlignment(.trailing)
+      .frame(width: 44)
+      .focused($focused)
+      .onAppear { text = String(value) }
+      .onChange(of: text) {
+        if let typed = Self.parse(text, in: range), typed != value { value = typed }
+      }
+      // The slider moved: show its value, unless the field already says it.
+      .onChange(of: value) { if Self.parse(text, in: range) != value { text = String(value) } }
+      .onChange(of: focused) { if !focused { text = String(value) } }
+      .onSubmit { text = String(value) }
+  }
+
+  /// `text` as a whole number inside `range`; `nil` for anything else.
+  static func parse(_ text: String, in range: ClosedRange<Int>) -> Int? {
+    guard let number = Int(text.trimmingCharacters(in: .whitespaces)), range.contains(number)
+    else { return nil }
+    return number
   }
 }
 

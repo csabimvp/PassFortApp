@@ -50,6 +50,18 @@ struct PasswordGeneratorTests {
     #expect(policy.wordCount == GeneratorRequest.wordRange.upperBound)
   }
 
+  @Test func aTypedNumberAppliesOnlyWhenWholeAndInRange() {
+    let range = GeneratorRequest.lengthRange
+    #expect(RangeNumberField.parse("32", in: range) == 32)
+    #expect(RangeNumberField.parse(" 8 ", in: range) == 8)
+    #expect(RangeNumberField.parse("64", in: range) == 64)
+    #expect(RangeNumberField.parse("3", in: range) == nil)  // on the way to 32
+    #expect(RangeNumberField.parse("65", in: range) == nil)
+    #expect(RangeNumberField.parse("", in: range) == nil)
+    #expect(RangeNumberField.parse("2x", in: range) == nil)
+    #expect(RangeNumberField.parse("-10", in: range) == nil)
+  }
+
   @Test func wordsRequestJoinsWithTheChosenSeparator() {
     let request = GeneratorRequest.words(
       count: 4, separator: PassphraseSeparator.space.rawValue, capitalize: true, digit: true)
