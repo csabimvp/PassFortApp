@@ -180,8 +180,6 @@ final class AppModel {
     var begin: () -> String?
     /// Called last whenever `begin` went ahead, success or not.
     var end: () -> Void
-
-    static let none = Self(begin: { nil }, end: {})
   }
 
   /// Settings ▸ Vault ▸ Start a New Vault: check the current password, set the open vault's files
@@ -191,7 +189,7 @@ final class AppModel {
   ///
   /// - Returns: the path the old vault was kept at, or why nothing changed.
   func startNewVault(
-    current: Data, password: Data, recovery: Bool, _ hooks: ReplaceVaultHooks = .none
+    current: Data, password: Data, recovery: Bool, _ hooks: ReplaceVaultHooks? = nil
   ) async -> Result<String, AppError> {
     let header: Data
     do {
@@ -231,7 +229,7 @@ final class AppModel {
   ///
   /// - Returns: the path the old vault was kept at, or why nothing changed.
   func loadVault(
-    from file: URL, password: Data, _ hooks: ReplaceVaultHooks = .none
+    from file: URL, password: Data, _ hooks: ReplaceVaultHooks? = nil
   ) async -> Result<String, AppError> {
     guard case .unlocked = state else { return .failure(.io("The vault is locked.")) }
     let service = self.service
@@ -270,13 +268,14 @@ final class AppModel {
   /// fails, the old files go back, so the old vault is never left hidden. Then show the new
   /// vault's recovery key once, or go straight to `.unlocked`.
   private func replaceVault(
-    label: String, _ hooks: ReplaceVaultHooks,
+    label: String, _ hooks: ReplaceVaultHooks?,
     install: () async throws -> (repo: VaultRepository, recoveryKey: RecoveryKey?)
   ) async -> Result<String, AppError> {
     // The checks before this took a second or more: the vault may have auto-locked meanwhile.
     guard case .unlocked = state else {
       return .failure(.io("The vault locked. Unlock it and try again."))
     }
+    let hooks = hooks ?? ReplaceVaultHooks(begin: { nil }, end: {})  // nil: nothing to pause
     if let reason = hooks.begin() { return .failure(.notNow(reason)) }
     defer { hooks.end() }
 
