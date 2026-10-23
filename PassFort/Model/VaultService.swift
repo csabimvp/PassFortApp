@@ -80,9 +80,9 @@ nonisolated struct VaultService {
     try highWaterMark.reset()
   }
 
-  // MARK: - Starting over
+  // MARK: - Replacing the vault
 
-  /// The old vault's files, set aside to make room for a new vault, and the mark they had.
+  /// The old vault's files, set aside to make room for another vault, and the mark they had.
   struct SetAside: Sendable, Equatable {
     /// Where the old vault's main file was kept.
     let kept: URL
@@ -99,19 +99,83 @@ nonisolated struct VaultService {
     }
   }
 
-  /// Move the vault's files aside as `vault.sqlite.pre-new-<time>`, kept and never deleted, so a
-  /// new vault can be created at this path. The vault must be closed first.
-  func setAside(now: Date = .now) throws -> SetAside {
+  /// Move the vault's files aside as `vault.sqlite.<label>-<time>` (`pre-new`, `pre-load`), kept
+  /// and never deleted, so another vault can take this path. The vault must be closed first.
+  func setAside(label: String, now: Date = .now) throws -> SetAside {
     let mark = try highWaterMark.read()
     return SetAside(
-      kept: try VaultMover.setAside(databasePath, label: "pre-new", now: now), mark: mark)
+      kept: try VaultMover.setAside(databasePath, label: label, now: now), mark: mark)
   }
 
-  /// Undo `setAside`: remove whatever a failed create left at the path, return the old files, and
-  /// restore their anti-rollback mark (a create resets it to 0 before it can fail).
+  /// Undo `setAside`: remove whatever a failed create or install left at the path, return the old
+  /// files, and restore their anti-rollback mark (a create resets it to 0 before it can fail).
   func putBack(_ aside: SetAside) {
     VaultMover.undoInstall(at: databasePath, restoring: aside.kept)
     try? highWaterMark.write(aside.mark)
+  }
+
+  /// Copy the vault file at `source` into a private scratch folder, with its `-wal` when there is
+  /// one and it can be read, so a vault that wasn't closed cleanly loses nothing. Unlike a backup,
+  /// a live vault is in WAL mode, and a lone copy of one can't be opened read-only (SQLite would
+  /// have to create its `-shm`), so the copy is not inspected here: `checkVault` opens it.
+  ///
+  /// - Returns: the copy, `vault.sqlite` in the scratch folder.
+  /// - Throws: `AppError.loadRefused` if the file isn't an SQLite database at all.
+  func stageVault(from source: URL) throws -> URL {
+    let fm = FileManager.default
+    let path = source.path(percentEncoded: false)
+    let magic = FileHandle(forReadingAtPath: path).flatMap { try? $0.read(upToCount: 16) }
+    guard magic == Data("SQLite format 3\0".utf8) else {
+      throw AppError.loadRefused("That file isn't a PassFort vault.")
+    }
+    let scratch = fm.temporaryDirectory
+      .appending(path: "passfort-load-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try fm.createDirectory(
+      at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let staged = scratch.appending(path: "vault.sqlite")
+    do {
+      try fm.copyItem(atPath: path, toPath: staged.path(percentEncoded: false))
+    } catch {
+      try? fm.removeItem(at: scratch)
+      throw AppError.io(error.localizedDescription)
+    }
+    // Best effort: outside its own storage the sandbox grants the chosen file, not its siblings.
+    try? fm.copyItem(atPath: path + "-wal", toPath: staged.path(percentEncoded: false) + "-wal")
+    return staged
+  }
+
+  /// Remove a copy made by `stageVault`, and its scratch folder.
+  func discardStaged(_ staged: URL) {
+    try? FileManager.default.removeItem(at: staged.deletingLastPathComponent())
+  }
+
+  /// Unlock a copy made by `stageVault`: it is a vault, the password is right, the manifest
+  /// verifies, and the schema is one this version reads -- before anything is swapped. An older
+  /// schema is migrated in the copy. The copy is closed again on return, its log folded into the
+  /// main file. It runs against a throwaway mark beside the copy, so this vault's mark is not
+  /// touched.
+  func checkVault(at staged: URL, password: Data) async throws {
+    let scratchMark = HighWaterMark(url: staged.appendingPathExtension("hw"))
+    do {
+      _ = try await Vault.unlock(
+        databasePath: staged.path(percentEncoded: false), password: password,
+        deviceID: Self.deviceID, highWater: scratchMark)
+    } catch {
+      throw Self.map(error)
+    }
+  }
+
+  /// Put a checked, closed vault file at this path (which `setAside` emptied) and start the
+  /// anti-rollback mark at its version. Not the old vault's mark: it belongs to a different vault,
+  /// and keeping it would report the loaded one as rolled back.
+  func install(_ staged: URL, version: UInt64) throws {
+    let fm = FileManager.default
+    let from = staged.path(percentEncoded: false)
+    for suffix in ["", "-wal", "-shm"] where fm.fileExists(atPath: from + suffix) {
+      try fm.moveItem(atPath: from + suffix, toPath: databasePath + suffix)
+    }
+    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: databasePath)
+    try highWaterMark.write(version)
   }
 
   /// Unlock another vault read-only and read the accounts it could bring into `target`

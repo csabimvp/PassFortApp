@@ -211,10 +211,13 @@ File ▸ Export To ▸ Plain Text file, shows what would come in, skips likely d
 one transaction. Afterwards it offers to move the export, which holds every password in plain text,
 to the Trash.
 
-**Start a new vault.** Settings ▸ Vault ▸ Start a New Vault… (while unlocked) replaces the vault
-with an empty one at the same location, after checking the current password. The old vault is set
-aside beside it as `vault.sqlite.pre-new-<time>`, never deleted; Tools ▸ Import from Another
-Vault… can bring accounts over from it.
+**Start or load a vault.** Settings ▸ Vault (while unlocked) can replace the vault in place. Start a
+New Vault… puts an empty one there, after checking the current password. Load Vault… puts a copy
+of a vault file there (from another Mac, the CLI, or one set aside earlier), after unlocking the
+copy with that vault's password. Either way the old vault is set aside beside it as
+`vault.sqlite.pre-new-<time>` or `vault.sqlite.pre-load-<time>`, never deleted. Load it again to
+switch back, or bring accounts over from it with Tools ▸ Import from Another Vault…. Going back to
+an earlier copy of the same vault is Restore from Backup.
 
 **Quick Access.** Press ⌃⌥Space from any app, or click the key icon in the menu bar: type to search,
 then Return copies the password, ⇧Return the username and ⌥Return the one-time code. The window

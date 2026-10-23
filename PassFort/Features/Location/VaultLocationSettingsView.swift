@@ -10,6 +10,7 @@ struct VaultLocationSettingsView: View {
   @State private var pendingFolder: URL?
   @State private var confirmingDefault = false
   @State private var startingNewVault = false
+  @State private var loadingVault = false
 
   private var canChange: Bool {
     model.state.allowsFileMoves && !location.isBusy && !location.needsRelaunch
@@ -44,12 +45,16 @@ struct VaultLocationSettingsView: View {
           .foregroundStyle(.secondary)
       }
 
-      Section("New vault") {
-        Button("Start a New Vault…") { startingNewVault = true }
-          .disabled(model.state != .unlocked || location.isBusy || location.needsRelaunch)
+      Section("Replace vault") {
+        HStack {
+          Button("Start a New Vault…") { startingNewVault = true }
+          Button("Load Vault…") { loadingVault = true }
+        }
+        .disabled(model.state != .unlocked || location.isBusy || location.needsRelaunch)
         Text(
-          "Replaces this vault with an empty one at the same location. The current vault is kept "
-            + "beside it, never deleted. Unlock the vault first.")
+          "Start a New Vault puts an empty vault in this one's place; Load Vault puts one from a "
+            + "file there. Either way the current vault is kept beside it, never deleted. Unlock "
+            + "the vault first.")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -59,6 +64,9 @@ struct VaultLocationSettingsView: View {
     .padding()
     .sheet(isPresented: $startingNewVault) {
       NewVaultView().environment(model).environment(backup)
+    }
+    .sheet(isPresented: $loadingVault) {
+      LoadVaultView().environment(model).environment(backup).environment(location)
     }
     .alert(
       "Move the vault?", isPresented: Binding(get: { pendingFolder != nil }, set: { if !$0 { pendingFolder = nil } }),

@@ -181,10 +181,10 @@ struct AppModelTests {
 
   // MARK: - Start a new vault
 
-  /// The `.pre-new-` files beside the vault, by name.
-  private func setAsideFiles(in dir: URL) throws -> [String] {
+  /// The files set aside beside the vault (`.pre-new-`, `.pre-load-`), by name.
+  private func setAsideFiles(in dir: URL, label: String = "pre-new") throws -> [String] {
     try FileManager.default.contentsOfDirectory(atPath: dir.path(percentEncoded: false))
-      .filter { $0.contains(".pre-new-") }
+      .filter { $0.contains(".\(label)-") }
   }
 
   @Test func startNewVaultReplacesTheVaultAndKeepsTheOldOne() async throws {
@@ -197,7 +197,7 @@ struct AppModelTests {
     await model.unlock(password: Data("old".utf8))
     _ = await model.createAccount(AccountPayload(title: "GitHub"))
     var calls: [String] = []
-    let hooks = AppModel.NewVaultHooks(
+    let hooks = AppModel.ReplaceVaultHooks(
       begin: {
         calls.append("begin")
         return nil
@@ -263,7 +263,7 @@ struct AppModelTests {
     var began = false
     let result = await model.startNewVault(
       current: Data("nope".utf8), password: Data("fresh".utf8), recovery: false,
-      AppModel.NewVaultHooks(
+      AppModel.ReplaceVaultHooks(
         begin: {
           began = true
           return nil
@@ -287,7 +287,7 @@ struct AppModelTests {
     var ended = false
     let result = await model.startNewVault(
       current: Data("old".utf8), password: Data("fresh".utf8), recovery: false,
-      AppModel.NewVaultHooks(begin: { "A backup is running." }, end: { ended = true }))
+      AppModel.ReplaceVaultHooks(begin: { "A backup is running." }, end: { ended = true }))
 
     #expect(result == .failure(.notNow("A backup is running.")))
     #expect(!ended)
@@ -327,7 +327,7 @@ struct AppModelTests {
     let before = try mark.read()
     #expect(before > 0)
 
-    let aside = try service.setAside()
+    let aside = try service.setAside(label: "pre-new")
     #expect(!FileManager.default.fileExists(atPath: path))
     #expect(aside.mark == before)
     // A create that got as far as a database file and a reset mark, then failed.
@@ -340,6 +340,173 @@ struct AppModelTests {
     #expect(try setAsideFiles(in: dir).isEmpty)
     let reopened = try await service.unlock(password: Data("old".utf8))
     #expect(try await reopened.summaries().map(\.title) == ["GitHub"])
+  }
+
+  // MARK: - Load a vault
+
+  /// A closed vault at `path` holding one account per title. Returns its vault id.
+  @discardableResult
+  private func makeVault(at path: String, password: String, titles: [String]) async throws -> UUID {
+    do {
+      let repo = try await Vault.create(
+        databasePath: path, password: Data(password.utf8), params: fastParams,
+        deviceID: VaultService.deviceID,
+        highWater: HighWaterMark(url: URL(fileURLWithPath: path + ".scratch.hw")))
+      for title in titles { _ = try await repo.create(AccountPayload(title: title)) }
+    }
+    return try #require(VaultBackup.inspect(URL(fileURLWithPath: path))).vaultID
+  }
+
+  @Test func loadingAnotherVaultMakesItLiveAndKeepsTheOld() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    let other = dir.appending(path: "elsewhere/other.sqlite")
+    try FileManager.default.createDirectory(
+      at: other.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try await makeVault(at: path, password: "a-pw")
+    let otherID = try await makeVault(
+      at: other.path(percentEncoded: false), password: "b-pw", titles: ["Bank"])
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("a-pw".utf8))
+    // More writes than the other vault has, so this Mac's mark is ahead of the loaded file.
+    for title in ["One", "Two", "Three", "Four"] {
+      _ = await model.createAccount(AccountPayload(title: title))
+    }
+    var calls: [String] = []
+    let hooks = AppModel.ReplaceVaultHooks(
+      begin: {
+        calls.append("begin")
+        return nil
+      },
+      end: { calls.append("end") })
+
+    let keptAt = try await model.loadVault(from: other, password: Data("b-pw".utf8), hooks).get()
+
+    #expect(calls == ["begin", "end"])
+    #expect(model.state == .unlocked)
+    #expect(model.summaries.map(\.title) == ["Bank"])
+    #expect(VaultBackup.inspect(URL(fileURLWithPath: path))?.vaultID == otherID)
+    #expect(VaultBackup.inspect(other)?.vaultID == otherID)  // copied, not moved
+    #expect(keptAt.hasPrefix(path + ".pre-load-"))
+    #expect(FileManager.default.fileExists(atPath: keptAt))
+
+    // No false rollback: the mark now belongs to the loaded vault.
+    model.lock()
+    await model.unlock(password: Data("b-pw".utf8))
+    #expect(model.state == .unlocked)
+
+    // The previous vault is whole where it was kept.
+    let previous = try await Vault.unlock(
+      databasePath: keptAt, password: Data("a-pw".utf8), deviceID: VaultService.deviceID,
+      highWater: HighWaterMark(url: dir.appending(path: "previous.hw")))
+    #expect(try await previous.summaries().count == 4)
+  }
+
+  /// A vault still open elsewhere (the CLI, say) has its latest writes only in its `-wal`; they
+  /// are loaded too.
+  @Test func loadingCarriesWritesStillInTheLog() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    let other = dir.appending(path: "other.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "a-pw")
+    let open = try await Vault.create(
+      databasePath: other, password: Data("b-pw".utf8), params: fastParams,
+      deviceID: VaultService.deviceID, highWater: HighWaterMark(url: dir.appending(path: "o.hw")))
+    _ = try await open.create(AccountPayload(title: "Only in the log"))
+    let walSize = try FileManager.default.attributesOfItem(atPath: other + "-wal")[.size] as? Int
+    #expect((walSize ?? 0) > 0)
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("a-pw".utf8))
+    let result = await model.loadVault(
+      from: URL(fileURLWithPath: other), password: Data("b-pw".utf8))
+
+    #expect((try? result.get()) != nil)
+    #expect(model.summaries.map(\.title) == ["Only in the log"])
+    _ = open
+  }
+
+  @Test func loadingWithAWrongPasswordChangesNothing() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    let other = dir.appending(path: "other.sqlite")
+    try await makeVault(at: path, password: "a-pw")
+    try await makeVault(at: other.path(percentEncoded: false), password: "b-pw", titles: ["Bank"])
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("a-pw".utf8))
+    _ = await model.createAccount(AccountPayload(title: "GitHub"))
+    var began = false
+    let result = await model.loadVault(
+      from: other, password: Data("nope".utf8),
+      AppModel.ReplaceVaultHooks(
+        begin: {
+          began = true
+          return nil
+        }, end: {}))
+
+    #expect(result == .failure(.wrongPassword))
+    #expect(!began)
+    #expect(model.state == .unlocked)
+    #expect(model.summaries.map(\.title) == ["GitHub"])
+    #expect(try setAsideFiles(in: dir, label: "pre-load").isEmpty)
+  }
+
+  @Test func loadingACopyOfTheOpenVaultIsRefused() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "a-pw")
+    let copy = dir.appending(path: "copy.sqlite")
+    try VaultBackup.create(databasePath: path, to: copy)
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("a-pw".utf8))
+    let result = await model.loadVault(from: copy, password: Data("a-pw".utf8))
+
+    guard case .failure(.loadRefused(let message)) = result else {
+      Issue.record("expected .loadRefused, got \(result)")
+      return
+    }
+    #expect(message.contains("Restore from Backup"))
+    #expect(model.state == .unlocked)
+    #expect(try setAsideFiles(in: dir, label: "pre-load").isEmpty)
+  }
+
+  @Test func loadingAFileThatIsNotAVaultIsRefused() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "a-pw")
+    let junk = dir.appending(path: "notes.txt")
+    try Data("not a vault".utf8).write(to: junk)
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("a-pw".utf8))
+    let result = await model.loadVault(from: junk, password: Data("a-pw".utf8))
+
+    #expect(result == .failure(.loadRefused("That file isn't a PassFort vault.")))
+    #expect(model.state == .unlocked)
+  }
+
+  @Test func loadingNeedsAnUnlockedVault() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    let other = dir.appending(path: "other.sqlite")
+    try await makeVault(at: path, password: "a-pw")
+    try await makeVault(at: other.path(percentEncoded: false), password: "b-pw", titles: [])
+
+    let model = AppModel(databasePath: path)
+    let result = await model.loadVault(from: other, password: Data("b-pw".utf8))
+
+    #expect((try? result.get()) == nil)
+    #expect(model.state == .locked())
+    #expect(try setAsideFiles(in: dir, label: "pre-load").isEmpty)
   }
 
   // MARK: - Account writes

@@ -117,9 +117,10 @@ struct NewVaultView: View {
   }
 }
 
-extension AppModel.NewVaultHooks {
-  /// The app's side: a mid-run backup refuses it, and backups pause while the files are swapped.
-  /// They resume afterwards, now backing up the new vault.
+extension AppModel.ReplaceVaultHooks {
+  /// The app's side, for Start a New Vault and Load Vault: a mid-run backup refuses the swap, and
+  /// backups pause while the files are swapped. They resume afterwards, backing up the vault now in
+  /// place.
   static func app(_ backup: BackupModel?) -> Self {
     Self(
       begin: {

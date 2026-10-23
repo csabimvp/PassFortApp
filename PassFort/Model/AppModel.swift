@@ -172,11 +172,11 @@ final class AppModel {
     }
   }
 
-  /// What starting a new vault needs from the rest of the app (the shape of `RestoreModel.Hooks`):
+  /// What replacing the vault needs from the rest of the app (the shape of `RestoreModel.Hooks`):
   /// no backup may read the vault's files while they are swapped.
-  struct NewVaultHooks {
-    /// Called once the password checks out. Returns a reason to refuse (a backup is mid-run), or
-    /// `nil` to go ahead.
+  struct ReplaceVaultHooks {
+    /// Called once the checks pass. Returns a reason to refuse (a backup is mid-run), or `nil` to
+    /// go ahead.
     var begin: () -> String?
     /// Called last whenever `begin` went ahead, success or not.
     var end: () -> Void
@@ -187,16 +187,15 @@ final class AppModel {
   /// Settings ▸ Vault ▸ Start a New Vault: check the current password, set the open vault's files
   /// aside (kept, never deleted), and create an empty vault in their place -- then show its
   /// recovery key once, or go straight to `.unlocked`, as on first run. Both Argon2id passes run
-  /// before anything is touched, and a create that fails puts the old files back, so the old vault
-  /// is never left hidden behind a Create screen.
+  /// before anything is touched.
   ///
   /// - Returns: the path the old vault was kept at, or why nothing changed.
   func startNewVault(
-    current: Data, password: Data, recovery: Bool, _ hooks: NewVaultHooks = .none
+    current: Data, password: Data, recovery: Bool, _ hooks: ReplaceVaultHooks = .none
   ) async -> Result<String, AppError> {
     let header: Data
     do {
-      // Scoped so no strong reference to the open vault outlives this block (see `released`).
+      // Scoped so no strong reference to the open vault outlives this block (see `replaceVault`).
       guard case .unlocked = state, let repo else { return .failure(.io("The vault is locked.")) }
       header = try await repo.header()
     } catch {
@@ -216,7 +215,65 @@ final class AppModel {
       return .failure(VaultService.map(error))
     }
 
-    // The checks took a second or more: the vault may have auto-locked meanwhile.
+    return await replaceVault(label: "pre-new", hooks) {
+      try await service.createVault(
+        password: password, params: calibration.value, recovery: recovery)
+    }
+  }
+
+  /// Settings ▸ Vault ▸ Load Vault: make the vault in `file` the live one. The file is copied, and
+  /// the copy unlocked with `password` -- which also verifies its manifest -- before anything is
+  /// swapped; then the open vault's files are set aside (kept, never deleted) and the copy takes
+  /// their place. `file` itself is not changed.
+  ///
+  /// A copy of the open vault is refused: going back to an earlier copy is a restore, where the
+  /// anti-rollback prompt belongs.
+  ///
+  /// - Returns: the path the old vault was kept at, or why nothing changed.
+  func loadVault(
+    from file: URL, password: Data, _ hooks: ReplaceVaultHooks = .none
+  ) async -> Result<String, AppError> {
+    guard case .unlocked = state else { return .failure(.io("The vault is locked.")) }
+    let service = self.service
+    let staged: URL
+    do {
+      staged = try service.stageVault(from: file)
+    } catch {
+      return .failure(error as? AppError ?? .io(error.localizedDescription))
+    }
+    defer { service.discardStaged(staged) }
+
+    let notAVault = AppError.loadRefused("That file isn't a PassFort vault.")
+    do {
+      try await service.checkVault(at: staged, password: password)
+    } catch AppError.notAVault {
+      return .failure(notAVault)
+    } catch {
+      return .failure(error as? AppError ?? VaultService.map(error))
+    }
+    guard let info = VaultBackup.inspect(staged) else { return .failure(notAVault) }
+    if VaultBackup.inspect(URL(fileURLWithPath: service.databasePath))?.vaultID == info.vaultID {
+      return .failure(
+        .loadRefused(
+          "That's this vault, or a copy of it. To go back to an earlier copy, use Restore from "
+            + "Backup."))
+    }
+
+    return await replaceVault(label: "pre-load", hooks) {
+      try service.install(staged, version: info.vaultVersion)
+      return (try await service.unlock(password: password), nil)
+    }
+  }
+
+  /// The swap both of those end in: release the open vault, set its files aside as
+  /// `vault.sqlite.<label>-<time>`, and `install` another vault in their place. If `install`
+  /// fails, the old files go back, so the old vault is never left hidden. Then show the new
+  /// vault's recovery key once, or go straight to `.unlocked`.
+  private func replaceVault(
+    label: String, _ hooks: ReplaceVaultHooks,
+    install: () async throws -> (repo: VaultRepository, recoveryKey: RecoveryKey?)
+  ) async -> Result<String, AppError> {
+    // The checks before this took a second or more: the vault may have auto-locked meanwhile.
     guard case .unlocked = state else {
       return .failure(.io("The vault locked. Unlock it and try again."))
     }
@@ -235,16 +292,15 @@ final class AppModel {
     }
 
     let aside: VaultService.SetAside
-    let created: (repo: VaultRepository, recoveryKey: RecoveryKey?)
+    let installed: (repo: VaultRepository, recoveryKey: RecoveryKey?)
     do {
-      aside = try service.setAside()
+      aside = try service.setAside(label: label)
     } catch {
       state = .locked()
       return .failure(error as? AppError ?? .io(error.localizedDescription))
     }
     do {
-      created = try await service.createVault(
-        password: password, params: calibration.value, recovery: recovery)
+      installed = try await install()
     } catch {
       service.putBack(aside)
       state = .locked()
@@ -252,14 +308,14 @@ final class AppModel {
     }
 
     let keptAt = aside.kept.path(percentEncoded: false)
-    if let key = created.recoveryKey {
-      stagedRepo = created.repo
+    if let key = installed.recoveryKey {
+      stagedRepo = installed.repo
       state = .showingRecoveryKey(key)
     } else {
       do {
-        try await adoptUnlocked(created.repo)
+        try await adoptUnlocked(installed.repo)
       } catch {
-        // The new vault exists; unlocking it retries.
+        // The new vault is in place; unlocking it retries.
         state = .locked(.io(String(describing: error)))
       }
     }
