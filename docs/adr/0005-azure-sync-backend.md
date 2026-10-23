@@ -3,6 +3,13 @@
 > **Amended 2026-10-21 by ADR-0009:** the auth bullet below (`auth_secret` as a challenge-response
 > verifier, `HMAC(pepper, auth_secret)`) is superseded. Sync authenticates with `k_auth`, derived from
 > the DEK, and the server stores only `SHA-256(k_auth)`. The backend choice itself is unchanged.
+>
+> **Amended 2026-10-22 (architecture rev 13):** the local-tooling lines below ("local development runs
+> entirely on Azurite + `func` + `swa`"; the dependency surface listing Functions Core Tools, the SWA
+> CLI and Azurite) no longer hold. Only Node is installed locally: the API runs under a `node:http`
+> dev server on an in-memory store, Azurite runs only as a CI service container, and `az` / Bicep run
+> in Cloud Shell and the deploy workflow. `Cloud/api`'s runtime dependencies are `@azure/functions`
+> and `@azure/data-tables`. The backend choice itself is unchanged.
 
 **Status:** Accepted
 **Date:** 2026-08-28

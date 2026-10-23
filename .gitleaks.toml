@@ -13,3 +13,42 @@ useDefault = true
 [allowlist]
 description = "Example CLI transcripts in the runbook guide -- demo UUIDs and generated-sample passwords, not real secrets"
 paths = ['''docs/runbooks/cli-guide\.md''']
+
+# --- Cloud/ (M5) -------------------------------------------------------------
+# gitleaks 8.21.2's stock ruleset does not recognise any of the secrets the Azure
+# backend holds: a planted Storage connection string and JWT key in
+# Cloud/api/local.settings.json both scanned clean (m5-sync.md Phase 1.1). These
+# rules close that gap. Placeholders in local.settings.example.json start with
+# `replace-with-` and are allowlisted per rule, not by path, so a real value
+# pasted into the example file still trips the scan.
+
+# A Storage account key is 64 random bytes: 86 base64 chars + `==`. The Azurite
+# emulator's well-known development key is public (Microsoft docs) and allowed.
+[[rules]]
+id = "azure-storage-account-key"
+description = "Azure Storage account key (connection string AccountKey=)"
+regex = '''(?i)AccountKey=([A-Za-z0-9+/]{86}==)'''
+secretGroup = 1
+keywords = ["accountkey"]
+[rules.allowlist]
+regexes = ['''^Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==$''']
+
+# The two PassFort app settings that are secrets (m5-sync.md A.1), in any of the
+# shapes they appear in: JSON (`"NAME": "v"`), env (`NAME=v`), YAML (`NAME: v`).
+[[rules]]
+id = "passfort-jwt-key"
+description = "PassFort session-token signing key (PASSFORT_JWT_KEY)"
+regex = '''PASSFORT_JWT_KEY["']?\s*[:=]\s*["']?([^"'\s,}]{16,})'''
+secretGroup = 1
+keywords = ["passfort_jwt_key"]
+[rules.allowlist]
+regexes = ['''^replace-with-''', '''^\$\{\{''']
+
+[[rules]]
+id = "passfort-enroll-secret"
+description = "PassFort vault-enrollment secret (PASSFORT_ENROLL_SECRET)"
+regex = '''PASSFORT_ENROLL_SECRET["']?\s*[:=]\s*["']?([^"'\s,}]{8,})'''
+secretGroup = 1
+keywords = ["passfort_enroll_secret"]
+[rules.allowlist]
+regexes = ['''^replace-with-''', '''^\$\{\{''']

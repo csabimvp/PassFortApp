@@ -128,8 +128,54 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0                        # full history for the scan
-      - name: gitleaks -- backstop to the pre-commit hook
+      # The repo's only secret scan -- nothing is installed locally. Runs here, on a throwaway
+      # runner, from a pinned release binary.
+      - name: Fetch gitleaks
         run: |
           V=8.21.2                              # bump deliberately
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_linux_x64.tar.gz" | tar -xz gitleaks
-          ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
+      - name: Self-test -- the custom rules catch planted secrets
+        # Fake secrets generated here, at run time, outside the checkout: none is ever committed.
+        # Each custom rule in .gitleaks.toml must fire, or the scan below proves nothing for them.
+        run: |
+          T=$(mktemp -d)
+          rnd() { head -c "$1" /dev/urandom | base64 -w0; }
+          printf 'DefaultEndpointsProtocol=https;AccountName=x;AccountKey=%s;\n' "$(rnd 64)" > "$T/storage.txt"
+          printf '{ "PASSFORT_JWT_KEY": "%s" }\n' "$(rnd 32)" > "$T/jwt.json"
+          printf 'PASSFORT_ENROLL_SECRET=%s\n' "$(rnd 24)" > "$T/enroll.env"
+          ./gitleaks detect --no-git --source "$T" --config .gitleaks.toml --no-banner --redact \
+            --report-format json --report-path "$T/report.json" --exit-code 0
+          for rule in azure-storage-account-key passfort-jwt-key passfort-enroll-secret; do
+            jq -e --arg r "$rule" 'any(.[]; .RuleID == $r)' "$T/report.json" > /dev/null \
+              || { echo "::error::gitleaks rule $rule missed its planted secret"; exit 1; }
+          done
+      - name: gitleaks -- full history
+        run: ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
+
+  cloud:
+    # Cloud/api: typecheck, the DTOs still match openapi.yaml, then the tests -- once in memory and
+    # once against a real Table endpoint. That endpoint is Azurite's Docker image as a service
+    # container, so the emulator is never an npm dependency (m5-sync.md Phase 4).
+    runs-on: ubuntu-latest
+    services:
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:3.37.0   # bump deliberately
+        ports: ["10002:10002"]
+    defaults:
+      run:
+        working-directory: Cloud/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: Cloud/api/.nvmrc
+          cache: npm
+          cache-dependency-path: Cloud/api/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Generated DTOs match openapi.yaml
+        run: npm run gen && git diff --exit-code src/dto.ts
+      - name: Tests (memory store, then Azurite)
+        env:
+          PASSFORT_TEST_TABLES: UseDevelopmentStorage=true
+        run: npm test

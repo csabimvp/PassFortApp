@@ -1,0 +1,577 @@
+# PassFort sync API -- the contract (docs/runbooks/m5-sync.md Part A.3, architecture.md §10.3).
+#
+# Source of truth for the server DTOs (Cloud/api/src/dto.ts, generated: `npm run gen`), the Swift DTOs
+# (PassFortVault/Sync/SyncDTO.swift, hand-written, contract-tested against this file) and the M6 web
+# client. Change this file first, then regenerate.
+#
+# Every object schema is closed (`additionalProperties: false`). That closure IS the "the server never
+# accepts a key" guarantee: a body carrying `dek`, `password` or any field not listed here is a 400.
+openapi: 3.1.0
+info:
+  title: PassFort sync API
+  version: 1.0.0
+  description: >-
+    An untrusted mailbox for sealed vault records. The server stores each record's `sealed` blob
+    byte-for-byte plus a plaintext envelope (version, HLC, isDeleted), assigns a gap-free per-vault
+    `seq`, and never decrypts, merges or chooses anything.
+servers:
+  - url: http://localhost:7071/api/v1
+    description: local -- `npm run dev` (node:http over the in-memory store, M5 Phase 3)
+  - url: https://{site}.azurestaticapps.net/api/v1
+    description: deployed -- SWA managed Functions
+    variables:
+      site:
+        default: passfort
+security:
+  - bearerAuth: []
+tags:
+  - name: meta
+    description: Liveness.
+  - name: vault
+    description: Create and delete a vault; exchange the auth key for a session token.
+  - name: header
+    description: The opaque §5.3 vault header and its optimistic-concurrency version.
+  - name: changes
+    description: Pull and push sealed records against the per-vault seq.
+  - name: devices
+    description: Devices that have opened a session, and their pull cursors.
+
+paths:
+  /health:
+    get:
+      operationId: health
+      tags: [meta]
+      summary: Liveness; touches no storage
+      security: []
+      responses:
+        "200":
+          description: The API is up
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+
+  /vaults:
+    post:
+      operationId: createVault
+      tags: [vault]
+      summary: Register a new vault (gated by the enrollment secret)
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/EnrollSecret"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateVaultRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateVaultResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /vaults/{vaultId}:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    delete:
+      operationId: deleteVault
+      tags: [vault]
+      summary: Delete the whole partition -- every record, device and the header
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /vaults/{vaultId}/session:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    post:
+      operationId: openSession
+      tags: [vault]
+      summary: Exchange the auth key for a 15-minute session token
+      description: >-
+        A wrong key and an unknown vault get the same 401 body (no existence oracle). From the 5th
+        consecutive failure the vault locks for 2^(n-5) minutes, capped at 1 h. Opportunistically
+        purges compactable tombstones (Part A.10).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OpenSessionRequest" }
+      responses:
+        "200":
+          description: Session opened
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpenSessionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /vaults/{vaultId}/header:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    get:
+      operationId: getHeader
+      tags: [header]
+      summary: Read the vault header (unauthenticated -- a joining device needs the KDF salt first)
+      security: []
+      responses:
+        "200":
+          description: The current header
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HeaderResponse" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    put:
+      operationId: putHeader
+      tags: [header]
+      summary: Replace the header if the caller's base is current (does not consume a seq)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PutHeaderRequest" }
+      responses:
+        "200":
+          description: Header replaced
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PutHeaderResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: Stale base -- the server's headerVersion is returned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HeaderConflict" }
+
+  /vaults/{vaultId}/changes:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    get:
+      operationId: getChanges
+      tags: [changes]
+      summary: Pull records with seq > since, ascending, at most limit
+      description: >-
+        `seq` in the response is the server's high-water mark, returned even when `records` is empty.
+        Side effect: the caller's device row records `lastSeq = since`.
+      parameters:
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of changes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "410": { $ref: "#/components/responses/Gone" }
+    post:
+      operationId: pushChanges
+      tags: [changes]
+      summary: Push a batch of 1-99 records, all or nothing
+      description: >-
+        Accepted only if every record's `baseVersion` equals the server's current version (0 = must not
+        exist yet). Each record gets its own seq; on any conflict nothing is written.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PushRequest" }
+      responses:
+        "200":
+          description: Every record applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: At least one stale baseVersion -- nothing written
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushConflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /vaults/{vaultId}/devices:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+    get:
+      operationId: listDevices
+      tags: [devices]
+      summary: List the devices that have opened a session on this vault
+      responses:
+        "200":
+          description: The device list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DevicesResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /vaults/{vaultId}/devices/{deviceId}:
+    parameters:
+      - $ref: "#/components/parameters/VaultId"
+      - $ref: "#/components/parameters/DeviceId"
+    delete:
+      operationId: removeDevice
+      tags: [devices]
+      summary: Forget a device (its cursor stops holding back tombstone purges)
+      responses:
+        "204": { description: Removed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        HS256 `{ sub: vaultId, dev: deviceId, iat, exp }` from openSession, 15-minute lifetime. Held in
+        memory only. A token for one vault is rejected on every other vault's routes.
+
+  parameters:
+    VaultId:
+      name: vaultId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/Uuid" }
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/Uuid" }
+    Since:
+      name: since
+      in: query
+      required: true
+      schema: { type: integer, format: int64, minimum: 0 }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 500, default: 500 }
+    EnrollSecret:
+      name: X-PassFort-Enroll
+      in: header
+      required: true
+      description: Must equal the server's PASSFORT_ENROLL_SECRET (constant-time compare).
+      schema: { type: string, minLength: 1, maxLength: 256 }
+
+  responses:
+    BadRequest:
+      description: Malformed body, unknown field, framing or version rule broken
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing, expired or wrong-vault token; or wrong auth key / unknown vault (same body)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Wrong or missing enrollment secret
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such vault or device
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: The vault already exists
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Gone:
+      description: since > 0 and since < purgedThroughSeq -- a full resync is needed (Part A.10)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooLarge:
+      description: A sealed blob over 65,320 bytes, or a batch over 3 MiB
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Locked out after repeated failures; retry after the given number of seconds
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unavailable:
+      description: Lost the seq race five times; nothing written -- retry
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    # MARK: - Scalars
+
+    Uuid:
+      type: string
+      description: Lower-case RFC 4122 UUID.
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    Base64:
+      type: string
+      contentEncoding: base64
+      description: Standard alphabet, padded.
+      pattern: "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    AuthKey:
+      allOf: [{ $ref: "#/components/schemas/Base64" }]
+      description: >-
+        k_auth = HKDF-Expand(DEK, "sync-auth", 32) -- exactly 32 bytes (ADR-0009). The server stores only
+        its SHA-256.
+      minLength: 44
+      maxLength: 44
+    Sealed:
+      allOf: [{ $ref: "#/components/schemas/Base64" }]
+      description: >-
+        A §5.4 sealed record, byte-identical to pf_seal's output: 24-byte nonce || 256*k ciphertext ||
+        16-byte tag, so 296..65,320 bytes (396..87,096 base64 chars). The server checks the framing
+        `(len - 40) % 256 == 0` after decoding; it is a client-bug tripwire, not a crypto check.
+      minLength: 396
+      maxLength: 87096
+    Header:
+      allOf: [{ $ref: "#/components/schemas/Base64" }]
+      description: >-
+        The §5.3 vault header, opaque to the server (133 bytes with one slot, 205 with two). The bound
+        leaves room for future slots without letting the field become free storage.
+      minLength: 4
+      maxLength: 4096
+    Seq:
+      type: integer
+      format: int64
+      minimum: 0
+    Version:
+      type: integer
+      format: int64
+      minimum: 1
+    Platform:
+      type: string
+      enum: [macos, ios, cli, web]
+    ErrorCode:
+      type: string
+      enum:
+        [bad_request, unauthorized, forbidden, rate_limited, conflict, gone, too_large, not_found, unavailable]
+
+    # MARK: - Shared objects
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error, message]
+      properties:
+        error: { $ref: "#/components/schemas/ErrorCode" }
+        message:
+          type: string
+          description: Human text. Never echoes the request body.
+    Hlc:
+      type: object
+      additionalProperties: false
+      required: [wallMillis, counter, deviceId]
+      properties:
+        wallMillis: { type: integer, format: int64, minimum: 0 }
+        counter: { type: integer, format: int32, minimum: 0 }
+        deviceId: { $ref: "#/components/schemas/Uuid" }
+    Device:
+      type: object
+      additionalProperties: false
+      required: [id, name, platform]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        name: { type: string, minLength: 1, maxLength: 64 }
+        platform: { $ref: "#/components/schemas/Platform" }
+    DeviceInfo:
+      type: object
+      additionalProperties: false
+      required: [id, name, platform, lastSeq, lastSeenAt]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        name: { type: string, minLength: 1, maxLength: 64 }
+        platform: { $ref: "#/components/schemas/Platform" }
+        lastSeq: { $ref: "#/components/schemas/Seq" }
+        lastSeenAt: { type: string, format: date-time }
+    Record:
+      type: object
+      description: One record as pulled.
+      additionalProperties: false
+      required: [id, version, hlc, sealed, isDeleted, seq, writer]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        version: { $ref: "#/components/schemas/Version" }
+        hlc: { $ref: "#/components/schemas/Hlc" }
+        sealed: { $ref: "#/components/schemas/Sealed" }
+        isDeleted: { type: boolean }
+        seq: { $ref: "#/components/schemas/Seq" }
+        writer:
+          allOf: [{ $ref: "#/components/schemas/Uuid" }]
+          description: The deviceId that pushed this version (from its token, not the body).
+    Push:
+      type: object
+      description: One element of a push batch. version must be greater than baseVersion.
+      additionalProperties: false
+      required: [id, baseVersion, version, hlc, sealed, isDeleted]
+      properties:
+        id: { $ref: "#/components/schemas/Uuid" }
+        baseVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The server version this edit was made on; 0 = the record must not exist yet.
+        version: { $ref: "#/components/schemas/Version" }
+        hlc: { $ref: "#/components/schemas/Hlc" }
+        sealed: { $ref: "#/components/schemas/Sealed" }
+        isDeleted: { type: boolean }
+
+    # MARK: - Requests and responses
+
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, apiVersion]
+      properties:
+        ok: { type: boolean, const: true }
+        apiVersion: { type: string }
+    CreateVaultRequest:
+      type: object
+      additionalProperties: false
+      required: [vaultId, header, authKey, device]
+      properties:
+        vaultId: { $ref: "#/components/schemas/Uuid" }
+        header: { $ref: "#/components/schemas/Header" }
+        authKey: { $ref: "#/components/schemas/AuthKey" }
+        device: { $ref: "#/components/schemas/Device" }
+    CreateVaultResponse:
+      type: object
+      additionalProperties: false
+      required: [seq, headerVersion]
+      properties:
+        seq: { type: integer, const: 0 }
+        headerVersion: { type: integer, const: 1 }
+    OpenSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [authKey, device]
+      properties:
+        authKey: { $ref: "#/components/schemas/AuthKey" }
+        device: { $ref: "#/components/schemas/Device" }
+    OpenSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [token, expiresAt, seq, headerVersion, purgedThroughSeq]
+      properties:
+        token: { type: string }
+        expiresAt: { type: string, format: date-time }
+        seq: { $ref: "#/components/schemas/Seq" }
+        headerVersion: { $ref: "#/components/schemas/Version" }
+        purgedThroughSeq: { $ref: "#/components/schemas/Seq" }
+    HeaderResponse:
+      type: object
+      additionalProperties: false
+      required: [header, headerVersion]
+      properties:
+        header: { $ref: "#/components/schemas/Header" }
+        headerVersion: { $ref: "#/components/schemas/Version" }
+    PutHeaderRequest:
+      type: object
+      additionalProperties: false
+      required: [header, baseHeaderVersion]
+      properties:
+        header: { $ref: "#/components/schemas/Header" }
+        baseHeaderVersion: { $ref: "#/components/schemas/Version" }
+    PutHeaderResponse:
+      type: object
+      additionalProperties: false
+      required: [headerVersion]
+      properties:
+        headerVersion: { $ref: "#/components/schemas/Version" }
+    HeaderConflict:
+      type: object
+      additionalProperties: false
+      required: [error, message, headerVersion]
+      properties:
+        error: { type: string, const: conflict }
+        message: { type: string }
+        headerVersion: { $ref: "#/components/schemas/Version" }
+    ChangesResponse:
+      type: object
+      additionalProperties: false
+      required: [records, seq, hasMore, headerVersion, purgedThroughSeq]
+      properties:
+        records:
+          type: array
+          items: { $ref: "#/components/schemas/Record" }
+        seq: { $ref: "#/components/schemas/Seq" }
+        hasMore: { type: boolean }
+        headerVersion: { $ref: "#/components/schemas/Version" }
+        purgedThroughSeq: { $ref: "#/components/schemas/Seq" }
+    PushRequest:
+      type: object
+      additionalProperties: false
+      required: [records]
+      properties:
+        records:
+          type: array
+          minItems: 1
+          maxItems: 99
+          items: { $ref: "#/components/schemas/Push" }
+    PushResponse:
+      type: object
+      additionalProperties: false
+      required: [applied, seq]
+      properties:
+        applied:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, version, seq]
+            properties:
+              id: { $ref: "#/components/schemas/Uuid" }
+              version: { $ref: "#/components/schemas/Version" }
+              seq: { $ref: "#/components/schemas/Seq" }
+        seq: { $ref: "#/components/schemas/Seq" }
+    PushConflict:
+      type: object
+      additionalProperties: false
+      required: [error, message, conflicts]
+      properties:
+        error: { type: string, const: conflict }
+        message: { type: string }
+        conflicts:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, serverVersion]
+            properties:
+              id: { $ref: "#/components/schemas/Uuid" }
+              serverVersion:
+                type: integer
+                format: int64
+                minimum: 0
+                description: 0 = the record does not exist on the server.
+    DevicesResponse:
+      type: object
+      additionalProperties: false
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items: { $ref: "#/components/schemas/DeviceInfo" }

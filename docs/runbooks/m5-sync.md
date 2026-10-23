@@ -71,10 +71,11 @@ Cloud/                                    NEW — the Azure backend; no vault cr
 └── api/                                  Phases 1–4  TypeScript, Azure Functions v4 programming model
     ├── src/functions/                    health · createVault · openSession · getHeader · putHeader
     │                                     getChanges · pushChanges · listDevices · removeDevice · deleteVault
-    ├── src/lib/                          table.ts · seq.ts · auth.ts · jwt.ts · validate.ts · errors.ts · log.ts
+    ├── src/lib/                          store.ts · table.ts · seq.ts · auth.ts · jwt.ts · validate.ts · errors.ts · log.ts
+    ├── src/dev-server.ts                 Phase 3   `npm run dev`: the handlers on node:http + the memory store
     ├── src/dto.ts                        generated from openapi.yaml (openapi-typescript), never hand-edited
-    ├── test/                             Phase 4   contract tests against Azurite
-    ├── host.json · package.json · package-lock.json · tsconfig.json · .nvmrc · eslint.config.js
+    ├── test/                             node:test; storage suites run in memory and, in CI, on Azurite
+    ├── host.json · package.json · package-lock.json · tsconfig.json · .nvmrc
     └── local.settings.json               dev only — git-ignored (Phase 1.1)
 
 Packages/PassFortKit/Sources/PFCrypto/
@@ -113,7 +114,7 @@ PassFort/                                 Phase 13  (the macOS app)
 └── Features/Conflicts/                   ConflictBanner · ConflictCompareView
 
 .github/workflows/
-├── ci.yml                                Phase 4   NEW `cloud` job (Linux): npm ci · tsc · eslint · contract tests vs Azurite
+├── ci.yml                                Phase 2   NEW `cloud` job (Linux): npm ci · tsc · DTO check · tests (memory + Azurite container)
 └── deploy.yml                            Phase 12  NEW, tag-triggered: OIDC login → Bicep → SWA deploy
 ```
 
@@ -142,10 +143,14 @@ PassFort/                                 Phase 13  (the macOS app)
   record and for the MAC. Locking cancels an in-flight sync; transactions make that safe.
 - **Losing data is worse than showing two.** Every ambiguous case resolves toward keeping both copies
   or re-uploading — never toward deleting on the server's word (Part A.9).
-- **CLI first.** Two `passfort-cli` instances converge through Azurite (Phase 11) before the GUI
+- **CLI first.** Two `passfort-cli` instances converge through the API (Phase 11) before the GUI
   (Phase 13) is wired. The GUI is a front end onto an already-tested engine.
-- **Local is free, the cloud is behind a $5 budget.** Phases 0–11 run on Azurite + `func`; the cloud
-  enters at Phase 12.
+- **Nothing to install locally beyond Node and npm, and a minimal npm tree** (2026-10-22). No
+  Azurite, `func`, `swa` or gitleaks on the dev Mac: storage logic is tested against an in-memory
+  `VaultStore`; the Table-backed run, the secret scan and anything Azure-shaped happen in CI or in
+  the dev resource group, which sits behind the $5 budget. `Cloud/api` keeps two runtime
+  dependencies (`@azure/functions`, `@azure/data-tables`) and three dev ones (`typescript`,
+  `@types/node`, `openapi-typescript`); adding one is its own reviewed commit.
 
 > **Path note:** `architecture.md` §4 draws the CLI at `Tools/passfort-cli/`; it lives at
 > `Packages/PassFortKit/Sources/passfort-cli/` (M1 deviation, already logged). `Sync/` is
@@ -188,14 +193,14 @@ $0" into a bill (§10.1).
 **SWA managed Functions constraints** (verify current values in Phase 0): HTTP triggers only (fine — no
 timers needed; purging is opportunistic, A.10); a short per-request timeout; the Node runtime is chosen
 by `platform.apiRuntime` in `staticwebapp.config.json` from the versions SWA supports; the API is
-mounted under `/api`. `func start` also serves under `/api` by default, so local and deployed URLs have
-the same shape.
+mounted under `/api`. The local dev server (`npm run dev`, Phase 3) serves under `/api` too, so local
+and deployed URLs have the same shape.
 
 **App settings** (SWA config in the cloud, `local.settings.json` locally):
 
 | Name | Purpose | Source in the cloud | Local value |
 |---|---|---|---|
-| `TABLES_CONNECTION_STRING` | Table Storage access | Bicep `listKeys()` | `UseDevelopmentStorage=true` (Azurite) |
+| `TABLES_CONNECTION_STRING` | Table Storage access | Bicep `listKeys()` | unused by `npm run dev` (memory store); a scratch account's string to point it at real Table Storage |
 | `PASSFORT_TABLE` | table name | Bicep (`vaults`) | `vaults` |
 | `PASSFORT_JWT_KEY` | HS256 signing key for session tokens, ≥ 32 random bytes, base64 | GitHub secret → `@secure()` Bicep param | any random dev value |
 | `PASSFORT_ENROLL_SECRET` | gate on creating a vault (A.4) | GitHub secret → `@secure()` Bicep param | any dev value |
@@ -596,9 +601,10 @@ round-trip of real blobs. Results:
   Node 26 is **unverified**. Node 26 is the local default; `Cloud/api/.nvmrc` may need to pin an
   older LTS.
 
-**Deploy half — not run.** It needs the `az` CLI, an Azure login, `func` (Homebrew) and a scratch RG.
-Its measurements (cold start, per-request timeout, `apiRuntime` Node versions, the cert chain for the
-pin set, regional Table prices) are still open.
+**Deploy half — not run.** It needs `az`, an Azure login and a scratch RG -- run it from **Azure Cloud
+Shell** in the browser (`az` and Bicep preinstalled), so nothing Azure is installed on the Mac
+(2026-10-22). Its measurements (cold start, per-request timeout, `apiRuntime` Node versions, the cert
+chain for the pin set, regional Table prices) are still open.
 
 **Spike exit:** you can state from experience how many days `Cloud/` is, and whether ADR-0005's
 CloudKit fallback should fire. "The custom backend costs more attention than it teaches" is a
@@ -638,16 +644,20 @@ prices); ADR-0009 and rev 12 still hold (or are amended); spike branch and scrat
 
 ### 1.1 Secret hygiene first (§15 step 2)
 
-`.gitignore` additions — confirm the pre-commit secret hook and the `secrets` CI job flag a planted fake
-key in `local.settings.json` before anything else lands:
+`.gitignore` additions:
 
 ```
 Cloud/api/local.settings.json
 Cloud/api/node_modules/
 Cloud/api/dist/
-.azurite/
 .azure/
 ```
+
+The stock gitleaks rules don't recognise the backend's secrets, so `.gitleaks.toml` adds three
+(Storage account key, `PASSFORT_JWT_KEY`, `PASSFORT_ENROLL_SECRET`). The scan runs **in CI only**;
+there is no local hook. The `secrets` job proves the rules on every push: it generates a fake secret
+of each kind into a temp folder at run time and fails unless each rule fires, so no planted key is
+ever committed.
 
 ### 1.2 `Cloud/openapi.yaml` — written before any endpoint
 
@@ -660,30 +670,52 @@ same file (Phase 11).
 ### 1.3 The Functions app and the local loop
 
 Node LTS pinned in `.nvmrc` (match a version SWA's `apiRuntime` supports — Phase 0), TypeScript
-`strict`, `@azure/functions` v4, **`@azure/data-tables`** and **`jose`** as the only runtime
-dependencies. `Cloud/README.md` documents (and the top-level README mirrors, per the readme rules):
+`strict` plus `noUnused*`, `noImplicitReturns` and `noPropertyAccessFromIndexSignature` (standing in
+for a linter), `@azure/functions` v4 and **`@azure/data-tables`** as the only runtime dependencies.
+Session tokens are HS256 over `node:crypto` (Phase 3), not a JWT library. No ESLint and no OpenAPI
+linter: `openapi-typescript` already fails on a broken spec, and the closure of every schema is
+checked by the contract tests.
 
 ```bash
-azurite --silent --location .azurite &                        # local Table emulator
-cd Cloud/api && npm ci && npm run build && func start         # API on http://localhost:7071/api/v1
-curl -s http://localhost:7071/api/v1/health                   # {"ok":true,...}
+cd Cloud/api && npm ci && npm run typecheck && npm test
 ```
 
-**Checkpoint:** `health` answers; `tsc --noEmit`, ESLint and the OpenAPI lint are clean; the secret scan
-catches the planted key. Commit: `Cloud: Functions skeleton, openapi.yaml, local loop (§10.3)`.
+**Checkpoint:** `tsc --noEmit` is clean, the generated DTOs match `openapi.yaml`, and the `secrets`
+job's self-test passes. Commit: `Cloud: Functions skeleton, openapi.yaml (§10.3)`.
 
 ---
 
 ## Phase 2 — Server storage layer
 
-`src/lib/table.ts` (typed entity mappers for `meta` / `rec_` / `dev_`, A.2), `src/lib/seq.ts` (the A.3
-push algorithm, transaction + bounded retry), `src/lib/validate.ts` (framing, sizes, UUIDs, version
-rules). Pure functions where possible, so unit tests can run them without the Functions host.
+`src/lib/store.ts` (the `VaultStore` seam), `src/lib/table.ts` (`TableStore`: typed entity mappers for
+`meta` / `rec_` / `dev_`, A.2), `src/lib/seq.ts` (the A.3 push algorithm, transaction + bounded retry,
+storage-agnostic), `src/lib/validate.ts` (framing, sizes, UUIDs, version rules). Pure functions where
+possible, so unit tests can run them without the Functions host.
 
-**Checkpoint (unit tests against Azurite):** seqs 1/2/3 for three pushes; two concurrent pushes from the
+**Checkpoint (unit tests, in memory and against a Table endpoint):** seqs 1/2/3 for three pushes; two concurrent pushes from the
 same base → exactly one wins, `meta.seq` correct, no seq reused or skipped; a 99-record push is one
 transaction and lands whole; a 100th record is `400`; a 295-byte or 297-byte `sealed` is rejected and a
 296-byte one accepted; a 65,321-byte `sealed` is `413`.
+
+**Done (2026-10-22).** All of the checkpoint above passes on both stores -- `MemoryStore` (every
+`npm test`) and `TableStore` on Azurite (the CI `cloud` job; run locally once before Azurite left the
+dev dependencies) -- plus: a conflicting record anywhere in a batch writes nothing; a rival that wins
+every attempt ends in `unavailable` with nothing written; a pull never crosses partitions. Findings:
+
+- **`@azure/data-tables` 13.3.2 returns Int64 as `bigint`** (Int32 as `number`, Binary as a pooled
+  `Buffer`). The spike's `num()` hid this. `readNumber` takes `bigint` and refuses anything past 2^53
+  rather than rounding.
+- **A Binary read must be copied before it is written back.** The SDK's `Buffer` is a slice of a
+  shared pool, and writing a view of it serializes the whole pool: re-creating a vault from a read
+  `meta` failed with `PropertyValueTooLarge`. Only the Table-backed run caught it -- the in-memory
+  store can't -- which is why CI keeps one.
+- `MemoryStore` honours the same ETag contract as Table Storage and yields between calls, so the
+  race tests interleave for real. Tests use the built-in `node:test`.
+- `@azure/data-tables` pinned exactly at 13.3.2 (the spike's resolved version); `npm audit` is clean.
+
+**Dependency trim (2026-10-22).** `Cloud/api` went from 435 installed packages (308 MB) to 54 (65 MB):
+`azurite` (371 packages -- now a CI service container), ESLint + typescript-eslint (~95) and
+`@redocly/cli` (26 MB) were removed, and `jose` dropped from the plan.
 
 ---
 
@@ -694,15 +726,21 @@ transaction and lands whole; a 100th record is `400`; a 295-byte or 297-byte `se
 (sign/verify, vault/route binding), `src/lib/errors.ts` (the stable codes), `src/lib/log.ts` (the
 redacting logger). The purge (A.10) is a function in `lib/` called from `openSession`.
 
-**Checkpoint:** with `curl` against `func start`: create a vault, open a session, push a record, pull it
-back byte-identical, read the header, list devices, delete the vault. Commit per endpoint group.
+Handlers are plain functions (`request → response`) over a `VaultStore`, so they run in three hosts:
+the Functions programming model (`src/functions/*.ts`, deployed), **`src/dev-server.ts`** (`npm run
+dev` -- `node:http`, the memory store, `http://localhost:7071/api/v1`, no install), and direct calls
+from tests.
+
+**Checkpoint:** with `curl` against `npm run dev`: create a vault, open a session, push a record, pull
+it back byte-identical, read the header, list devices, delete the vault. The same sequence against the
+dev resource group once it exists (Phase 12). Commit per endpoint group.
 
 ---
 
 ## Phase 4 — Contract tests and the `cloud` CI job
 
-`Cloud/api/test/` with `node:test` (no extra dependency), Azurite as a fixture, driving the real
-Functions host over HTTP. At minimum:
+`Cloud/api/test/` with `node:test` (no extra dependency), driving the handlers over HTTP through the
+dev server -- on the memory store locally, on the Azurite service container in CI. At minimum:
 
 | Test | Asserts |
 |---|---|
@@ -721,26 +759,10 @@ Functions host over HTTP. At minimum:
 | `headerOptimisticConcurrency` | two `PUT /header` from the same base → one `200`, one `409` |
 | `loggerRedacts` | no log line contains the auth key, a token or a `sealed` value (capture stdout) |
 
-**CI** — new `cloud` job in `ci.yml` (Linux, §13.2):
-
-```yaml
-  cloud:
-    runs-on: ubuntu-latest
-    services:
-      azurite:
-        image: mcr.microsoft.com/azure-storage/azurite
-        ports: ['10002:10002']
-    defaults: { run: { working-directory: Cloud/api } }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version-file: 'Cloud/api/.nvmrc', cache: 'npm', cache-dependency-path: 'Cloud/api/package-lock.json' }
-      - run: npm ci
-      - run: npm run gen && git diff --exit-code src/dto.ts     # generated DTOs not stale
-      - run: npx tsc --noEmit
-      - run: npx eslint .
-      - run: npm test                                          # contract tests vs the azurite service
-```
+**CI** — the `cloud` job in `ci.yml` (Linux, §13.2) already exists from Phase 2: `npm ci`, `tsc
+--noEmit`, the DTO staleness check, then `npm test` with `PASSFORT_TEST_TABLES=UseDevelopmentStorage=true`
+against `mcr.microsoft.com/azure-storage/azurite:3.37.0` as a service container. Phase 4 adds the
+contract tests to the same `npm test`.
 
 `package-lock.json` is committed and drift-checked like `Package.resolved`; a Node dependency bump is
 its own reviewed commit (§3.2 A7).
@@ -894,7 +916,7 @@ acceptance or a local deletion; `passfort-cli verify` passes on both devices aft
 
 ---
 
-## Phase 11 — CLI `sync`, and the two-device drill on Azurite
+## Phase 11 — CLI `sync`, and the two-device drill
 
 `SyncCommands.swift`:
 
@@ -917,7 +939,8 @@ rotate the recovery key on A → B adopts at next unlock → `verify` on both. P
 the Swift client's requests validated against `openapi.yaml` (record real request/response pairs during
 the drill and validate them with the OpenAPI schema in a Node test — catches Swift/TS drift).
 
-**Checkpoint:** the drill passes end to end against `func` + Azurite. Commit the script.
+**Checkpoint:** the drill passes end to end against `npm run dev`, then against the dev resource group.
+Commit the script.
 
 ---
 
@@ -939,6 +962,9 @@ to `budgetEmail`), and optional insights behind `enableInsights`. Outputs: the s
 holds a one-line `index.html` until M6.
 
 ### 12.3 One-time setup (`Cloud/README.md`, verbatim)
+
+Run in Azure Cloud Shell, not on the Mac -- `az` stays off the dev machine; `gh` works there too
+(`gh auth login`).
 
 ```bash
 az login
@@ -1036,8 +1062,8 @@ CI: `cloud` (Phase 4) is the only new job; the Swift-side suites ride the existi
   its own endpoint (`PUT /vaults/{id}/backups`) in a follow-up, *not* in M5.
 - `m7-ios.md`: confirm its Phase 5 join flow matches what shipped (`JoinVaultView` is the template).
 - `README.md`: Architecture gains a sync paragraph + ADR-0005/0009 links; Project structure gains
-  `Cloud/`; Getting started gains Node / Azure CLI / Functions Core Tools / Azurite with pinned
-  versions; Testing gains `npm test`; Usage gains `passfort-cli sync …`.
+  `Cloud/`; Getting started gains Node (the only local prerequisite; Azure tooling runs in Cloud
+  Shell and CI); Testing gains `npm test`; Usage gains `passfort-cli sync …`.
 - `CLAUDE.md`: Commands block gains the `Cloud/` loop; Project status line moves on.
 - `docs/runbooks/README.md`: M5 → done.
 

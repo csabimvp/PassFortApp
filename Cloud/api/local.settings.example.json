@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "AzureWebJobsStorage": "",
+    "TABLES_CONNECTION_STRING": "UseDevelopmentStorage=true",
+    "PASSFORT_TABLE": "vaults",
+    "PASSFORT_JWT_KEY": "replace-with-output-of-openssl-rand-base64-32",
+    "PASSFORT_ENROLL_SECRET": "replace-with-any-dev-value",
+    "PASSFORT_JWT_TTL_SECONDS": "900"
+  }
+}

@@ -32,6 +32,7 @@ node_modules/
 *.wasm
 .azure/
 Cloud/api/local.settings.json
+Cloud/api/dist/
 
 # Claude — local-only by choice
 .claude
