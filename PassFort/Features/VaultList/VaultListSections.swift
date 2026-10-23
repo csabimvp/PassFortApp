@@ -69,8 +69,18 @@ func count(of item: SidebarItem, in summaries: [AccountSummary]) -> Int {
 /// The categories that have at least one live account, in the enum's order.
 func usedCategories(in summaries: [AccountSummary]) -> [AccountCategory] {
   let used = Set(summaries.filter { !$0.isDeleted }.map(\.category))
-  return AccountCategory.allCases.filter(used.contains)
+  return sidebarCategoryOrder.filter(used.contains)
 }
+
+/// Categories grouped by colour family, as the mockup lists them, so each hue reads as one block:
+/// personal, money, network, tech, notes. A case missing here still shows, at the end.
+let sidebarCategoryOrder: [AccountCategory] = {
+  let grouped: [AccountCategory] = [
+    .login, .identity, .bankAccount, .paymentCard, .wifi, .server, .database, .apiCredential,
+    .softwareLicense, .secureNote, .other,
+  ]
+  return grouped + AccountCategory.allCases.filter { !grouped.contains($0) }
+}()
 
 /// Every tag on a live account, sorted.
 func usedTags(in summaries: [AccountSummary]) -> [String] {

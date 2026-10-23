@@ -71,7 +71,10 @@ with a score ring; the unlock screen warns when Caps Lock is on.
 
 Not built from the mockups, because the feature behind them doesn't exist yet: the sidebar's sync
 status (M5), Undo on the delete toast, the generator's Words mode, and the health rows' Change…
-button. The detail view keeps the system grouped `Form` rather than the mockup's hand-drawn cards.
+button. The detail view follows the mockup's cards on the system grouped `Form`, then shows Details,
+History and Stats in full rather than behind the mockup's "Advanced" toggle: everything the record
+holds is on screen once it is selected. The search field sits in the list column's
+header and the account's star and Edit lead the detail toolbar, as in the mockup.
 
 ## Mockups
 

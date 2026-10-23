@@ -15,6 +15,7 @@ struct VaultListView: View {
   @State private var editing: AccountSummary?
   @State private var deleting: AccountSummary?
   @State private var deleteError: String?
+  @State private var togglingFavorite = false
   @State private var copyError: String?
   /// The confirmation under the list after a copy ("Password copied…"), cleared after a moment.
   @State private var copied: String?
@@ -38,8 +39,14 @@ struct VaultListView: View {
       content
         .navigationTitle(sidebar.title)
         .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 560)
-        .searchable(text: $query, placement: .toolbar, prompt: "Search")
-        .searchFocused($searchFocused)
+        .toolbar {
+          // In this column's part of the toolbar, beside its title, as the mockup has it.
+          ToolbarItem {
+            ColumnSearchField(query: $query, focused: $searchFocused)
+          }
+          // The field draws its own background; no glass capsule around it.
+          .sharedBackgroundVisibility(.hidden)
+        }
         .background {
           // A ⌘F shortcut into the search field, not a toolbar button.
           Button("Search") { searchFocused = true }
@@ -57,8 +64,8 @@ struct VaultListView: View {
         }
       }
       .navigationSplitViewColumnWidth(min: 400, ideal: 560)
+      .toolbar { toolbar }
     }
-    .toolbar { toolbar }
     .focusedSceneValue(\.accountActions, selectedSummary.map(actions(for:)))
     .onChange(of: sidebar) { selection = nil }
     .task(id: model.writeCounter) {
@@ -174,9 +181,31 @@ struct VaultListView: View {
     Button("Delete…", role: .destructive) { deleting = row }
   }
 
+  /// Above the detail column, trailing, in the mockup's order: the selected account's star and
+  /// Edit, then add / generate / lock in a group of their own. One builder, because SwiftUI puts
+  /// an outer view's items before an inner one's, so the detail view can't contribute the first.
   @ToolbarContentBuilder
   private var toolbar: some ToolbarContent {
-    ToolbarItem {
+    ToolbarSpacer(.flexible)
+    if let summary = selectedSummary {
+      ToolbarItemGroup(placement: .primaryAction) {
+        Button {
+          Task { await toggleFavorite(summary) }
+        } label: {
+          Label(
+            summary.favorite ? "Remove Favorite" : "Mark as Favorite",
+            systemImage: summary.favorite ? "star.fill" : "star"
+          )
+          .foregroundStyle(summary.favorite ? Palette.favorite : Color.primary)
+        }
+        .disabled(togglingFavorite)
+        .help(summary.favorite ? "Remove from Favorites" : "Add to Favorites")
+
+        Button("Edit") { editing = summary }
+      }
+      ToolbarSpacer(.fixed, placement: .primaryAction)
+    }
+    ToolbarItem(placement: .primaryAction) {
       Button {
         showingAdd = true
       } label: {
@@ -185,7 +214,7 @@ struct VaultListView: View {
       .keyboardShortcut("n", modifiers: .command)
       .help("Add account (⌘N)")
     }
-    ToolbarItem {
+    ToolbarItem(placement: .primaryAction) {
       Button {
         model.showingGenerator = true
       } label: {
@@ -193,7 +222,7 @@ struct VaultListView: View {
       }
       .help("Generate password (⌘⌥G)")
     }
-    ToolbarItem {
+    ToolbarItem(placement: .primaryAction) {
       Button {
         model.lock()
       } label: {
@@ -211,6 +240,17 @@ struct VaultListView: View {
       copy: { field in Task { await copy(field, of: row) } },
       edit: { editing = row },
       delete: { deleting = row })
+  }
+
+  /// Flip the favorite flag: decrypt the one account, write it back with the flag toggled.
+  private func toggleFavorite(_ summary: AccountSummary) async {
+    guard !togglingFavorite else { return }
+    togglingFavorite = true
+    defer { togglingFavorite = false }
+    guard case .loaded(let account) = await model.loadAccount(id: summary.id) else { return }
+    var payload = account.payload
+    payload.favorite.toggle()
+    _ = await model.updateAccount(id: summary.id, to: payload)
   }
 
   private func delete(_ summary: AccountSummary) async {

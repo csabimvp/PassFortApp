@@ -11,8 +11,6 @@ struct AccountDetailView: View {
 
   @State private var load: AppModel.AccountLoad?
   @State private var revealHistory = false
-  @State private var editing = false
-  @State private var togglingFavorite = false
 
   var body: some View {
     Group {
@@ -68,9 +66,37 @@ struct AccountDetailView: View {
         copyableRow("Email", payload.email)
         concealedRow("PIN", payload.pin)
         concealedRow("Memorable word", payload.memorableWord)
-        row("Notes", payload.notes)
       } header: {
         header(payload)
+      }
+
+      if !payload.urls.isEmpty || !payload.tags.isEmpty || payload.expiresAt != nil {
+        Section {
+          ForEach(Array(payload.urls.enumerated()), id: \.offset) { index, url in
+            LabeledContent(payload.urls.count == 1 ? "Website" : "Website \(index + 1)") {
+              websiteLink(url)
+            }
+          }
+          if !payload.tags.isEmpty {
+            LabeledContent("Tags") { tagChips(payload.tags) }
+          }
+          if let expiresAt = payload.expiresAt {
+            LabeledContent("Expires") {
+              Text(expiresAt.formatted(date: .abbreviated, time: .omitted))
+                .foregroundStyle(expiresAt < .now ? Palette.danger : Color.primary)
+            }
+          }
+        }
+      }
+
+      if let notes = payload.notes, !notes.isEmpty {
+        Section {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Notes").font(.callout).foregroundStyle(.secondary)
+            Text(notes).textSelection(.enabled)
+          }
+          .padding(.vertical, 2)
+        }
       }
 
       if !payload.securityQuestions.isEmpty {
@@ -102,75 +128,21 @@ struct AccountDetailView: View {
         }
       }
 
-      if !payload.urls.isEmpty {
-        Section("URLs") {
-          ForEach(payload.urls, id: \.self) { url in
-            Link(destination: url) {
-              Label(url.absoluteString, systemImage: "safari")
-            }
-            .foregroundStyle(Palette.primary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-          }
-        }
-      }
-
+      // Everything the record holds is shown once it is selected, nothing behind a toggle.
       Section("Details") {
-        LabeledContent("Category") {
-          Text(payload.category.singularName).foregroundStyle(
-            Palette.color(payload.category.family))
-        }
-        if payload.favorite { LabeledContent("Favorite", value: "Yes") }
-        if !payload.tags.isEmpty {
-          LabeledContent("Tags") {
-            HStack(spacing: 6) {
-              ForEach(payload.tags, id: \.self) { tag in
-                Text(tag)
-                  .font(.caption)
-                  .padding(.horizontal, 8)
-                  .padding(.vertical, 2)
-                  .background(.quaternary, in: Capsule())
-              }
-            }
-          }
-        }
-        if let expiresAt = payload.expiresAt {
-          LabeledContent("Expires") {
-            Text(expiresAt.formatted(date: .abbreviated, time: .omitted))
-              .foregroundStyle(expiresAt < .now ? Palette.danger : Color.primary)
-          }
-        }
         LabeledContent("Created", value: stamp(payload.createdAt))
         LabeledContent("Updated", value: stamp(account.lastUpdated))
         if let changed = payload.passwordChangedAt {
           LabeledContent("Password changed", value: stamp(changed))
         }
       }
-
       historySection(payload)
       statsSection(account)
     }
     .formStyle(.grouped)
     .id(account.id)  // a fresh ConcealedRow identity per account: switching re-conceals
     .navigationTitle(payload.title)
-    .toolbar {
-      Button {
-        Task { await toggleFavorite(account) }
-      } label: {
-        Label(
-          payload.favorite ? "Remove Favorite" : "Mark as Favorite",
-          systemImage: payload.favorite ? "star.fill" : "star"
-        )
-        .foregroundStyle(payload.favorite ? Palette.favorite : Color.primary)
-      }
-      .disabled(togglingFavorite)
-      .help(payload.favorite ? "Remove from Favorites" : "Add to Favorites")
-
-      Button("Edit") { editing = true }
-    }
-    .sheet(isPresented: $editing) {
-      AccountFormView(mode: .edit(account))
-    }
+    // The star and Edit live in the vault window's toolbar, ahead of add / generate / lock.
   }
 
   /// The large category tile, the title, and the host · category line above the first section.
@@ -198,13 +170,27 @@ struct AccountDetailView: View {
     .padding(.bottom, 8)
   }
 
-  private func toggleFavorite(_ account: Account) async {
-    guard !togglingFavorite else { return }
-    togglingFavorite = true
-    defer { togglingFavorite = false }
-    var payload = account.payload
-    payload.favorite.toggle()
-    _ = await model.updateAccount(id: account.id, to: payload)
+  /// A website in the brand colour, opening in the browser, with the external-link glyph.
+  private func websiteLink(_ url: URL) -> some View {
+    Link(destination: url) {
+      HStack(spacing: 6) {
+        Text(url.absoluteString).lineLimit(1).truncationMode(.middle)
+        Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary)
+      }
+    }
+    .foregroundStyle(Palette.primary)
+  }
+
+  private func tagChips(_ tags: [String]) -> some View {
+    HStack(spacing: 6) {
+      ForEach(tags, id: \.self) { tag in
+        Text(tag)
+          .font(.caption)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 2)
+          .background(.quaternary, in: Capsule())
+      }
+    }
   }
 
   @ViewBuilder
@@ -266,13 +252,6 @@ struct AccountDetailView: View {
 
   private func shortDeviceID(_ account: Account) -> String {
     String(account.updatedAt.deviceID.uuidString.prefix(8))
-  }
-
-  @ViewBuilder
-  private func row(_ label: String, _ value: String?) -> some View {
-    if let value, !value.isEmpty {
-      LabeledContent(label, value: value)
-    }
   }
 
   /// A row with a copy button — for the non-concealed identity fields.

@@ -52,6 +52,18 @@ struct VaultListSectionsTests {
     #expect(count(of: .favorites, in: vault) == 1)
   }
 
+  @Test func sidebarGroupsCategoriesByColourFamily() {
+    let mixed = [
+      summary("Notes", category: .secureNote), summary("NAS", category: .server),
+      summary("Home", category: .wifi), summary("Passport", category: .identity),
+      summary("Bank", category: .bankAccount), summary("GitHub"),
+    ]
+    #expect(
+      usedCategories(in: mixed) == [.login, .identity, .bankAccount, .wifi, .server, .secureNote])
+    #expect(Set(sidebarCategoryOrder) == Set(AccountCategory.allCases))
+    #expect(sidebarCategoryOrder.count == AccountCategory.allCases.count)
+  }
+
   @Test func onlyTheAccountSlicesAreAccountLists() {
     #expect(SidebarItem.tag("x").isAccountList)
     #expect(!SidebarItem.health.isAccountList)
