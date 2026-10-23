@@ -23,6 +23,12 @@ struct VaultListView: View {
   @State private var findings: [AuditFinding]?
   @FocusState private var searchFocused: Bool
 
+  /// The narrowest the list column may get. Its part of the toolbar holds the title, whose view
+  /// never shrinks below 160 pt however short the title, and the search field. When the column is
+  /// narrower than those need, the toolbar pushes its separator past the column divider and the
+  /// two stop lining up -- and the width is restored at the next launch, so it starts that way.
+  static let contentMinWidth: CGFloat = 160 + ColumnSearchField.width + 20
+
   private var rows: [AccountSummary] {
     accountRows(from: model.summaries, in: sidebar, query: query)
   }
@@ -38,7 +44,7 @@ struct VaultListView: View {
     } content: {
       content
         .navigationTitle(sidebar.title)
-        .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 560)
+        .navigationSplitViewColumnWidth(min: Self.contentMinWidth, ideal: 400, max: 560)
         .toolbar {
           // In this column's part of the toolbar, beside its title, as the mockup has it.
           ToolbarItem {

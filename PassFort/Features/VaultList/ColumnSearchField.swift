@@ -4,6 +4,10 @@ import SwiftUI
 /// than at the window's trailing edge, as the mockup places it. ⌘F focuses it (the list view's
 /// hidden shortcut), Escape clears it.
 struct ColumnSearchField: View {
+  /// Fixed: a toolbar item is laid out at its ideal width, so a flexible frame never shrinks it.
+  /// `VaultListView.contentMinWidth` is derived from this.
+  static let width: CGFloat = 180
+
   @Binding var query: String
   var focused: FocusState<Bool>.Binding
 
@@ -21,7 +25,7 @@ struct ColumnSearchField: View {
       }
     }
     .padding(.horizontal, 8)
-    .frame(width: 180, height: 28)
+    .frame(width: Self.width, height: 28)
     .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 7))
   }
 }
