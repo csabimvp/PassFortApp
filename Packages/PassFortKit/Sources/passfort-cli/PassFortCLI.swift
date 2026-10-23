@@ -50,18 +50,27 @@ struct Bench: AsyncParsableCommand {
 
 struct Gen: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    abstract: "Generate random password(s). No vault needed; prints to stdout.")
+    abstract: "Generate random password(s) or passphrase(s). No vault needed; prints to stdout.")
 
   @OptionGroup var options: PasswordGenOptions
+  @OptionGroup var passphrase: PassphraseGenOptions
   @Option(name: [.short, .long], help: "How many to generate.") var count: Int = 1
 
   func run() throws {
     guard count >= 1 else { throw CLIError("--count must be at least 1") }
-    let policy = options.policy
-    let bits = try passwordEntropyBits(policy)
+    let next: () throws -> String
+    let bits: Int
+    if let policy = try passphrase.policy {
+      bits = Int(try policy.entropyBits().rounded())
+      next = { try policy.generate() }
+    } else {
+      let policy = options.policy
+      bits = try passwordEntropyBits(policy)
+      next = { try generatedPassword(from: policy) }
+    }
     FileHandle.standardError.write(Data("~\(bits) bits of entropy each\n".utf8))
     for _ in 0..<count {
-      print(try generatedPassword(from: policy))
+      print(try next())
     }
   }
 }

@@ -299,6 +299,27 @@ of each, and the look-alikes `0 O 1 l I` excluded. Flags:
 | `--no-lowercase` / `--no-uppercase` / `--no-digits` / `--no-symbols` | drop a character class |
 | `--allow-ambiguous` | keep `0 O 1 l I` |
 
+`--words <n>` makes a passphrase instead: `n` words (1–64) drawn uniformly from the EFF large word
+list (7,776 words, ~12.9 bits each), the same generator as the app's **Words** mode. The character
+flags above are ignored with it.
+
+```text
+$ passfort-cli gen --words 5
+~65 bits of entropy each
+giggling-pouring-spoken-ragweed-awning
+
+$ passfort-cli gen --words 4 --capitalize --digit --separator .
+~57 bits of entropy each
+Colt.Festive.Platypus5.Dismount
+```
+
+| Flag | Effect |
+|---|---|
+| `--words <n>` | a passphrase of `n` words, 1–64 |
+| `--separator <s>` | between the words, default `-`; may be empty |
+| `--capitalize` | capitalize each word (no extra entropy) |
+| `--digit` | append one random digit to one random word |
+
 The entropy line (`~N bits`) goes to **stderr**, so `passfort-cli gen | pbcopy` copies only the
 password. An impossible policy (every class off, `--length` too short to fit one of each class, an
 empty symbol set) fails with a message rather than a bad password.

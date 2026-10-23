@@ -125,6 +125,25 @@ struct PasswordGenOptions: ParsableArguments {
   }
 }
 
+/// `gen --words`: a passphrase from the EFF large word list instead of random characters.
+struct PassphraseGenOptions: ParsableArguments {
+  @Option(help: "Generate a passphrase of this many words (1-64) instead of a password.")
+  var words: Int?
+  @Option(help: "Put between passphrase words (with --words).") var separator: String = "-"
+  @Flag(help: "Capitalize each passphrase word (with --words).") var capitalize = false
+  @Flag(help: "Append a digit to one passphrase word (with --words).") var digit = false
+
+  /// `nil` without `--words`; a `CLIError` for a word count out of range.
+  var policy: PassphrasePolicy? {
+    get throws {
+      guard let words else { return nil }
+      guard (1...64).contains(words) else { throw CLIError("--words must be between 1 and 64") }
+      return PassphrasePolicy(
+        wordCount: words, separator: separator, capitalize: capitalize, includeDigit: digit)
+    }
+  }
+}
+
 /// Generate a password, turning a `PasswordPolicy.Failure` into a `CLIError`.
 func generatedPassword(from policy: PasswordPolicy) throws -> String {
   do { return try policy.generate() } catch { throw CLIError(describePolicyFailure(error)) }
