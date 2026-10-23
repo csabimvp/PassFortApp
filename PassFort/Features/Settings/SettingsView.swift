@@ -5,6 +5,9 @@ import SwiftUI
 /// buttons act on the open vault.
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
+  /// Optional so previews that only inject `AppModel` keep working.
+  @Environment(QuickAccessController.self) private var quickAccess: QuickAccessController?
+  @AppStorage(QuickAccessController.enabledKey) private var quickAccessEnabled = true
   @AppStorage("autoLockSeconds") private var autoLockSeconds = 300
   @State private var cryptoStats: VaultRepository.CryptoStats?
   @State private var changingPassword = false
@@ -21,6 +24,15 @@ struct SettingsView: View {
           Text("1 hour").tag(3600)
         }
         .onChange(of: autoLockSeconds) { model.autoLockSettingDidChange() }
+
+        Toggle(
+          "Quick Access shortcut (\(QuickAccessController.shortcutDescription))",
+          isOn: $quickAccessEnabled
+        )
+        .onChange(of: quickAccessEnabled) { quickAccess?.applySetting() }
+        if quickAccessEnabled, quickAccess?.hotKeyAvailable == false {
+          Text("Another app is using this shortcut.").font(.caption).foregroundStyle(Palette.warning)
+        }
 
         Button("Lock now") { model.lock() }
           .disabled(!unlocked)

@@ -2,144 +2,67 @@ import Foundation
 import PassFortVault
 import SwiftUI
 
-/// The `.unlocked` screen: a `NavigationSplitView` over `model.summaries` — the
-/// §8.3 in-memory index (decrypted titles, no secrets). Search and sort happen
-/// here in Swift, exactly as `passfort-cli list` does.
+/// The `.unlocked` screen, in three columns: the sidebar picks a slice (`SidebarItem`), the middle
+/// column lists it — accounts with copy buttons, health findings, or deleted accounts — and the
+/// detail column shows the account selected there. Everything listed comes from `model.summaries`,
+/// the §8.3 in-memory index (decrypted titles, no secrets); copying decrypts one record on demand.
 struct VaultListView: View {
   @Environment(AppModel.self) private var model
-  @State private var selection: AccountSummary.ID?
+  @State private var sidebar: SidebarItem = .all
+  @State private var selection: UUID?
   @State private var query = ""
   @State private var showingAdd = false
-  @State private var grouping: SidebarGrouping = .flat
   @State private var editing: AccountSummary?
   @State private var deleting: AccountSummary?
   @State private var deleteError: String?
-  @State private var showingDeleted = false
+  @State private var copyError: String?
+  /// The confirmation under the list after a copy ("Password copied…"), cleared after a moment.
+  @State private var copied: String?
+  /// The last audit; re-run after every write. `nil` until the first run finishes.
+  @State private var findings: [AuditFinding]?
   @FocusState private var searchFocused: Bool
 
-  private var sections: [SidebarSection] {
-    sidebarSections(from: model.summaries, query: query, grouping: grouping)
+  private var rows: [AccountSummary] {
+    accountRows(from: model.summaries, in: sidebar, query: query)
+  }
+
+  private var selectedSummary: AccountSummary? {
+    selection.flatMap { id in model.summaries.first { $0.id == id && !$0.isDeleted } }
   }
 
   var body: some View {
     NavigationSplitView {
-      List(selection: $selection) {
-        ForEach(sections) { section in
-          if let title = section.title {
-            Section(title) {
-              ForEach(section.rows) { row in
-                rowLabel(row).tag(row.id)
-              }
-            }
-          } else {
-            // No header — keeps the plain flat list plain when grouping is off.
-            Section {
-              ForEach(section.rows) { row in
-                rowLabel(row).tag(row.id)
-              }
-            }
-          }
+      VaultSidebar(selection: $sidebar, healthCount: findings?.count)
+        .navigationSplitViewColumnWidth(min: 180, ideal: 210)
+    } content: {
+      content
+        .navigationTitle(sidebar.title)
+        .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 560)
+        .searchable(text: $query, placement: .toolbar, prompt: "Search")
+        .searchFocused($searchFocused)
+        .background {
+          // A ⌘F shortcut into the search field, not a toolbar button.
+          Button("Search") { searchFocused = true }
+            .keyboardShortcut("f", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
         }
-      }
-      .listStyle(.sidebar)
-      .scrollContentBackground(.hidden)
-      .background(.ultraThinMaterial)
-      .searchable(text: $query, prompt: "Search")
-      .searchFocused($searchFocused)
-      .background {
-        // Not in the toolbar (it showed up there as an empty button): just a ⌘F shortcut.
-        Button("Search") { searchFocused = true }
-          .keyboardShortcut("f", modifiers: .command)
-          .opacity(0)
-          .frame(width: 0, height: 0)
-          .accessibilityHidden(true)
-      }
-      .onDeleteCommand { deleteSelected() }
-      .navigationTitle("PassFort")
-      .navigationSplitViewColumnWidth(min: 220, ideal: 280)
-      .overlay {
-        if sections.isEmpty {
-          ContentUnavailableView(
-            query.isEmpty ? "No accounts yet" : "No matches",
-            systemImage: query.isEmpty ? "key" : "magnifyingglass")
-        }
-      }
-      .safeAreaInset(edge: .bottom, spacing: 0) {
-        VStack(spacing: 0) {
-          Divider()
-          HStack {
-            Menu {
-              Picker("Group by", selection: $grouping) {
-                ForEach(SidebarGrouping.allCases) { mode in
-                  Text(mode.rawValue).tag(mode)
-                }
-              }
-              .pickerStyle(.inline)
-            } label: {
-              Label(
-                "Group By",
-                systemImage: grouping == .flat
-                  ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill"
-              )
-              .labelStyle(.titleAndIcon)
-              .font(.caption)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            Spacer()
-            Button {
-              showingDeleted = true
-            } label: {
-              Label("Recently Deleted", systemImage: "trash")
-                .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help("Recently Deleted (\(model.deletedSummaries.count))")
-            SettingsLink {
-              Label("Settings", systemImage: "gearshape")
-                .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .help("Settings (⌘,)")
-          }
-          .padding(.horizontal, 10)
-          .padding(.vertical, 6)
-        }
-        .background(.ultraThinMaterial)
-      }
-      .toolbar {
-        ToolbarItem {
-          Button {
-            showingAdd = true
-          } label: {
-            Label("Add account", systemImage: "plus")
-          }
-          .keyboardShortcut("n", modifiers: .command)
-          .help("Add account (⌘N)")
-        }
-        ToolbarItem {
-          Button {
-            model.showingGenerator = true
-          } label: {
-            Label("Generate password", systemImage: "wand.and.stars")
-          }
-          .help("Generate password (⌘⌥G)")
-        }
-        ToolbarItem {
-          Button {
-            model.lock()
-          } label: {
-            Label("Lock", systemImage: "lock")
-          }
-          .keyboardShortcut("l", modifiers: .command)
-        }
-      }
     } detail: {
-      if let id = selection {
-        AccountDetailView(accountID: id)
-      } else {
-        ContentUnavailableView("Select an account", systemImage: "key")
+      Group {
+        if let id = selection {
+          AccountDetailView(accountID: id)
+        } else {
+          ContentUnavailableView("Select an account", systemImage: "key")
+        }
       }
+      .navigationSplitViewColumnWidth(min: 400, ideal: 560)
+    }
+    .toolbar { toolbar }
+    .focusedSceneValue(\.accountActions, selectedSummary.map(actions(for:)))
+    .onChange(of: sidebar) { selection = nil }
+    .task(id: model.writeCounter) {
+      if case .success(let result) = await model.audit() { findings = result }
     }
     .sheet(isPresented: $showingAdd) {
       AccountFormView(mode: .create)
@@ -147,8 +70,8 @@ struct VaultListView: View {
     .sheet(item: $editing) { summary in
       EditAccountSheet(id: summary.id)
     }
-    .sheet(isPresented: $showingDeleted) {
-      RecentlyDeletedView()
+    .sheet(isPresented: Binding(get: { model.showingImport }, set: { model.showingImport = $0 })) {
+      ImportView()
     }
     .confirmationDialog(
       "Delete “\(deleting?.title ?? "")”?",
@@ -160,6 +83,14 @@ struct VaultListView: View {
       Text("It moves to Recently Deleted, where you can restore it until you empty it.")
     }
     .alert(
+      "Couldn't copy",
+      isPresented: Binding(get: { copyError != nil }, set: { if !$0 { copyError = nil } })
+    ) {
+      Button("OK") { copyError = nil }
+    } message: {
+      Text(copyError ?? "")
+    }
+    .alert(
       "Couldn't delete the account",
       isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
     ) {
@@ -169,10 +100,117 @@ struct VaultListView: View {
     }
   }
 
-  private func deleteSelected() {
-    guard let selection, let summary = model.summaries.first(where: { $0.id == selection })
-    else { return }
-    deleting = summary
+  // MARK: - Middle column
+
+  @ViewBuilder
+  private var content: some View {
+    switch sidebar {
+    case .health:
+      HealthColumn(findings: findings, query: query, selection: $selection)
+    case .deleted:
+      DeletedColumn(query: query, selection: $selection)
+    case .all, .favorites, .category, .tag:
+      accountList
+    }
+  }
+
+  private var accountList: some View {
+    List(selection: $selection) {
+      ForEach(rows) { row in
+        AccountRow(row: row, isSelected: selection == row.id) { field in
+          Task { await copy(field, of: row) }
+        }
+        .tag(row.id)
+        .contextMenu { contextMenu(for: row) }
+      }
+    }
+    .onDeleteCommand { if let selectedSummary { deleting = selectedSummary } }
+    .overlay {
+      if model.summaries.allSatisfy(\.isDeleted) {
+        ContentUnavailableView {
+          Label("No accounts yet", systemImage: "key")
+        } actions: {
+          Button("Import from Password Safe…") { model.showingImport = true }
+        }
+      } else if rows.isEmpty {
+        ContentUnavailableView(
+          query.isEmpty ? "Nothing here" : "No matches",
+          systemImage: query.isEmpty ? "tray" : "magnifyingglass")
+      }
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      Group {
+        if let copied {
+          Toast(text: copied)
+        } else {
+          Text(
+            "\(AccountCommands.copyPasswordHint) password   "
+              + "\(AccountCommands.copyUsernameHint) username   "
+              + "\(AccountCommands.copyCodeHint) code"
+          )
+          .foregroundStyle(.secondary)
+        }
+      }
+      .font(.caption)
+      .frame(maxWidth: .infinity)
+      .padding(6)
+      .background(.bar)
+    }
+  }
+
+  @ViewBuilder
+  private func contextMenu(for row: AccountSummary) -> some View {
+    if row.hasPassword {
+      Button("Copy Password") { Task { await copy(.password, of: row) } }
+    }
+    if row.username != nil {
+      Button("Copy Username") { Task { await copy(.username, of: row) } }
+    }
+    if row.hasOneTimeCode {
+      Button("Copy One-Time Code") { Task { await copy(.oneTimeCode, of: row) } }
+    }
+    Divider()
+    Button("Edit…") { editing = row }
+    Button("Delete…", role: .destructive) { deleting = row }
+  }
+
+  @ToolbarContentBuilder
+  private var toolbar: some ToolbarContent {
+    ToolbarItem {
+      Button {
+        showingAdd = true
+      } label: {
+        Label("Add account", systemImage: "plus")
+      }
+      .keyboardShortcut("n", modifiers: .command)
+      .help("Add account (⌘N)")
+    }
+    ToolbarItem {
+      Button {
+        model.showingGenerator = true
+      } label: {
+        Label("Generate password", systemImage: "wand.and.stars")
+      }
+      .help("Generate password (⌘⌥G)")
+    }
+    ToolbarItem {
+      Button {
+        model.lock()
+      } label: {
+        Label("Lock", systemImage: "lock")
+      }
+      .keyboardShortcut("l", modifiers: .command)
+      .help("Lock (⌘L)")
+    }
+  }
+
+  // MARK: - Actions
+
+  private func actions(for row: AccountSummary) -> AccountActions {
+    AccountActions(
+      copy: { field in Task { await copy(field, of: row) } },
+      edit: { editing = row },
+      delete: { deleting = row })
   }
 
   private func delete(_ summary: AccountSummary) async {
@@ -184,40 +222,23 @@ struct VaultListView: View {
   }
 
   /// One decrypt, straight to the clipboard (concealed, cleared after 20 s or on lock); the
-  /// plaintext is not kept.
-  private func copyPassword(of summary: AccountSummary) async {
-    let account = try? await model.repo?.account(id: summary.id)
-    guard let password = account?.payload.password else { return }
-    Pasteboard.copyTransient(password)
-  }
-
-  @ViewBuilder
-  private func rowLabel(_ row: AccountSummary) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      HStack(spacing: 4) {
-        if row.favorite {
-          Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow)
-        }
-        Text(row.title)
-      }
-      if let subtitle = row.username ?? row.host {
-        Text(subtitle).font(.caption).foregroundStyle(.secondary)
-      }
+  /// plaintext is not kept. Confirms under the list; a failure (no such field) is an alert.
+  private func copy(_ field: AppModel.CopyField, of summary: AccountSummary) async {
+    if let failure = await model.copy(field, from: summary.id) {
+      copyError = failure.message
+      return
     }
-    .contextMenu {
-      Button("Copy Password") { Task { await copyPassword(of: row) } }
-      if let username = row.username {
-        Button("Copy Username") { Pasteboard.copyTransient(username) }
-      }
-      Divider()
-      Button("Edit…") { editing = row }
-      Button("Delete…", role: .destructive) { deleting = row }
-    }
+    let message =
+      "\(field.name.prefix(1).uppercased())\(field.name.dropFirst()) of "
+      + "“\(summary.title)” copied — clears in 20 s"
+    copied = message
+    try? await Task.sleep(for: .seconds(2))
+    if copied == message { copied = nil }
   }
 }
 
-/// The edit form for an account picked from the sidebar's context menu: decrypts it once, then
-/// hands over to the same `AccountFormView` the detail pane uses.
+/// The edit form for an account picked from a context menu or ⌘E: decrypts it once, then hands
+/// over to the same `AccountFormView` the detail column uses.
 private struct EditAccountSheet: View {
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss

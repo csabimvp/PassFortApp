@@ -18,7 +18,13 @@ struct AccountDetailView: View {
     Group {
       switch load {
       case .loaded(let account) where account.isDeleted:
-        ContentUnavailableView("Account deleted", systemImage: "trash")
+        ContentUnavailableView {
+          Label("“\(account.payload.title)” is deleted", systemImage: "trash")
+        } description: {
+          Text("It stays in Recently Deleted until you empty it.")
+        } actions: {
+          Button("Restore") { Task { _ = await model.restoreAccount(id: account.id) } }
+        }
       case .loaded(let account):
         content(account)
       case .missing:

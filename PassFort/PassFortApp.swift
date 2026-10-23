@@ -5,6 +5,7 @@ struct PassFortApp: App {
   @State private var location: VaultLocationModel
   @State private var model: AppModel
   @State private var backup: BackupModel
+  @State private var quickAccess = QuickAccessController()
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
@@ -41,18 +42,41 @@ struct PassFortApp: App {
         .sheet(isPresented: $model.showingGenerator) {
           PasswordGeneratorView().tint(Palette.primary)
         }
+        .modifier(AdoptOpenWindow(controller: quickAccess))
     }
-    .defaultSize(width: 860, height: 540)
+    .defaultSize(width: 1240, height: 720)
     .commands {
+      AccountCommands()
       CommandMenu("Tools") {
         Button("Generate Password…") { model.showingGenerator = true }
           .keyboardShortcut("g", modifiers: [.command, .option])
+        Button("Quick Access (\(QuickAccessController.shortcutDescription))") { quickAccess.show() }
+        Divider()
+        Button("Import from Password Safe…") { model.showingImport = true }
+          .disabled(model.state != .unlocked)
       }
     }
 
+    Window("Quick Access", id: QuickAccessController.windowID) {
+      QuickAccessView()
+        .environment(model)
+        .tint(Palette.primary)
+    }
+    .windowResizability(.contentSize)
+    .windowStyle(.hiddenTitleBar)
+    .defaultPosition(.center)
+
+    MenuBarExtra("PassFort", systemImage: "key.fill") {
+      QuickAccessView()
+        .environment(model)
+        .tint(Palette.primary)
+        .modifier(AdoptOpenWindow(controller: quickAccess))
+    }
+    .menuBarExtraStyle(.window)
+
     Settings {
       TabView {
-        SettingsView().environment(model).tint(Palette.primary)
+        SettingsView().environment(model).environment(quickAccess).tint(Palette.primary)
           .tabItem { Label("General", systemImage: "gearshape") }
         VaultLocationSettingsView().environment(model).environment(location).environment(backup)
           .tint(Palette.primary)
@@ -62,5 +86,16 @@ struct PassFortApp: App {
           .tabItem { Label("Backup", systemImage: "externaldrive") }
       }
     }
+  }
+}
+
+/// Hands the environment's `openWindow` to the Quick Access controller, so the global shortcut can
+/// open its window from outside any view.
+private struct AdoptOpenWindow: ViewModifier {
+  @Environment(\.openWindow) private var openWindow
+  let controller: QuickAccessController
+
+  func body(content: Content) -> some View {
+    content.onAppear { controller.adopt(openWindow) }
   }
 }
