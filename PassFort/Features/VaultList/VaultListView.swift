@@ -80,6 +80,12 @@ struct VaultListView: View {
     .sheet(isPresented: Binding(get: { model.showingImport }, set: { model.showingImport = $0 })) {
       ImportView()
     }
+    .sheet(
+      isPresented: Binding(
+        get: { model.showingVaultImport }, set: { model.showingVaultImport = $0 })
+    ) {
+      VaultImportView()
+    }
     .confirmationDialog(
       "Delete “\(deleting?.title ?? "")”?",
       isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
@@ -138,6 +144,7 @@ struct VaultListView: View {
           Label("No accounts yet", systemImage: "key")
         } actions: {
           Button("Import from Password Safe…") { model.showingImport = true }
+          Button("Import from Another Vault…") { model.showingVaultImport = true }
         }
       } else if rows.isEmpty {
         ContentUnavailableView(

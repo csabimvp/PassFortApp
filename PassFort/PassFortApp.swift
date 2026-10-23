@@ -54,6 +54,8 @@ struct PassFortApp: App {
         Divider()
         Button("Import from Password Safe…") { model.showingImport = true }
           .disabled(model.state != .unlocked)
+        Button("Import from Another Vault…") { model.showingVaultImport = true }
+          .disabled(model.state != .unlocked)
       }
     }
 

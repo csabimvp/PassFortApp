@@ -37,6 +37,8 @@ final class AppModel {
   var showingGenerator = false
   /// Whether the import sheet is up (Tools menu, or the empty vault's button).
   var showingImport = false
+  /// Whether the import-from-another-vault sheet is up (Tools menu, or the empty vault's button).
+  var showingVaultImport = false
 
   private let service: VaultService
   private var autoLock: AutoLock?
@@ -116,6 +118,7 @@ final class AppModel {
     stagedRepo = nil
     summaries = []
     showingImport = false  // an import plan is plaintext; it must not reappear after unlock
+    showingVaultImport = false
     Pasteboard.clearTransient()
     state = .locked()
   }
@@ -218,6 +221,24 @@ final class AppModel {
       return .success(try await repo.audit())
     } catch {
       return .failure(VaultService.map(error))
+    }
+  }
+
+  /// Unlock another PassFort vault read-only and read what it could bring in
+  /// (`VaultImport.plan`). The plan is plaintext; the sheet holds it only while it is up, and
+  /// `importAccounts` writes the chosen part.
+  func planVaultImport(
+    from file: URL, unlockingWith credential: VaultImport.Credential
+  ) async -> Result<ImportPlan, AppError> {
+    guard let repo else { return .failure(.io("The vault is locked.")) }
+    do {
+      return .success(
+        try await service.planImport(
+          fromVaultAt: file.path(percentEncoded: false), unlockingWith: credential, into: repo))
+    } catch let error as AppError {
+      return .failure(error)
+    } catch {
+      return .failure(.io(String(describing: error)))
     }
   }
 

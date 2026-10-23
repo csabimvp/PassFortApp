@@ -77,10 +77,33 @@ nonisolated struct VaultService {
     try (highWater ?? HighWaterMark(sidecarFor: databasePath)).reset()
   }
 
+  /// Unlock another vault read-only and read the accounts it could bring into `target`
+  /// (`VaultImport.plan`). The source file is not changed.
+  func planImport(
+    fromVaultAt path: String, unlockingWith credential: VaultImport.Credential,
+    into target: VaultRepository
+  ) async throws -> ImportPlan {
+    do {
+      return try await VaultImport.plan(
+        fromVaultAt: path, unlockingWith: credential, into: target)
+    } catch PassFortError.notFound {
+      throw AppError.importRefused("That vault has no recovery key. Unlock it with its password.")
+    } catch {
+      throw Self.map(error)
+    }
+  }
+
   // MARK: - Error translation
 
   static func map(_ error: Error) -> AppError {
     switch error {
+    case VaultImport.Failure.notAVault:
+      return .importRefused("That file isn't a PassFort vault.")
+    case VaultImport.Failure.sameVault:
+      return .importRefused("That's this vault, or a copy of it. There's nothing to import.")
+    case VaultImport.Failure.unsupportedSchema:
+      return .importRefused(
+        "That vault is from a different version of PassFort, so this one can't read it.")
     case PassFortError.authFailed:
       return .wrongPassword
     case VaultError.notFound:

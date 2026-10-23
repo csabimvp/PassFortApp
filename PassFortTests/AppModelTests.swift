@@ -351,6 +351,47 @@ struct AppModelTests {
     #expect(model.showingImport == false)
   }
 
+  @Test func vaultImportPlansFromAnotherVaultAndLockClosesTheSheet() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    let devURL = dir.appending(path: "dev.sqlite")
+    try await makeVault(at: path, password: "pw")
+    let dev = try await Vault.create(
+      databasePath: devURL.path(percentEncoded: false), password: Data("dev".utf8),
+      params: fastParams, deviceID: VaultService.deviceID)
+    _ = try await dev.create(AccountPayload(title: "Bank", username: "me", password: "p"))
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("pw".utf8))
+    let plan = try await model.planVaultImport(
+      from: devURL, unlockingWith: .password(Data("dev".utf8))
+    ).get()
+    #expect(plan.accounts.map(\.payload.title) == ["Bank"])
+    #expect(await model.importAccounts(plan.accounts.map(\.payload)) == nil)
+    #expect(model.summaries.map(\.title) == ["Bank"])
+
+    model.showingVaultImport = true
+    model.lock()
+    #expect(model.showingVaultImport == false)
+  }
+
+  @Test func vaultImportReportsAWrongPasswordAndRefusesItself() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appending(path: "v.sqlite")
+    try await makeVault(at: url.path(percentEncoded: false), password: "pw")
+
+    let model = AppModel(databasePath: url.path(percentEncoded: false))
+    await model.unlock(password: Data("pw".utf8))
+    let wrong = await model.planVaultImport(from: url, unlockingWith: .password(Data("no".utf8)))
+    #expect(throws: AppError.wrongPassword) { try wrong.get() }
+    let itself = await model.planVaultImport(from: url, unlockingWith: .password(Data("pw".utf8)))
+    let refusal = AppError.importRefused(
+      "That's this vault, or a copy of it. There's nothing to import.")
+    #expect(throws: refusal) { try itself.get() }
+  }
+
   // MARK: - Rollback
 
   @Test func reloadAfterRestoreShowsTheScreenThatMatchesTheDisk() async throws {
