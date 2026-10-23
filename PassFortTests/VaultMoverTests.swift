@@ -187,6 +187,55 @@ struct VaultMoverTests {
     _ = repo
   }
 
+  // MARK: - setAside
+
+  @Test func settingAsideMovesEveryFileUnderTheLabel() async throws {
+    let s = try makeScratch()
+    defer { s.remove() }
+    let path = s.path("vault.sqlite")
+    let repo = try await Vault.create(
+      databasePath: path, password: password, params: params, deviceID: VaultService.deviceID)
+    _ = try await repo.create(AccountPayload(title: "a", username: "u", password: "p"))
+    #expect(exists(path + "-wal"))
+
+    let kept = try VaultMover.setAside(path, label: "pre-new").path(percentEncoded: false)
+
+    #expect(kept.hasPrefix(path + ".pre-new-"))
+    #expect(!exists(path))
+    #expect(!exists(path + "-wal"))
+    #expect(exists(kept))
+    #expect(exists(kept + "-wal"))
+    _ = repo
+  }
+
+  @Test func settingAsideIsAllOrNothing() throws {
+    let s = try makeScratch()
+    defer { s.remove() }
+    let path = s.path("vault.sqlite")
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let fm = FileManager.default
+    for suffix in ["", "-wal"] { fm.createFile(atPath: path + suffix, contents: Data("old".utf8)) }
+    let kept = try VaultMover.setAside(path, label: "pre-new", now: now).path(percentEncoded: false)
+
+    // Same name again, and only the main file's slot is free: the main file moves, the -wal can't,
+    // so the main file must come back.
+    try fm.removeItem(atPath: kept)
+    for suffix in ["", "-wal"] { fm.createFile(atPath: path + suffix, contents: Data("new".utf8)) }
+    #expect(throws: (any Error).self) { try VaultMover.setAside(path, label: "pre-new", now: now) }
+
+    #expect(fm.contents(atPath: path) == Data("new".utf8))
+    #expect(fm.contents(atPath: path + "-wal") == Data("new".utf8))
+    #expect(!exists(kept))
+  }
+
+  @Test func settingAsideNothingIsRefused() throws {
+    let s = try makeScratch()
+    defer { s.remove() }
+    #expect(throws: AppError.notAVault) {
+      try VaultMover.setAside(s.path("none/vault.sqlite"), label: "pre-new")
+    }
+  }
+
   @Test func retiringNothingReturnsNil() throws {
     let s = try makeScratch()
     defer { s.remove() }

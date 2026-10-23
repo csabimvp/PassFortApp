@@ -172,6 +172,100 @@ final class AppModel {
     }
   }
 
+  /// What starting a new vault needs from the rest of the app (the shape of `RestoreModel.Hooks`):
+  /// no backup may read the vault's files while they are swapped.
+  struct NewVaultHooks {
+    /// Called once the password checks out. Returns a reason to refuse (a backup is mid-run), or
+    /// `nil` to go ahead.
+    var begin: () -> String?
+    /// Called last whenever `begin` went ahead, success or not.
+    var end: () -> Void
+
+    static let none = Self(begin: { nil }, end: {})
+  }
+
+  /// Settings ▸ Vault ▸ Start a New Vault: check the current password, set the open vault's files
+  /// aside (kept, never deleted), and create an empty vault in their place -- then show its
+  /// recovery key once, or go straight to `.unlocked`, as on first run. Both Argon2id passes run
+  /// before anything is touched, and a create that fails puts the old files back, so the old vault
+  /// is never left hidden behind a Create screen.
+  ///
+  /// - Returns: the path the old vault was kept at, or why nothing changed.
+  func startNewVault(
+    current: Data, password: Data, recovery: Bool, _ hooks: NewVaultHooks = .none
+  ) async -> Result<String, AppError> {
+    let header: Data
+    do {
+      // Scoped so no strong reference to the open vault outlives this block (see `released`).
+      guard case .unlocked = state, let repo else { return .failure(.io("The vault is locked.")) }
+      header = try await repo.header()
+    } catch {
+      return .failure(VaultService.map(error))
+    }
+
+    let service = self.service
+    let calibration = Task.detached(priority: .userInitiated) {
+      try service.verifyPassword(current, header: header)
+      return try service.calibrate()
+    }
+    do {
+      _ = try await calibration.value
+    } catch let error as AppError {
+      return .failure(error)
+    } catch {
+      return .failure(VaultService.map(error))
+    }
+
+    // The checks took a second or more: the vault may have auto-locked meanwhile.
+    guard case .unlocked = state else {
+      return .failure(.io("The vault locked. Unlock it and try again."))
+    }
+    if let reason = hooks.begin() { return .failure(.notNow(reason)) }
+    defer { hooks.end() }
+
+    weak let released = repo
+    lock()
+    // A spinner on the Unlock screen, and no unlock attempt while the files move.
+    state = .unlocking
+    await Task.yield()  // let the released vault's connection close before its files move
+    // A connection still open on the old file would write its log beside the new vault.
+    guard released == nil else {
+      state = .locked()
+      return .failure(.notNow("PassFort is still finishing with the vault. Try again in a moment."))
+    }
+
+    let aside: VaultService.SetAside
+    let created: (repo: VaultRepository, recoveryKey: RecoveryKey?)
+    do {
+      aside = try service.setAside()
+    } catch {
+      state = .locked()
+      return .failure(error as? AppError ?? .io(error.localizedDescription))
+    }
+    do {
+      created = try await service.createVault(
+        password: password, params: calibration.value, recovery: recovery)
+    } catch {
+      service.putBack(aside)
+      state = .locked()
+      return .failure(error as? AppError ?? .io(String(describing: error)))
+    }
+
+    let keptAt = aside.kept.path(percentEncoded: false)
+    if let key = created.recoveryKey {
+      stagedRepo = created.repo
+      state = .showingRecoveryKey(key)
+    } else {
+      do {
+        try await adoptUnlocked(created.repo)
+      } catch {
+        // The new vault exists; unlocking it retries.
+        state = .locked(.io(String(describing: error)))
+      }
+    }
+    return .success(keptAt)
+  }
+
   /// Rebuild the summary index — call after a write.
   func refreshSummaries() async {
     guard let repo else { return }

@@ -101,10 +101,36 @@ nonisolated enum VaultMover {
     return kept
   }
 
+  /// Set the vault's files aside as `<db>.<label>-<time>` (+ `-wal`/`-shm`) -- all of them or none.
+  /// Unlike `retire`, a failure here must stop the caller: a vault created beside a stale `-wal`
+  /// would have SQLite replay the old vault's log into it.
+  ///
+  /// - Returns: where the main file was kept.
+  /// - Throws: `AppError.notAVault` if there is no file to set aside, or the move's error after
+  ///   putting back whatever had already moved.
+  static func setAside(_ databasePath: String, label: String, now: Date = .now) throws -> URL {
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: databasePath) else { throw AppError.notAVault }
+    let aside = databasePath + ".\(label)-\(stamp(now))"
+    var moved: [String] = []
+    do {
+      for suffix in ["", "-wal", "-shm"] where fm.fileExists(atPath: databasePath + suffix) {
+        try fm.moveItem(atPath: databasePath + suffix, toPath: aside + suffix)
+        moved.append(suffix)
+      }
+    } catch {
+      for suffix in moved {
+        try? fm.moveItem(atPath: aside + suffix, toPath: databasePath + suffix)
+      }
+      throw error
+    }
+    return URL(fileURLWithPath: aside)
+  }
+
   // MARK: - Internals
 
   /// Put the target back the way it was: remove what was installed, return what was set aside.
-  private static func undoInstall(at databasePath: String, restoring aside: URL?) {
+  static func undoInstall(at databasePath: String, restoring aside: URL?) {
     let fm = FileManager.default
     for suffix in ["", "-wal", "-shm"] { try? fm.removeItem(atPath: databasePath + suffix) }
     guard let aside else { return }

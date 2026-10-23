@@ -31,6 +31,9 @@ nonisolated struct VaultService {
 
   private var highWater: HighWaterMark? { highWaterURL.map(HighWaterMark.init(url:)) }
 
+  /// The mark this vault actually uses: the explicit one, or the sidecar beside the vault.
+  private var highWaterMark: HighWaterMark { highWater ?? HighWaterMark(sidecarFor: databasePath) }
+
   /// Cheap, side-effect-free (§2.3): is there an initialised vault at the path?
   func exists() -> Bool { Vault.exists(databasePath: databasePath) }
 
@@ -74,7 +77,41 @@ nonisolated struct VaultService {
   /// The GUI's `verify --accept-restore`: clear the anti-rollback sidecar so the
   /// next `unlock` accepts the file and repairs the mark forward.
   func acceptRestoredBackup() throws {
-    try (highWater ?? HighWaterMark(sidecarFor: databasePath)).reset()
+    try highWaterMark.reset()
+  }
+
+  // MARK: - Starting over
+
+  /// The old vault's files, set aside to make room for a new vault, and the mark they had.
+  struct SetAside: Sendable, Equatable {
+    /// Where the old vault's main file was kept.
+    let kept: URL
+    let mark: UInt64
+  }
+
+  /// Check `password` against the open vault's `header` with a second Argon2id pass -- the session
+  /// can't check a password itself. Blocks ~500 ms -- call inside `Task.detached`.
+  func verifyPassword(_ password: Data, header: Data) throws {
+    do {
+      _ = try VaultSession.open(header: header, password: password)
+    } catch {
+      throw Self.map(error)
+    }
+  }
+
+  /// Move the vault's files aside as `vault.sqlite.pre-new-<time>`, kept and never deleted, so a
+  /// new vault can be created at this path. The vault must be closed first.
+  func setAside(now: Date = .now) throws -> SetAside {
+    let mark = try highWaterMark.read()
+    return SetAside(
+      kept: try VaultMover.setAside(databasePath, label: "pre-new", now: now), mark: mark)
+  }
+
+  /// Undo `setAside`: remove whatever a failed create left at the path, return the old files, and
+  /// restore their anti-rollback mark (a create resets it to 0 before it can fail).
+  func putBack(_ aside: SetAside) {
+    VaultMover.undoInstall(at: databasePath, restoring: aside.kept)
+    try? highWaterMark.write(aside.mark)
   }
 
   /// Unlock another vault read-only and read the accounts it could bring into `target`

@@ -27,6 +27,9 @@ enum AppError: Error, Equatable {
   /// Another vault picked to import from can't be used (`VaultImport.Failure`, or a recovery key
   /// for a vault without one). The value is the full sentence to show.
   case importRefused(String)
+  /// Something else is using the vault's files right now (a backup mid-run). The value is the full
+  /// sentence to show.
+  case notNow(String)
   /// Anything else — I/O, an unexpected status.
   case io(String)
 
@@ -49,7 +52,7 @@ enum AppError: Error, Equatable {
       return "This vault was modified outside PassFort and isn't safe to open."
     case .rolledBack(let fileVersion, let lastSeen):
       return "This vault is v\(fileVersion); this Mac last saw v\(lastSeen). It looks rolled back."
-    case .locationNotAllowed(let reason), .importRefused(let reason):
+    case .locationNotAllowed(let reason), .importRefused(let reason), .notNow(let reason):
       return reason
     case .notABackup:
       return "That file isn't a PassFort vault backup."

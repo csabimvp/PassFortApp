@@ -211,6 +211,11 @@ File ▸ Export To ▸ Plain Text file, shows what would come in, skips likely d
 one transaction. Afterwards it offers to move the export, which holds every password in plain text,
 to the Trash.
 
+**Start a new vault.** Settings ▸ Vault ▸ Start a New Vault… (while unlocked) replaces the vault
+with an empty one at the same location, after checking the current password. The old vault is set
+aside beside it as `vault.sqlite.pre-new-<time>`, never deleted; Tools ▸ Import from Another
+Vault… can bring accounts over from it.
+
 **Quick Access.** Press ⌃⌥Space from any app, or click the key icon in the menu bar: type to search,
 then Return copies the password, ⇧Return the username and ⌥Return the one-time code. The window
 closes and the app you came from is frontmost again, ready to paste; the copy is concealed from

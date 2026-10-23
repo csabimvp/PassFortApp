@@ -179,6 +179,169 @@ struct AppModelTests {
     #expect(model.state == .unlocked)
   }
 
+  // MARK: - Start a new vault
+
+  /// The `.pre-new-` files beside the vault, by name.
+  private func setAsideFiles(in dir: URL) throws -> [String] {
+    try FileManager.default.contentsOfDirectory(atPath: dir.path(percentEncoded: false))
+      .filter { $0.contains(".pre-new-") }
+  }
+
+  @Test func startNewVaultReplacesTheVaultAndKeepsTheOldOne() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("old".utf8))
+    _ = await model.createAccount(AccountPayload(title: "GitHub"))
+    var calls: [String] = []
+    let hooks = AppModel.NewVaultHooks(
+      begin: {
+        calls.append("begin")
+        return nil
+      },
+      end: { calls.append("end") })
+
+    let result = await model.startNewVault(
+      current: Data("old".utf8), password: Data("fresh".utf8), recovery: false, hooks)
+
+    let keptAt = try result.get()
+    #expect(calls == ["begin", "end"])
+    #expect(model.state == .unlocked)
+    #expect(model.summaries.isEmpty)
+    let oldID = try #require(VaultBackup.inspect(URL(fileURLWithPath: keptAt))).vaultID
+    let newID = try #require(VaultBackup.inspect(URL(fileURLWithPath: path))).vaultID
+    #expect(oldID != newID)
+
+    // The new vault opens with its own password -- the old mark was reset, so no false rollback.
+    model.lock()
+    await model.unlock(password: Data("old".utf8))
+    #expect(model.state == .locked(.wrongPassword))
+    await model.unlock(password: Data("fresh".utf8))
+    #expect(model.state == .unlocked)
+
+    // The old vault is whole: its WAL went with it (or was checkpointed into it on close).
+    let old = try await Vault.unlock(
+      databasePath: keptAt, password: Data("old".utf8), deviceID: VaultService.deviceID,
+      highWater: HighWaterMark(url: dir.appending(path: "old.hw")))
+    #expect(try await old.summaries().map(\.title) == ["GitHub"])
+  }
+
+  @Test func startNewVaultWithARecoveryKeyShowsItThenUnlocks() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("old".utf8))
+    let result = await model.startNewVault(
+      current: Data("old".utf8), password: Data("fresh".utf8), recovery: true)
+
+    #expect((try? result.get()) != nil)
+    guard case .showingRecoveryKey = model.state else {
+      Issue.record("expected .showingRecoveryKey, got \(model.state)")
+      return
+    }
+    #expect(model.repo == nil)
+    await model.confirmRecoveryKeyShown()
+    #expect(model.state == .unlocked)
+    #expect(model.summaries.isEmpty)
+  }
+
+  @Test func startNewVaultWithAWrongCurrentPasswordChangesNothing() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("old".utf8))
+    _ = await model.createAccount(AccountPayload(title: "GitHub"))
+    var began = false
+    let result = await model.startNewVault(
+      current: Data("nope".utf8), password: Data("fresh".utf8), recovery: false,
+      AppModel.NewVaultHooks(
+        begin: {
+          began = true
+          return nil
+        }, end: {}))
+
+    #expect(result == .failure(.wrongPassword))
+    #expect(!began)
+    #expect(model.state == .unlocked)
+    #expect(model.summaries.count == 1)
+    #expect(try setAsideFiles(in: dir).isEmpty)
+  }
+
+  @Test func aRefusedStartChangesNothing() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("old".utf8))
+    var ended = false
+    let result = await model.startNewVault(
+      current: Data("old".utf8), password: Data("fresh".utf8), recovery: false,
+      AppModel.NewVaultHooks(begin: { "A backup is running." }, end: { ended = true }))
+
+    #expect(result == .failure(.notNow("A backup is running.")))
+    #expect(!ended)
+    #expect(model.state == .unlocked)
+    #expect(try setAsideFiles(in: dir).isEmpty)
+  }
+
+  @Test func startNewVaultNeedsAnUnlockedVault() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    let result = await model.startNewVault(
+      current: Data("old".utf8), password: Data("fresh".utf8), recovery: false)
+
+    #expect((try? result.get()) == nil)
+    #expect(model.state == .locked())
+    #expect(try setAsideFiles(in: dir).isEmpty)
+  }
+
+  /// The failure path of `startNewVault`: whatever a failed create left behind is removed, and the
+  /// old vault comes back with the mark it had.
+  @Test func puttingBackRestoresTheOldVaultAndItsMark() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    do {  // closed before its files move, as `startNewVault` does
+      let repo = try await Vault.create(
+        databasePath: path, password: Data("old".utf8), params: fastParams,
+        deviceID: VaultService.deviceID)
+      _ = try await repo.create(AccountPayload(title: "GitHub"))
+    }
+    let service = VaultService(databasePath: path)
+    let mark = HighWaterMark(sidecarFor: path)
+    let before = try mark.read()
+    #expect(before > 0)
+
+    let aside = try service.setAside()
+    #expect(!FileManager.default.fileExists(atPath: path))
+    #expect(aside.mark == before)
+    // A create that got as far as a database file and a reset mark, then failed.
+    try Data("half-made".utf8).write(to: URL(fileURLWithPath: path))
+    try mark.write(0)
+
+    service.putBack(aside)
+
+    #expect(try mark.read() == before)
+    #expect(try setAsideFiles(in: dir).isEmpty)
+    let reopened = try await service.unlock(password: Data("old".utf8))
+    #expect(try await reopened.summaries().map(\.title) == ["GitHub"])
+  }
+
   // MARK: - Account writes
 
   @Test func accountWritesRefreshTheIndexAndBumpTheCounter() async throws {

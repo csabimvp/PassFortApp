@@ -9,6 +9,7 @@ struct VaultLocationSettingsView: View {
   @Environment(BackupModel.self) private var backup: BackupModel?
   @State private var pendingFolder: URL?
   @State private var confirmingDefault = false
+  @State private var startingNewVault = false
 
   private var canChange: Bool {
     model.state.allowsFileMoves && !location.isBusy && !location.needsRelaunch
@@ -42,10 +43,23 @@ struct VaultLocationSettingsView: View {
           .font(.caption)
           .foregroundStyle(.secondary)
       }
+
+      Section("New vault") {
+        Button("Start a New Vault…") { startingNewVault = true }
+          .disabled(model.state != .unlocked || location.isBusy || location.needsRelaunch)
+        Text(
+          "Replaces this vault with an empty one at the same location. The current vault is kept "
+            + "beside it, never deleted. Unlock the vault first.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
     }
     .formStyle(.grouped)
     .frame(width: 440)
     .padding()
+    .sheet(isPresented: $startingNewVault) {
+      NewVaultView().environment(model).environment(backup)
+    }
     .alert(
       "Move the vault?", isPresented: Binding(get: { pendingFolder != nil }, set: { if !$0 { pendingFolder = nil } }),
       presenting: pendingFolder
