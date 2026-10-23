@@ -180,19 +180,26 @@ public actor VaultRepository {
       schemaVersion: 1, exportedAt: Date(), vaultUUID: vaultUUID, accounts: accounts)
   }
 
+  /// Every record, decrypted -- tombstones included. Internal on purpose: whole-vault plaintext
+  /// stays inside the actor, and only derived, secret-free results (`summaries`, `audit`) go out.
+  /// `exportPlaintext` is the one gated exception.
+  func allAccounts() async throws -> [Account] {
+    let records = try await database.dbQueue.read { db in
+      try SealedRecord.order(Column("uuid")).fetchAll(db)
+    }
+    var accounts: [Account] = []
+    accounts.reserveCapacity(records.count)
+    for record in records {
+      accounts.append(Account(envelope: record, payload: try await decrypt(record)))
+    }
+    return accounts
+  }
+
   /// The secret-free in-memory index (§8.3): one `pf_open` per record, projected to
   /// `AccountSummary`. Includes tombstones (flagged). Rebuilt on every call; the
   /// caller holds it only while unlocked.
   public func summaries() async throws -> [AccountSummary] {
-    let records = try await database.dbQueue.read { db in
-      try SealedRecord.order(Column("uuid")).fetchAll(db)
-    }
-    var summaries: [AccountSummary] = []
-    summaries.reserveCapacity(records.count)
-    for record in records {
-      summaries.append(Account(envelope: record, payload: try await decrypt(record)).summary)
-    }
-    return summaries
+    try await allAccounts().map(\.summary)
   }
 
   // MARK: - Writes
@@ -200,12 +207,40 @@ public actor VaultRepository {
   /// Create a record at version 1. Seeds a `["created"]` revision entry and stamps
   /// `passwordChangedAt` if a password is present (§7.2).
   public func create(_ payload: AccountPayload) async throws -> Account {
+    let (record, sealedPayload) = try await newRecord(
+      payload, origin: "created", at: payload.createdAt)
+    try await commit { db in try record.insert(db) }
+    return Account(envelope: record, payload: sealedPayload)
+  }
+
+  /// Create many records in **one** transaction -- all of them or none, and one manifest re-MAC
+  /// instead of one per record (§8.2). Each gets an `["imported"]` revision entry stamped now,
+  /// whatever its `createdAt`. Returns the count written.
+  @discardableResult
+  public func importAccounts(_ payloads: [AccountPayload]) async throws -> Int {
+    guard !payloads.isEmpty else { return 0 }
+    let now = Date()
+    var records: [SealedRecord] = []
+    records.reserveCapacity(payloads.count)
+    for payload in payloads {
+      records.append(try await newRecord(payload, origin: "imported", at: now).record)
+    }
+    let rows = records
+    try await commit { db in
+      for row in rows { try row.insert(db) }
+    }
+    return rows.count
+  }
+
+  /// A sealed version-1 record for `payload`, with its first revision entry (`origin`) and
+  /// `passwordChangedAt` defaulted to `createdAt`.
+  private func newRecord(
+    _ payload: AccountPayload, origin: String, at: Date
+  ) async throws -> (record: SealedRecord, payload: AccountPayload) {
     var payload = payload
     payload.schemaVersion = 1
     if payload.revisionHistory.isEmpty {
-      payload.revisionHistory = [
-        RevisionEntry(version: 1, at: payload.createdAt, changed: ["created"])
-      ]
+      payload.revisionHistory = [RevisionEntry(version: 1, at: at, changed: [origin])]
     }
     if payload.password?.isEmpty == false, payload.passwordChangedAt == nil {
       payload.passwordChangedAt = payload.createdAt
@@ -216,9 +251,7 @@ public actor VaultRepository {
       id: id, version: 1, schemaVersion: 1,
       sealed: try await seal(id: id, version: 1, payload: payload),
       isDeleted: false, updatedAt: .now(device: deviceID))
-
-    try await commit { db in try record.insert(db) }
-    return Account(envelope: record, payload: payload)
+    return (record, payload)
   }
 
   /// Decrypt, apply `mutate`, bump `version`, restamp `updatedAt`, record what

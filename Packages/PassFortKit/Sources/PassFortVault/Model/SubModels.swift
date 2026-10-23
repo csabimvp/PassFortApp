@@ -189,11 +189,16 @@ public struct AccountSummary: Sendable, Identifiable, Equatable {
   /// Wall-clock time of the last write -- the plaintext envelope `updated_at`, not a secret. For a
   /// tombstone, when it was deleted.
   public var lastUpdated: Date
+  /// Whether there is a password / a one-time code to copy -- so a list row can offer the copy
+  /// buttons without decrypting the record. Presence only, never the value.
+  public var hasPassword: Bool
+  public var hasOneTimeCode: Bool
 
   public init(
     id: UUID, title: String, username: String? = nil, host: String? = nil, tags: [String] = [],
     favorite: Bool = false, category: AccountCategory = .login, isConflict: Bool = false,
-    isDeleted: Bool = false, lastUpdated: Date
+    isDeleted: Bool = false, lastUpdated: Date, hasPassword: Bool = false,
+    hasOneTimeCode: Bool = false
   ) {
     self.id = id
     self.title = title
@@ -205,5 +210,7 @@ public struct AccountSummary: Sendable, Identifiable, Equatable {
     self.isConflict = isConflict
     self.isDeleted = isDeleted
     self.lastUpdated = lastUpdated
+    self.hasPassword = hasPassword
+    self.hasOneTimeCode = hasOneTimeCode
   }
 }

@@ -139,6 +139,21 @@ import Testing
     await #expect(throws: VaultError.notFound) { try await h.repo.restore(id: UUID()) }
   }
 
+  @Test func summariesSayWhatCanBeCopiedButNeverTheValue() async throws {
+    let h = try await makeHarness()
+    defer { try? FileManager.default.removeItem(at: h.dir) }
+
+    var payload = AccountPayload(title: "mail", password: "hunter2")
+    payload.totp = TOTPConfig(secret: Data("12345678901234567890".utf8))
+    let full = try await h.repo.create(payload)
+    let note = try await h.repo.create(AccountPayload(title: "note"))
+    let summaries = try await h.repo.summaries()
+    let fullRow = try #require(summaries.first { $0.id == full.id })
+    let noteRow = try #require(summaries.first { $0.id == note.id })
+    #expect(fullRow.hasPassword && fullRow.hasOneTimeCode)
+    #expect(!noteRow.hasPassword && !noteRow.hasOneTimeCode)
+  }
+
   @Test func summariesCarryTheLastWriteTime() async throws {
     let h = try await makeHarness()
     defer { try? FileManager.default.removeItem(at: h.dir) }

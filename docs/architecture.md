@@ -733,14 +733,18 @@ struct AccountSummary: Sendable, Identifiable {   // the unlocked in-memory inde
     var isConflict: Bool
     var isDeleted: Bool
     var lastUpdated: Date     // the plaintext envelope updated_at — "deleted on" for a tombstone, recency sort
+    var hasPassword: Bool     // presence only — lets a list row offer copy buttons without a decrypt
+    var hasOneTimeCode: Bool
 }
 
-struct AuditFinding: Sendable {                   // computed on demand, hardening phase (M8, §12)
-    enum Kind { case weak, reused, old, breached, missingTOTP, expired }
+struct AuditFinding: Sendable {                   // computed on demand (PasswordHealth.swift), never stored
+    enum Kind { case weak(score:), reused(count:), old(since:), expired(on:), expiringSoon(on:), insecureURL }
     var kind: Kind
     var account: UUID
 }
 ```
+
+`VaultRepository.audit` decrypts the vault **inside the actor** and returns only findings — account ids and what is wrong, never a password value. Strength is a rough offline estimate on zxcvbn's 0–4 scale, recomputed per audit rather than cached in `AccountPayload.strength` (caching would re-seal every record — the `usedAt` trap, §7.2). `breached` (an opt-in HIBP range query) waits for the network entitlement in M5; `missingTOTP` was dropped — without knowing which sites offer 2FA it flags nearly everything.
 
 `AccountSummary` holds **no secret** — no password, no TOTP, no note, no security answer. That bound is the whole reason §3.4's "decrypted titles in Swift" concession is tolerable. The index is rebuilt on every unlock (one `pf_open` per record) and dropped with the repository on lock.
 
@@ -764,6 +768,8 @@ struct PlaintextExport: Codable {        // §1.3, §5.6 — behind a typed conf
 ```
 
 The export mirrors `AccountPayload` field-for-field plus the envelope identity. "Escaping the format is always possible" (§1.3) only holds if the escape hatch emits something a human, or a five-line import script, can actually read.
+
+**Import** is the way in: `PasswordSafeImport` reads Password Safe's plain-text export (tab-separated, columns matched by name), maps what the model has — title and group, username, email, password, URL, notes, one-time code, created / password-changed / expiry dates, password history — and names every unmapped column that held a value rather than dropping it silently. The parsed `ImportPlan` is plaintext and lives only until the import is written. `VaultRepository.importAccounts` writes the whole batch in **one** transaction with one manifest re-MAC (§8.2), each record seeded with an `["imported"]` revision. Likely duplicates (same title or host, same username) are skipped by default. Other managers' formats are added when there is a real export to build against.
 
 ### 7.7 What isn't modeled yet
 

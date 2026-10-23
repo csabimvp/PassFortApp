@@ -744,6 +744,8 @@ clean.
 | `edit <vault> <id\|title> --set k=v … [--add-url U] [--prompt-password \| --generate-password]` | password | one row + MAC | update an account; `--set totp=URI` sets the one-time code, `--set totp=` clears it |
 | `rm <vault> <id\|title>` | password | one row + MAC | tombstone an account |
 | `undelete <vault> <id\|title>` | password | one row + MAC | restore a tombstoned account as a new version; titles match deleted accounts only |
+| `audit <vault>` | password | — | password health findings by account title — no secret values printed |
+| `import <vault> <file> [--dry-run] [--include-duplicates]` | password | all rows + MAC, one transaction | import a Password Safe plain-text export; prints titles only; skips likely duplicates unless told otherwise |
 | `dump <vault>` | password | — | every record decrypted, JSON, stdout |
 | `export <vault> -o FILE` | phrase, then password | `FILE` (0600) | plaintext snapshot of the whole vault |
 | `recover <vault> --key GROUPED` | new password ×2 | header + fresh recovery slot | reset the master password via the recovery key |

@@ -11,7 +11,7 @@ struct PassFortCLI: AsyncParsableCommand {
     subcommands: [
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
       Add.self, List.self, Get.self, Code.self, History.self, Edit.self, Remove.self,
-      Undelete.self,
+      Undelete.self, Audit.self, Import.self,
       Dump.self, Export.self, Backup.self, Restore.self, Recover.self, Passwd.self, Seam.self,
     ]
   )
@@ -409,6 +409,101 @@ struct Undelete: AsyncParsableCommand {
     } catch VaultError.notFound {
       throw CLIError("no deleted account with id \(id.uuidString)")
     }
+  }
+}
+
+// MARK: - audit
+
+struct Audit: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract: "Password health: weak, reused, old, expiring and http:// accounts. No secrets shown."
+  )
+
+  @Argument(help: "Path to the vault file.") var vault: String
+
+  func run() async throws {
+    let repo = try await VaultCLI.open(vault)
+    let findings = try await repo.audit()
+    let titles = Dictionary(
+      uniqueKeysWithValues: try await repo.summaries().map { ($0.id, $0.title) })
+    guard !findings.isEmpty else {
+      print("no findings -- nothing weak, reused, old, expiring or on http://")
+      return
+    }
+    for finding in findings {
+      let title = titles[finding.account] ?? finding.account.uuidString
+      print(
+        "\(describe(finding.kind).padding(toLength: 34, withPad: " ", startingAt: 0))  \(title)")
+    }
+    print("\(findings.count) finding\(findings.count == 1 ? "" : "s")")
+  }
+
+  private func describe(_ kind: AuditFinding.Kind) -> String {
+    let day = Date.FormatStyle(date: .abbreviated, time: .omitted)
+    switch kind {
+    case .weak(let score): return "weak (score \(score)/4)"
+    case .reused(let count): return "reused (\(count) accounts)"
+    case .old(let since): return "old (unchanged since \(since.formatted(day)))"
+    case .expired(let on): return "expired \(on.formatted(day))"
+    case .expiringSoon(let on): return "expires \(on.formatted(day))"
+    case .insecureURL: return "http:// login URL"
+    }
+  }
+}
+
+// MARK: - import
+
+struct Import: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    abstract:
+      "Import a Password Safe plain-text export (tab-separated). Prints titles, never secrets.")
+
+  @Argument(help: "Path to the vault file.") var vault: String
+  @Argument(help: "The Password Safe export (File > Export To > Plain Text).") var file: String
+  @Flag(help: "Show what would be imported; write nothing.") var dryRun = false
+  @Flag(help: "Import accounts that look like ones already in the vault, too.")
+  var includeDuplicates = false
+
+  func run() async throws {
+    let plan: ImportPlan
+    do {
+      plan = try PasswordSafeImport.plan(try Files.read(file))
+    } catch PasswordSafeImport.Failure.notPasswordSafeExport {
+      throw CLIError(
+        "\(file) has no Group/Title header -- not a tab-separated Password Safe export")
+    } catch PasswordSafeImport.Failure.notText {
+      throw CLIError("\(file) is not UTF-8 text")
+    }
+
+    let repo = try await VaultCLI.open(vault)
+    let duplicates = plan.duplicates(of: try await repo.summaries())
+    let chosen = plan.accounts.indices.filter { includeDuplicates || !duplicates.contains($0) }
+
+    for index in plan.accounts.indices {
+      let payload = plan.accounts[index].payload
+      let mark = chosen.contains(index) ? "+" : "="
+      let extras = [payload.totp != nil ? "one-time code" : nil, payload.tags.first]
+        .compactMap { $0 }.joined(separator: ", ")
+      print("\(mark) \(payload.title)\(extras.isEmpty ? "" : "  (\(extras))")")
+    }
+    for skip in plan.skipped { print("! line \(skip.line) skipped: \(skip.reason)") }
+    for warning in plan.warnings { print("! \(warning)") }
+    for (column, rows) in plan.ignoredColumns.sorted(by: { $0.key < $1.key }) {
+      print(
+        "! column \"\(column)\" not imported (had a value in \(rows) row\(rows == 1 ? "" : "s"))")
+    }
+
+    let skippedDuplicates = plan.accounts.count - chosen.count
+    let summary =
+      "\(chosen.count) to import, \(skippedDuplicates) duplicate\(skippedDuplicates == 1 ? "" : "s") "
+      + "skipped (=), \(plan.skipped.count) unreadable row\(plan.skipped.count == 1 ? "" : "s")"
+    if dryRun {
+      print("dry run -- \(summary)")
+      return
+    }
+    let written = try await repo.importAccounts(chosen.map { plan.accounts[$0].payload })
+    print("imported \(written) -- \(summary)")
+    print("the export file holds every password in plain text: delete it now")
   }
 }
 

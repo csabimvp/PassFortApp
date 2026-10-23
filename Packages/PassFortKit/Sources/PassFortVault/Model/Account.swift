@@ -56,6 +56,8 @@ extension Account {
       category: payload.category,
       isConflict: payload.conflictOf != nil,
       isDeleted: isDeleted,
-      lastUpdated: lastUpdated)
+      lastUpdated: lastUpdated,
+      hasPassword: payload.password?.isEmpty == false,
+      hasOneTimeCode: payload.totp != nil)
   }
 }
