@@ -11,12 +11,17 @@ public struct SealedRecord: Sendable, Identifiable, Equatable {
   public var sealed: Data  // nonce ‖ ciphertext ‖ tag
   public var isDeleted: Bool  // tombstone; the row survives until every device acks
   public var updatedAt: HLC  // conflict clock (§9.3) -- MUST stay plaintext
-  public var blindTitle: Data?  // idx_title -- keyed blind index, M5
+  public var blindTitle: Data?  // idx_title -- keyed blind index, deferred (§14 #20)
   public var blindURL: Data?  // idx_url
+  /// The version the sync server last confirmed; `nil` = never on the server (A.5).
+  public var syncedVersion: UInt64?
+  /// The server `seq` of `syncedVersion`.
+  public var syncedSeq: UInt64?
 
   public init(
     id: UUID, version: UInt64, schemaVersion: UInt16, sealed: Data, isDeleted: Bool = false,
-    updatedAt: HLC, blindTitle: Data? = nil, blindURL: Data? = nil
+    updatedAt: HLC, blindTitle: Data? = nil, blindURL: Data? = nil, syncedVersion: UInt64? = nil,
+    syncedSeq: UInt64? = nil
   ) {
     self.id = id
     self.version = version
@@ -26,7 +31,13 @@ public struct SealedRecord: Sendable, Identifiable, Equatable {
     self.updatedAt = updatedAt
     self.blindTitle = blindTitle
     self.blindURL = blindURL
+    self.syncedVersion = syncedVersion
+    self.syncedSeq = syncedSeq
   }
+
+  /// The server doesn't have this version yet: never pushed, or changed since its last push.
+  /// The next sync pushes it with `baseVersion = syncedVersion ?? 0`.
+  public var isDirty: Bool { syncedVersion != version }
 }
 
 // MARK: - GRDB
@@ -34,10 +45,9 @@ public struct SealedRecord: Sendable, Identifiable, Equatable {
 extension SealedRecord: FetchableRecord, PersistableRecord {
   public static let databaseTableName = "records"
 
-  /// For M2, `updated_at` stores only the HLC wall-clock millis (single device,
-  /// counter always 0). M5 sync adds the counter + device_id in a schema bump.
-  private static let m2Device = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
-
+  /// The HLC is split over three columns: `updated_at` (wall millis, since v1), `hlc_counter` and
+  /// `hlc_device` (v2). The sync columns are outside the manifest MAC (§5.5): bookkeeping, not
+  /// content.
   public init(row: Row) throws {
     id = UUID(fromRawData: row["uuid"])
     version = UInt64(bitPattern: row["version"])
@@ -45,9 +55,13 @@ extension SealedRecord: FetchableRecord, PersistableRecord {
     sealed = row["sealed"]
     isDeleted = (row["is_deleted"] as Int64) != 0
     updatedAt = HLC(
-      wallMillis: UInt64(bitPattern: row["updated_at"]), counter: 0, deviceID: Self.m2Device)
+      wallMillis: UInt64(bitPattern: row["updated_at"]),
+      counter: UInt32(truncatingIfNeeded: row["hlc_counter"] as Int64),
+      deviceID: UUID(fromRawData: row["hlc_device"]))
     blindTitle = row["idx_title"]
     blindURL = row["idx_url"]
+    syncedVersion = (row["synced_version"] as Int64?).map { UInt64(bitPattern: $0) }
+    syncedSeq = (row["synced_seq"] as Int64?).map { UInt64(bitPattern: $0) }
   }
 
   public func encode(to container: inout PersistenceContainer) throws {
@@ -56,8 +70,12 @@ extension SealedRecord: FetchableRecord, PersistableRecord {
     container["sealed"] = sealed
     container["is_deleted"] = isDeleted ? 1 : 0
     container["updated_at"] = Int64(bitPattern: updatedAt.wallMillis)
+    container["hlc_counter"] = Int64(updatedAt.counter)
+    container["hlc_device"] = updatedAt.deviceID.rawData
     container["idx_title"] = blindTitle
     container["idx_url"] = blindURL
+    container["synced_version"] = syncedVersion.map { Int64(bitPattern: $0) }
+    container["synced_seq"] = syncedSeq.map { Int64(bitPattern: $0) }
   }
 }
 

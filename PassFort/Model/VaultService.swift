@@ -10,9 +10,14 @@ import PassFortVault
 /// `Vault.*` calls must run off the main actor, and every method here is pure
 /// pass-through to `PassFortKit`.
 nonisolated struct VaultService {
-  /// Single device until M5 sync — matches `SealedRecord`'s M2 constant. M4/M5
-  /// issue a real per-install id.
-  static let deviceID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+  /// This install's device (`m5-sync.md` A.5): `Application Support/PassFort/device.json` in
+  /// the container, created on first launch and kept outside the vault file, so a copied or
+  /// restored vault never clones it. It stamps every write's HLC. If the file can't be read or
+  /// written, this run stamps with a fresh id that isn't kept -- harmless for local writes; sync
+  /// (Phase 13) needs the stored one.
+  static let deviceID: UUID =
+    (try? DeviceIdentity.loadOrCreate(at: DeviceIdentity.defaultURL, name: DeviceIdentity.hostName))?
+    .id ?? UUID()
 
   /// Sandboxed, so this resolves inside the app's container
   /// (`~/Library/Containers/…/Application Support/PassFort/vault.sqlite`), not the

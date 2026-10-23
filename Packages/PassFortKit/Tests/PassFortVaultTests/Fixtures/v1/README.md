@@ -17,6 +17,8 @@ PF_REGEN_FIXTURES=1 swift test --filter regenerateV1Fixture
 (`MigrationTests.regenerateV1Fixture`, gated on the env var, runs
 `VaultDatabase(path:)` on this path, checkpoints the WAL with
 `PRAGMA wal_checkpoint(TRUNCATE)`, and removes the `-wal` / `-shm` sidecars.)
+That generator was removed when schema v2 landed (M5 Phase 6): it ran the current
+migrator, so from then on it would have written a v2 file here.
 
 ## Rule
 
@@ -28,5 +30,5 @@ defeats the point — it would stop testing the real upgrade path.
 
 ## Test password
 
-There is none — this fixture has no header and no sealed records. When a fixture
-with records is added, its test password goes here in the clear, on purpose.
+There is none — this fixture has no header and no sealed records. The fixture with
+records is `../v1-records/`; its password is in its README.

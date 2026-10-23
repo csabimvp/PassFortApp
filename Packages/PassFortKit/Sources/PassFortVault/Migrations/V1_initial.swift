@@ -18,7 +18,7 @@ extension VaultDatabase {
         t.column("version", .integer).notNull()  // monotonic; bound into the AAD
         t.column("sealed", .blob).notNull()  // nonce ‖ ciphertext ‖ tag
         t.column("is_deleted", .integer).notNull().defaults(to: 0)
-        t.column("updated_at", .integer).notNull()  // HLC-encoded
+        t.column("updated_at", .integer).notNull()  // HLC wall millis (v2 adds the rest)
         t.column("idx_title", .blob)  // blind index -- M5
         t.column("idx_url", .blob)
       }
@@ -37,6 +37,8 @@ extension VaultDatabase {
       }
       try db.execute(sql: "INSERT INTO schema_version (version) VALUES (1)")
     }
+
+    migrator.registerMigration("v2", migrate: migrateV2Sync)
 
     return migrator
   }

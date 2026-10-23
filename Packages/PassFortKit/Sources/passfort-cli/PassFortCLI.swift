@@ -99,11 +99,11 @@ struct Init: AsyncParsableCommand {
 
     if recovery {
       let (_, key) = try await Vault.createWithRecovery(
-        databasePath: vault, password: password, params: params, deviceID: m2DeviceID)
+        databasePath: vault, password: password, params: params, deviceID: try CLIDevice.id())
       RecoveryBanner.show(key)
     } else {
       _ = try await Vault.create(
-        databasePath: vault, password: password, params: params, deviceID: m2DeviceID)
+        databasePath: vault, password: password, params: params, deviceID: try CLIDevice.id())
     }
     let extra = recovery ? ", + recovery key" : ""
     print("created \(vault) (\(params.memoryKiB / 1024) MiB Argon2id\(extra))")
@@ -798,7 +798,7 @@ struct Recover: AsyncParsableCommand {
     do {
       repo = try await Vault.recover(
         databasePath: vault, recoveryKey: recoveryKey, newPassword: newPassword,
-        deviceID: m2DeviceID)
+        deviceID: try CLIDevice.id())
     } catch PassFortError.authFailed {
       throw CLIError("recovery key rejected -- wrong key")
     } catch PassFortError.notFound {
@@ -831,7 +831,7 @@ struct Passwd: AsyncParsableCommand {
     let current = try Password.prompt("Current vault password: ")
     let repo: VaultRepository
     do {
-      repo = try await Vault.unlock(databasePath: vault, password: current, deviceID: m2DeviceID)
+      repo = try await Vault.unlock(databasePath: vault, password: current, deviceID: try CLIDevice.id())
     } catch PassFortError.authFailed {
       throw CLIError("AuthFailed -- wrong password or corrupt vault")
     }

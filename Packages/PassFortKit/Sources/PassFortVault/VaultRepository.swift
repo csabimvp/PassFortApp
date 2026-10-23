@@ -30,6 +30,20 @@ public enum FaultPoint: String, Sendable, CaseIterable {
 
 public typealias FaultHook = @Sendable (FaultPoint) -> Void
 
+/// One record the sync server accepted in a push: the version it stored and the `seq` it gave
+/// it (`m5-sync.md` A.3 `applied`).
+public struct PushedRecord: Sendable, Equatable {
+  public var id: UUID
+  public var version: UInt64
+  public var seq: UInt64
+
+  public init(id: UUID, version: UInt64, seq: UInt64) {
+    self.id = id
+    self.version = version
+    self.seq = seq
+  }
+}
+
 /// The one place the §8.2 invariant lives: **every write is a single transaction
 /// covering the row *and* the manifest MAC**. `VaultRepository` is an `actor`, so
 /// its own calls serialize; the `DatabaseQueue` underneath serializes SQLite; and
@@ -44,26 +58,29 @@ public actor VaultRepository {
   private let deviceID: UUID
   private let highWater: HighWaterMark
   private let faultHook: FaultHook?
+  /// Stamps every write (A.5): seeded with the vault's newest stamp, so it never goes backwards.
+  private let clock: HLCClock
 
   private init(
     database: VaultDatabase, session: VaultSession, deviceID: UUID, highWater: HighWaterMark,
-    faultHook: FaultHook?
+    faultHook: FaultHook?, clock: HLCClock
   ) {
     self.database = database
     self.session = session
     self.deviceID = deviceID
     self.highWater = highWater
     self.faultHook = faultHook
+    self.clock = clock
   }
 
   // MARK: - Lifecycle
 
   /// Initialise a brand-new vault: store the header blob, seed `vault_version = 0`
   /// and a manifest over the empty record set. `session` must already be open on
-  /// `header`.
+  /// `header`. `wallClock` is what the HLC reads; tests freeze it.
   public static func bootstrap(
     database: VaultDatabase, session: VaultSession, header: Data, deviceID: UUID,
-    highWater: HighWaterMark, faultHook: FaultHook? = nil
+    highWater: HighWaterMark, faultHook: FaultHook? = nil, wallClock: WallClock = .system
   ) async throws -> VaultRepository {
     let builder = try await session.makeManifestBuilder(vaultVersion: 0)
     try await database.dbQueue.write { db in
@@ -75,7 +92,8 @@ public actor VaultRepository {
     try highWater.write(0)
     return VaultRepository(
       database: database, session: session, deviceID: deviceID, highWater: highWater,
-      faultHook: faultHook)
+      faultHook: faultHook,
+      clock: HLCClock(deviceID: deviceID, seed: nil, wallClock: wallClock))
   }
 
   /// Open an existing vault: verify the manifest and the anti-rollback mark
@@ -84,15 +102,24 @@ public actor VaultRepository {
   /// rollback.
   public static func open(
     database: VaultDatabase, session: VaultSession, deviceID: UUID, highWater: HighWaterMark,
-    faultHook: FaultHook? = nil
+    faultHook: FaultHook? = nil, wallClock: WallClock = .system
   ) async throws -> VaultRepository {
     let mark = try highWater.read()
     let state = try await VaultManifest.verifyAtUnlock(
       session: session, database: database, highWater: mark)
     if state.vaultVersion > mark { try highWater.write(state.vaultVersion) }
+    let newest = try await database.dbQueue.read { db in try newestStamp(db) }
     return VaultRepository(
       database: database, session: session, deviceID: deviceID, highWater: highWater,
-      faultHook: faultHook)
+      faultHook: faultHook,
+      clock: HLCClock(deviceID: deviceID, seed: newest, wallClock: wallClock))
+  }
+
+  /// The newest HLC in the vault by (wall, counter) -- the clock's seed. `nil` when empty.
+  private static func newestStamp(_ db: Database) throws -> HLC? {
+    try SealedRecord
+      .order(Column("updated_at").desc, Column("hlc_counter").desc)
+      .fetchOne(db)?.updatedAt
   }
 
   /// The stored header blob -- what the caller passed to `VaultSession.open` to get
@@ -256,7 +283,7 @@ public actor VaultRepository {
     let record = SealedRecord(
       id: id, version: 1, schemaVersion: 1,
       sealed: try await seal(id: id, version: 1, payload: payload),
-      isDeleted: false, updatedAt: .now(device: deviceID))
+      isDeleted: false, updatedAt: await clock.tick())
     return (record, payload)
   }
 
@@ -274,7 +301,7 @@ public actor VaultRepository {
 
     var next = current
     next.version += 1
-    next.updatedAt = .now(device: deviceID)
+    next.updatedAt = await clock.tick()
     Self.recordHistory(before: before, into: &payload, version: next.version, at: Date())
     next.sealed = try await seal(id: id, version: next.version, payload: payload)
 
@@ -295,7 +322,7 @@ public actor VaultRepository {
     var tombstone = current
     tombstone.isDeleted = true
     tombstone.version += 1
-    tombstone.updatedAt = .now(device: deviceID)
+    tombstone.updatedAt = await clock.tick()
     Self.recordHistory(
       before: payload, into: &payload, version: tombstone.version, at: Date(), extra: "deleted")
     tombstone.sealed = try await seal(id: id, version: tombstone.version, payload: payload)
@@ -320,7 +347,7 @@ public actor VaultRepository {
     var next = current
     next.isDeleted = false
     next.version += 1
-    next.updatedAt = .now(device: deviceID)
+    next.updatedAt = await clock.tick()
     Self.recordHistory(
       before: payload, into: &payload, version: next.version, at: Date(), extra: "restored")
     next.sealed = try await seal(id: id, version: next.version, payload: payload)
@@ -330,8 +357,8 @@ public actor VaultRepository {
     return Account(envelope: next, payload: payload)
   }
 
-  /// Purge tombstones. M2 has no sync, so "acked by every device" is just "deleted";
-  /// M5 gates this on the sync cursor. A no-op (and no version bump) when there is
+  /// Purge tombstones -- with sync off, where "acked by every device" is just "deleted". With
+  /// sync on, `compactSynced` is the one to call. A no-op (and no version bump) when there is
   /// nothing to purge.
   public func compact() async throws {
     let tombstones = try await database.dbQueue.read { db in
@@ -340,6 +367,56 @@ public actor VaultRepository {
     guard tombstones > 0 else { return }
     try await commit { db in
       try db.execute(sql: "DELETE FROM records WHERE is_deleted = 1")
+    }
+  }
+
+  // MARK: - Sync bookkeeping (A.5)
+
+  /// Every row the server doesn't have at its current version -- never pushed, or changed since
+  /// the last push -- tombstones included, in UUID order. What the next push sends, each with
+  /// `baseVersion = syncedVersion ?? 0`.
+  public func dirtyRecords() async throws -> [SealedRecord] {
+    try await database.dbQueue.read { db in
+      try SealedRecord
+        .filter(sql: "synced_version IS NULL OR synced_version != version")
+        .order(Column("uuid"))
+        .fetchAll(db)
+    }
+  }
+
+  /// Record what a push stored: `synced_version` / `synced_seq` per accepted record. A plain
+  /// transaction, not `commit`: these columns are bookkeeping outside the manifest MAC (§5.5),
+  /// so `vault_version` doesn't move. A row edited again since the push (a higher `version`)
+  /// still records the pushed version -- it stays dirty, and its next push names the right base.
+  /// A row the push no longer matches (gone, or behind the pushed version) is left alone.
+  public func markPushed(_ applied: [PushedRecord]) async throws {
+    guard !applied.isEmpty else { return }
+    try await database.dbQueue.write { db in
+      for record in applied {
+        try db.execute(
+          sql: """
+            UPDATE records SET synced_version = ?, synced_seq = ?
+            WHERE uuid = ? AND version >= ?
+            """,
+          arguments: [
+            Int64(bitPattern: record.version), Int64(bitPattern: record.seq), record.id.rawData,
+            Int64(bitPattern: record.version),
+          ])
+      }
+    }
+  }
+
+  /// Purge the tombstones the server already has (A.10) -- with sync on, other devices learn of
+  /// a delete from the server, not from this vault. A dirty tombstone stays until it is pushed.
+  /// One `commit`, like every row change; a no-op when there is nothing clean to purge.
+  public func compactSynced() async throws {
+    let clean = "is_deleted = 1 AND synced_version = version"
+    let count = try await database.dbQueue.read { db in
+      try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM records WHERE \(clean)") ?? 0
+    }
+    guard count > 0 else { return }
+    try await commit { db in
+      try db.execute(sql: "DELETE FROM records WHERE \(clean)")
     }
   }
 

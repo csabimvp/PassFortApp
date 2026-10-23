@@ -890,6 +890,33 @@ Argon2 bytes, so no existing vault's KEK changes. Where it differs from the text
 **Checkpoint:** `swift test` green including the fixture-migration test; an `update` on two quick
 successive edits yields strictly increasing HLCs even with a frozen clock (inject the clock).
 
+**Done (2026-10-23).** `swift test` green (177 + 15 tests), `xcodebuild` build and test green. The
+v2 migration is the A.5 SQL verbatim; `schema_version` stays 1. Where it differs from the text above:
+
+- **A new fixture, `Fixtures/v1-records/`.** The checked-in `v1` fixture is an empty schema (no header,
+  no rows), so it can't show rows surviving. `v1-records` is a real v1 vault -- three synthetic
+  records (versions 1 and 2, one tombstone), `vault_version` 5, password `fixture-v1-password` --
+  made once by the v1 build from a throwaway generator (the recipe is in its README; a generator kept
+  in the tree would write the current schema). `v1RecordsFixtureMigratesWithEveryRowDirtyAndTheManifestIntact`
+  unlocks it with the v2 build: the MAC and the mark verify, every row is dirty with counter 0 and the
+  zero device, every record opens, and a new write is stamped after the v1 stamps.
+  `MigrationTests.regenerateV1Fixture` is gone for the same reason.
+- **The clock is injected as `WallClock`** (`HLCClock.swift`), a `wallClock:` parameter on
+  `VaultRepository.bootstrap` / `open`, default `.system`. Phases 8 and 10 reuse it for two-device
+  tests. A counter at `UInt32.max` carries into the wall time rather than wrapping.
+- **`applyRemote` waits for Phase 8**, where `ReconcilePlan` is defined -- no stub. `dirtyRecords`,
+  `markPushed` and `compactSynced` are built and tested. `markPushed` records the pushed version even
+  if the row moved on during the push (it stays dirty, with the right base for its next push), and
+  ignores a version the row never reached.
+- **Device identity:** the app's lives at `Application Support/PassFort/device.json` (in its
+  container); if the file can't be read or written, that run stamps with an unsaved random id rather
+  than failing to unlock -- Phase 13 makes sync require the stored one. The CLI's is
+  `~/.config/passfort/device.json`, named `"<Mac name> (CLI)"`; `--device-id` is Phase 11. A
+  file that exists but doesn't decode is an error, never silently replaced.
+- **Importing from another vault** (`VaultImport`) still refuses an older-schema source, as it was
+  designed to: a v1 vault must be opened once by this build (which migrates it) before it can be
+  imported from.
+
 ---
 
 ## Phase 7 — The transport: DTOs, `SyncAPI`, pinning

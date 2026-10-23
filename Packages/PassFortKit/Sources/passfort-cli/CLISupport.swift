@@ -12,10 +12,23 @@ struct CLIError: Error, CustomStringConvertible {
   init(_ description: String) { self.description = description }
 }
 
-/// M2 is single-device; `records.updated_at` persists only the HLC wall-clock
-/// millis, so the device id is a fixed zero UUID (it matches `SealedRecord`'s M2
-/// constant). M5 sync gives each install a real one.
-let m2DeviceID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+/// This install's device (`m5-sync.md` A.5): `~/.config/passfort/device.json`, created on first
+/// use -- the CLI's own, separate from the app's (which lives in its sandbox container). It
+/// stamps every write's HLC and, from Phase 11, names this device to the sync server.
+enum CLIDevice {
+  static var url: URL {
+    FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/passfort/device.json")
+  }
+
+  static func id() throws -> UUID {
+    do {
+      return try DeviceIdentity.loadOrCreate(at: url, name: "\(DeviceIdentity.hostName) (CLI)").id
+    } catch {
+      throw CLIError(
+        "can't read or create the device identity at \(url.path(percentEncoded: false)): \(error)")
+    }
+  }
+}
 
 // MARK: - Opening a vault
 
@@ -32,7 +45,7 @@ enum VaultCLI {
     }
     let password = try Password.prompt(message)
     do {
-      return try await Vault.unlock(databasePath: path, password: password, deviceID: m2DeviceID)
+      return try await Vault.unlock(databasePath: path, password: password, deviceID: try CLIDevice.id())
     } catch PassFortError.authFailed {
       throw CLIError("AuthFailed -- wrong password or corrupt vault")
     } catch VaultError.notFound {
