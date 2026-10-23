@@ -131,16 +131,18 @@ struct Pill: View {
   }
 }
 
-/// The generator's four-segment strength meter, filled to `level` in its colour.
+/// The four-segment strength meter — the generator's, and the account form's under the password —
+/// filled to `level` in its colour.
 struct StrengthMeter: View {
   let level: StrengthLevel
+  var height: CGFloat = 5
 
   var body: some View {
     HStack(spacing: 4) {
       ForEach(0..<4, id: \.self) { index in
         Capsule()
           .fill(index < level.bars ? AnyShapeStyle(level.color) : AnyShapeStyle(.quaternary))
-          .frame(height: 4)
+          .frame(height: height)
       }
     }
     .accessibilityElement()
