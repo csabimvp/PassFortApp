@@ -69,9 +69,11 @@ Cloud/                                    NEW — the Azure backend; no vault cr
 │   ├── main.parameters.json              Phase 12  non-secret knobs (location, names, budget email)
 │   └── bootstrap-oidc.sh                 Phase 12  one-time: Entra app + federated credential + role assignment
 └── api/                                  Phases 1–4  TypeScript, Azure Functions v4 programming model
-    ├── src/functions/                    health · createVault · openSession · getHeader · putHeader
-    │                                     getChanges · pushChanges · listDevices · removeDevice · deleteVault
-    ├── src/lib/                          store.ts · table.ts · seq.ts · auth.ts · jwt.ts · validate.ts · errors.ts · log.ts
+    ├── src/handlers/                     Phase 3   health · vault (create, session, delete) · header · changes · devices
+    ├── src/routes.ts                     Phase 3   the A.3 route table + `serve` (logging, 500s, 413) -- shared by both hosts
+    ├── src/functions/api.ts              Phase 3   the deployed host: registers every route with `app.http`, over TableStore
+    ├── src/lib/                          store.ts · table.ts · memory-store.ts · seq.ts · purge.ts · auth.ts · jwt.ts
+    │                                     validate.ts · errors.ts · log.ts · config.ts · http.ts
     ├── src/dev-server.ts                 Phase 3   `npm run dev`: the handlers on node:http + the memory store
     ├── src/dto.ts                        generated from openapi.yaml (openapi-typescript), never hand-edited
     ├── test/                             node:test; storage suites run in memory and, in CI, on Azurite
@@ -734,6 +736,37 @@ from tests.
 **Checkpoint:** with `curl` against `npm run dev`: create a vault, open a session, push a record, pull
 it back byte-identical, read the header, list devices, delete the vault. The same sequence against the
 dev resource group once it exists (Phase 12). Commit per endpoint group.
+
+**Done (2026-10-23).** The `curl` sequence above passes against `npm run dev` (sealed blob and header
+byte-identical, log lines carry only the route template and an 8-character vault prefix), and
+`test/api.test.ts` runs the same sequence in-process plus the auth, closure, lockout, purge/`410` and
+device rules; `test/store.test.ts` covers the new store methods on both stores. The deployed-RG half
+waits for Phase 12. Where it differs from the text above:
+
+- **Layout.** Handlers live in `src/handlers/` (one file per endpoint group), the route table in
+  `src/routes.ts`, and `src/functions/api.ts` registers every route -- instead of one `src/functions/`
+  file per row. `app.http` outside the Functions host prints a "test mode" warning per call, so the dev
+  server and tests must not import registration code; one adapter per host keeps them from drifting.
+  `MemoryStore` moved from `test/support/` to `src/lib/` because the dev server uses it.
+- **Pull reads `meta` on both sides of the scan** (`seq.ts`); a Table scan is not a snapshot.
+  *Before:* only records with `seq ≤` that `meta.seq` are returned -- each was committed before the
+  scan began, so it can't be missed; otherwise a push landing mid-scan could be skipped while a later
+  one is returned, and the client's cursor would jump past it for good. *After:* `purgedThroughSeq`
+  comes from this read, so a purge landing mid-scan always shows up as `410`, never as a silently
+  missed tombstone.
+- **Purge guard.** `@azure/data-tables`' array-form transaction `delete` can't carry an ETag (always
+  `If-Match: *`). The `meta` ETag covers it: a tombstone only changes through a push, and every push
+  rewrites `meta`.
+- **A vanished vault behind a valid token is `401`** on every JWT route (push, pull, header PUT,
+  devices) -- the client opens a new session, gets `401`, and surfaces `unauthorized` (A.11).
+  `DELETE /vaults/{id}` is idempotent (`204` again), and deletes `meta` first so no push can land
+  mid-sweep.
+- **Lockout:** the failure that reaches 5 still answers `401`; later attempts get `429` until the lock
+  expires, even with the right key. `GET /header` answers `429` while locked (the contract lists it).
+- **Sessions:** a device row is created by `POST /vaults` and refreshed by every session (`lastSeq`
+  kept); a pull updates `lastSeq` only if the row exists, so a removed device stays removed until its
+  next session. Body cap 3 MiB on every route (`413`). Unexpected errors are `500` with the
+  `unavailable` code, logged by class name only.
 
 ---
 
