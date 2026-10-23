@@ -3,9 +3,12 @@ import PassFortVault
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// One form, two modes, bound to a **draft copy** of the payload. Save goes
-/// through `AppModel`, which does the `VaultRepository` write (one transaction,
-/// §8.2) and refreshes the index.
+/// One form, two modes, bound to a **draft copy** of the payload, laid out like the detail view:
+/// the tile-and-title header, the sign-in fields, website and tags, notes, then the optional
+/// sections. A new account starts with the essentials and adds the rest from the Add Field menu
+/// (`OptionalField`); an edited one shows whatever it already holds. Save goes through
+/// `AppModel`, which does the `VaultRepository` write (one transaction, §8.2) and refreshes the
+/// index.
 struct AccountFormView: View {
   enum Mode {
     case create
@@ -17,6 +20,7 @@ struct AccountFormView: View {
 
   let mode: Mode
   @State private var draft: AccountPayload
+  @State private var shown: Set<OptionalField>
   @State private var urlsText: String
   @State private var tagsText: String
   /// The one-time-code field: an `otpauth://` URI or a Base32 secret, parsed on save.
@@ -27,12 +31,10 @@ struct AccountFormView: View {
   /// the moment the form opens.
   @State private var recoveryCodesText: String
   @State private var showingRecoveryCodes = false
-  @State private var hasExpiry: Bool
   @State private var expiry: Date
   @State private var saving = false
   @State private var error: String?
   @State private var confirmingDelete = false
-  @State private var showingGenerator = false
 
   init(mode: Mode) {
     self.mode = mode
@@ -42,12 +44,12 @@ struct AccountFormView: View {
     case .edit(let account): payload = account.payload
     }
     _draft = State(initialValue: payload)
+    _shown = State(initialValue: OptionalField.shown(in: payload))
     _urlsText = State(initialValue: payload.urls.map(\.absoluteString).joined(separator: "\n"))
     _tagsText = State(initialValue: payload.tags.joined(separator: ", "))
     _totpText = State(initialValue: payload.totp?.otpauthURI ?? "")
     _questions = State(initialValue: payload.securityQuestions.map(EditableQuestion.init))
     _recoveryCodesText = State(initialValue: payload.recoveryCodes.joined(separator: "\n"))
-    _hasExpiry = State(initialValue: payload.expiresAt != nil)
     _expiry = State(
       initialValue: payload.expiresAt ?? Calendar.current.date(byAdding: .year, value: 1, to: .now)
         ?? .now)
@@ -58,60 +60,69 @@ struct AccountFormView: View {
   var body: some View {
     VStack(spacing: 0) {
       Form {
-        TextField("Title", text: $draft.title)
-
-        Section("Credential") {
-          TextField("Username", text: optional($draft.username))
-          HStack {
-            SecureField("Password", text: optional($draft.password))
-            Button("Generate…") { showingGenerator = true }
-          }
-          TextField("Email", text: optional($draft.email))
-          SecureField("PIN", text: optional($draft.pin))
-          SecureField("Memorable word", text: optional($draft.memorableWord))
-        }
-
         Section {
-          HStack {
-            SecureField("One-time code (otpauth:// link or secret)", text: $totpText)
-            Button("From QR Image…") { importingQR = true }
+          TextField("Username", text: optional($draft.username), prompt: Text("Sign-in name"))
+          PasswordEditor(password: optional($draft.password))
+          if shown.contains(.oneTimeCode) { oneTimeCodeRow }
+          TextField("Email", text: optional($draft.email), prompt: Text("Email address"))
+          if shown.contains(.pin) {
+            removableRow(.pin) { SecureField("PIN", text: optional($draft.pin)) }
           }
-        } footer: {
-          totpFooter
-        }
-
-        Section {
-          DisclosureGroup(
-            "Recovery codes (\(Self.parseLines(recoveryCodesText).count))",
-            isExpanded: $showingRecoveryCodes
-          ) {
-            TextField("One per line", text: $recoveryCodesText, axis: .vertical)
-              .font(.system(.body, design: .monospaced))
-              .lineLimit(3...12)
-          }
-        }
-
-        SecurityQuestionsEditor(questions: $questions)
-        CustomFieldsEditor(fields: $draft.customFields)
-
-        Section {
-          TextField("URLs (one per line)", text: $urlsText, axis: .vertical)
-          TextField("Notes", text: optional($draft.notes), axis: .vertical)
-          TextField("Tags (comma-separated)", text: $tagsText)
-          Picker("Category", selection: $draft.category) {
-            ForEach(AccountCategory.allCases, id: \.self) { category in
-              Text(category.singularName).tag(category)
+          if shown.contains(.memorableWord) {
+            removableRow(.memorableWord) {
+              SecureField("Memorable word", text: optional($draft.memorableWord))
             }
           }
-          Toggle("Favorite", isOn: $draft.favorite)
-          Toggle("Expires", isOn: $hasExpiry)
-          if hasExpiry {
-            DatePicker("Expiry date", selection: $expiry, displayedComponents: .date)
+        } header: {
+          AccountFormHeader(
+            title: $draft.title, category: $draft.category, favorite: $draft.favorite,
+            isNew: !isEditing)
+        }
+
+        Section {
+          TextField(
+            "Website", text: $urlsText, prompt: Text(verbatim: "https://… one per line"),
+            axis: .vertical)
+          TextField("Tags", text: $tagsText, prompt: Text("Comma-separated"))
+          if shown.contains(.expiry) {
+            removableRow(.expiry) {
+              DatePicker("Expires", selection: $expiry, displayedComponents: .date)
+            }
           }
         }
 
-        if let error {
-          Label(error, systemImage: "xmark.octagon").foregroundStyle(Palette.danger)
+        Section {
+          TextField(
+            "Notes", text: optional($draft.notes), prompt: Text("Anything else worth keeping"),
+            axis: .vertical
+          )
+          .lineLimit(2...10)
+        }
+
+        if shown.contains(.securityQuestions) {
+          SecurityQuestionsEditor(questions: $questions)
+        }
+        if shown.contains(.recoveryCodes) {
+          Section("Recovery codes") {
+            DisclosureGroup(
+              "\(Self.parseLines(recoveryCodesText).count) codes", isExpanded: $showingRecoveryCodes
+            ) {
+              TextField("One per line", text: $recoveryCodesText, axis: .vertical)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(3...12)
+            }
+          }
+        }
+        if shown.contains(.customFields) {
+          CustomFieldsEditor(fields: $draft.customFields)
+        }
+
+        Section {
+          addFieldMenu
+        } footer: {
+          if let error {
+            Label(error, systemImage: "xmark.octagon").foregroundStyle(Palette.danger)
+          }
         }
       }
       .formStyle(.grouped)
@@ -123,13 +134,13 @@ struct AccountFormView: View {
         }
         Spacer()
         Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-        Button("Save") { Task { await save() } }
+        Button(isEditing ? "Save" : "Add Account") { Task { await save() } }
           .keyboardShortcut(.defaultAction)
           .disabled(saving || draft.title.isEmpty)
       }
       .padding()
     }
-    .frame(width: 480, height: 640)
+    .frame(width: 500, height: 620)
     .disabled(saving)
     .overlay { if saving { ProgressView() } }
     .confirmationDialog(
@@ -139,11 +150,69 @@ struct AccountFormView: View {
     } message: {
       Text("It moves to Recently Deleted, where you can restore it until you empty it.")
     }
-    .sheet(isPresented: $showingGenerator) {
-      PasswordGeneratorView { draft.password = $0 }
-    }
     .fileImporter(isPresented: $importingQR, allowedContentTypes: [.image]) { result in
       readQR(result)
+    }
+  }
+
+  // MARK: - Optional fields
+
+  private var addFieldMenu: some View {
+    Menu {
+      ForEach(OptionalField.addable(given: shown), id: \.self) { field in
+        Button(field.title, systemImage: field.systemImage) { add(field) }
+      }
+    } label: {
+      Label("Add Field", systemImage: "plus")
+    }
+    .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
+    .fixedSize()
+  }
+
+  private func add(_ field: OptionalField) {
+    shown.insert(field)
+    switch field {
+    case .securityQuestions: questions.append(EditableQuestion())
+    case .customFields: draft.customFields.append(CustomField(label: "", value: ""))
+    case .recoveryCodes: showingRecoveryCodes = true
+    case .oneTimeCode, .pin, .memorableWord, .expiry: break
+    }
+  }
+
+  /// A single optional field with a remove button that clears it and takes it off screen.
+  private func removableRow<Content: View>(
+    _ field: OptionalField, @ViewBuilder content: () -> Content
+  ) -> some View {
+    HStack {
+      content()
+      Button("Remove \(field.title)", systemImage: "minus.circle") { remove(field) }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .help("Remove \(field.title)")
+    }
+  }
+
+  private func remove(_ field: OptionalField) {
+    shown.remove(field)
+    switch field {
+    case .oneTimeCode: totpText = ""
+    case .pin: draft.pin = nil
+    case .memorableWord: draft.memorableWord = nil
+    case .expiry, .securityQuestions, .recoveryCodes, .customFields: break
+    }
+  }
+
+  /// The one-time-code field, the QR button, and what the field currently parses to.
+  private var oneTimeCodeRow: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      removableRow(.oneTimeCode) {
+        SecureField(
+          "One-time code", text: $totpText, prompt: Text(verbatim: "otpauth:// link or secret"))
+        Button("From QR Image…") { importingQR = true }
+      }
+      totpStatus.font(.caption)
     }
   }
 
@@ -163,7 +232,7 @@ struct AccountFormView: View {
   }
 
   @ViewBuilder
-  private var totpFooter: some View {
+  private var totpStatus: some View {
     switch parsedTOTP {
     case .success(nil):
       EmptyView()
@@ -214,7 +283,7 @@ struct AccountFormView: View {
     draft.recoveryCodes = Self.parseLines(recoveryCodesText)
     draft.securityQuestions = questions.compactMap(\.model)
     draft.customFields = CustomFieldsEditor.cleaned(draft.customFields)
-    draft.expiresAt = hasExpiry ? expiry : nil
+    draft.expiresAt = shown.contains(.expiry) ? expiry : nil
     switch parsedTOTP {
     case .success(let config):
       // Unchanged text keeps the stored config byte-for-byte (no spurious "totp" revision).

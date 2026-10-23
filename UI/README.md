@@ -69,9 +69,15 @@ grey copy and reveal icons, so actions never draw in the brand colour). The side
 each icon by meaning and draws the Password Health count as a danger badge; Password Health opens
 with a score ring; the unlock screen warns when Caps Lock is on.
 
+The generator follows the mockup's card, Words mode included (passphrases from the EFF large word
+list). The add / edit form has no mockup of its own; it borrows the detail view's header (tile,
+title, category in its family colour, the star) and section order, shows the password's strength
+under it with the generator in a popover, and keeps the rarer fields (one-time code, PIN, memorable
+word, expiry, security questions, recovery codes, custom fields) behind an Add Field menu until
+they hold something.
+
 Not built from the mockups, because the feature behind them doesn't exist yet: the sidebar's sync
-status (M5), Undo on the delete toast, the generator's Words mode, and the health rows' Change…
-button. The detail view follows the mockup's cards on the system grouped `Form`, then shows Details,
+status (M5), Undo on the delete toast, and the health rows' Change… button. The detail view follows the mockup's cards on the system grouped `Form`, then shows Details,
 History and Stats in full rather than behind the mockup's "Advanced" toggle: everything the record
 holds is on screen once it is selected. The search field sits in the list column's
 header and the account's star and Edit lead the detail toolbar, as in the mockup.

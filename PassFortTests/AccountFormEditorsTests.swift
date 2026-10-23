@@ -29,4 +29,30 @@ struct AccountFormEditorsTests {
     let blank = CustomField(label: " ", value: "")
     #expect(CustomFieldsEditor.cleaned([kept, blank, valueOnly]) == [kept, valueOnly])
   }
+
+  // MARK: - Optional fields
+
+  @Test func aNewAccountShowsNoOptionalField() {
+    #expect(OptionalField.shown(in: AccountPayload(title: "")).isEmpty)
+  }
+
+  @Test func anEditedAccountShowsEachOptionalFieldItFills() throws {
+    var payload = AccountPayload(title: "Bank")
+    payload.pin = "1234"
+    payload.memorableWord = ""  // empty counts as unset, as the form saves it
+    payload.recoveryCodes = ["abcd-efgh"]
+    payload.expiresAt = Date(timeIntervalSince1970: 0)
+    payload.totp = try TOTPConfig(parsing: "JBSWY3DPEHPK3PXP")
+    #expect(OptionalField.shown(in: payload) == [.pin, .recoveryCodes, .expiry, .oneTimeCode])
+  }
+
+  @Test func theMenuOffersHiddenFieldsAndTheRepeatableOnes() {
+    #expect(OptionalField.addable(given: []) == OptionalField.allCases)
+    let shown: Set<OptionalField> = [.pin, .securityQuestions, .customFields]
+    let addable = OptionalField.addable(given: shown)
+    #expect(!addable.contains(.pin))
+    #expect(addable.contains(.securityQuestions))
+    #expect(addable.contains(.customFields))
+    #expect(addable.contains(.memorableWord))
+  }
 }
