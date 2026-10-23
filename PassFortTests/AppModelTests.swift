@@ -302,6 +302,55 @@ struct AppModelTests {
     #expect(model.summaries.map(\.title) == ["Keep"])
   }
 
+  // MARK: - Password health
+
+  @Test func theAuditReportsReuseWithoutPasswordValues() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "pw")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("pw".utf8))
+    _ = await model.createAccount(AccountPayload(title: "A", password: "Vx9#kQ2!mZ7@pL4$"))
+    _ = await model.createAccount(AccountPayload(title: "B", password: "Vx9#kQ2!mZ7@pL4$"))
+
+    guard case .success(let findings) = await model.audit() else {
+      Issue.record("the audit should run while unlocked")
+      return
+    }
+    #expect(findings.count == 2)
+    #expect(findings.allSatisfy { $0.kind == .reused(count: 2) })
+    #expect(findings.allSatisfy { HealthGroup($0.kind) == .reused })
+
+    model.lock()
+    guard case .failure = await model.audit() else {
+      Issue.record("the audit must not run while locked")
+      return
+    }
+  }
+
+  // MARK: - Import
+
+  @Test func importWritesEveryAccountAndLockClosesTheSheet() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "pw")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("pw".utf8))
+    let export = "Group/Title\tUsername\tPassword\nBank\tme\tpw1\nMail\tme\tpw2\n"
+    let plan = try PasswordSafeImport.plan(Data(export.utf8))
+    #expect(await model.importAccounts(plan.accounts.map(\.payload)) == nil)
+    #expect(Set(model.summaries.map(\.title)) == ["Bank", "Mail"])
+    #expect(plan.duplicates(of: model.summaries).count == 2)  // a second run would skip both
+
+    model.showingImport = true
+    model.lock()
+    #expect(model.showingImport == false)
+  }
+
   // MARK: - Rollback
 
   @Test func reloadAfterRestoreShowsTheScreenThatMatchesTheDisk() async throws {

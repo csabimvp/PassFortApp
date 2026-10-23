@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import PassFortVault
@@ -34,6 +35,8 @@ final class AppModel {
   /// Whether the password generator sheet is up. Lives here so the Tools menu entry and the
   /// toolbar button open the same sheet; the generator needs no vault, so it works while locked.
   var showingGenerator = false
+  /// Whether the import sheet is up (Tools menu, or the empty vault's button).
+  var showingImport = false
 
   private let service: VaultService
   private var autoLock: AutoLock?
@@ -112,6 +115,7 @@ final class AppModel {
     repo = nil
     stagedRepo = nil
     summaries = []
+    showingImport = false  // an import plan is plaintext; it must not reappear after unlock
     Pasteboard.clearTransient()
     state = .locked()
   }
@@ -207,6 +211,53 @@ final class AppModel {
     }
   }
 
+  /// The password-health audit. Runs inside `VaultRepository`; only findings come back (§7.5).
+  func audit() async -> Result<[AuditFinding], AppError> {
+    guard let repo else { return .failure(.io("The vault is locked.")) }
+    do {
+      return .success(try await repo.audit())
+    } catch {
+      return .failure(VaultService.map(error))
+    }
+  }
+
+  /// What Quick Access (and the sidebar menu) can put on the clipboard.
+  enum CopyField: Equatable {
+    case username, password, oneTimeCode
+
+    var name: String {
+      switch self {
+      case .username: "username"
+      case .password: "password"
+      case .oneTimeCode: "one-time code"
+      }
+    }
+  }
+
+  /// Decrypt one account, put `field` on the clipboard as a transient copy (concealed, cleared
+  /// after 20 s or on lock), and drop the plaintext. Returns why not, or `nil` on success.
+  func copy(
+    _ field: CopyField, from id: UUID, to board: NSPasteboard = .general
+  ) async -> AppError? {
+    let account: Account
+    switch await loadAccount(id: id) {
+    case .loaded(let loaded): account = loaded
+    case .missing: return .io("That account no longer exists.")
+    case .failed(let message): return .io(message)
+    }
+    let value: String?
+    switch field {
+    case .username: value = account.payload.username ?? account.payload.email
+    case .password: value = account.payload.password
+    case .oneTimeCode: value = account.payload.totp?.code()
+    }
+    guard let value, !value.isEmpty else {
+      return .io("“\(account.payload.title)” has no \(field.name) saved.")
+    }
+    Pasteboard.copyTransient(value, to: board)
+    return nil
+  }
+
   // MARK: - Account writes
 
   /// Bumped after every account create / update / delete so a detail view knows
@@ -223,6 +274,11 @@ final class AppModel {
 
   func deleteAccount(id: UUID) async -> AppError? {
     await write { try await $0.delete(id: id) }
+  }
+
+  /// Write imported accounts in one transaction -- all of them or none (`importAccounts`).
+  func importAccounts(_ payloads: [AccountPayload]) async -> AppError? {
+    await write { try await $0.importAccounts(payloads) }
   }
 
   /// Bring a deleted account back from Recently Deleted.
