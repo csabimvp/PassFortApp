@@ -1,0 +1,10 @@
+{
+  "conflicts": [
+    {
+      "id": "66666666-7777-4888-9999-aaaaaaaaaaaa",
+      "serverVersion": 5
+    }
+  ],
+  "error": "conflict",
+  "message": "a record changed since its baseVersion; nothing was written"
+}

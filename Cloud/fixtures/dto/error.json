@@ -1,0 +1,4 @@
+{
+  "error": "unauthorized",
+  "message": "not authorized for this vault"
+}

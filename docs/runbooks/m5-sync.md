@@ -972,6 +972,33 @@ unit test with a test chain (pin match passes, mismatch fails, localhost skipped
 `http://10.0.0.5` rejected before any request is made, `https://` accepted) and a redirect test (a `30x`
 fails the request instead of following it).
 
+**Done (2026-10-23).** `swift test` green (202 + 15 tests); `npm test` green (81). Everything lives in
+`PassFortVault/Sync/`. Where it differs from the text above:
+
+- **Shared fixtures instead of `openapi.yaml` examples** (the contract has none). `Cloud/fixtures/dto/`
+  holds one JSON file per message. `SyncDTOTests` decodes every one and re-encodes each request to
+  the same JSON; `Cloud/api/test/fixtures.test.ts` runs the request files through the server's own
+  validators. A field renamed on either side now fails a suite.
+- **Dates:** the server writes `toISOString()` (milliseconds), which `JSONDecoder`'s `.iso8601`
+  rejects; `SyncCoding.decoder` takes RFC 3339 with or without fractional seconds. UUIDs are
+  encoded lower-case by hand (`JSONEncoder` writes upper-case, which the server refuses).
+- **`SyncError` is here, not in Phase 8:** the transport maps onto it. It names every status the
+  contract uses (`409` per endpoint: `vaultExists`, `conflicts`, `headerConflict`), plus
+  `insecureEndpoint`, `noPins`, `pinningFailed`, `redirectRefused`, `invalidResponse`, `offline`.
+- **The endpoint rule** is `HTTPSyncAPI.init`: `https` with a non-empty pin set, or `http`/`https` to
+  `localhost` / `127.0.0.1` / `::1`. An `https` endpoint with no pins is refused (`noPins`) rather than
+  falling back to plain trust. TLS minimum is 1.3 (§9.4) -- **Phase 12 must confirm SWA negotiates it.**
+- **Pinning:** `PinnedTransport` handles trust at the task level, so a pin failure is reported as
+  `pinningFailed`, not as a cancellation. The SPKI is cut from the certificate's DER by a small
+  reader (any key type) and checked against pins computed with OpenSSL, using a throwaway chain in
+  `Fixtures/pinning` (public certificates only; the README has the recipe). `SecTrust` evaluation
+  is tested with that chain as the only anchor: a pinned root, intermediate or leaf passes; an
+  unrelated pin, an empty pin set, an unknown root or the wrong hostname fails. **Not yet seen
+  against a real TLS server** -- the Phase 11 drill against the dev resource group is the first.
+- **`HTTPSyncAPI` is a final class**, not a struct: its `URLSession` holds the delegate strongly and
+  must be invalidated in `deinit`. Calls use `dataTask` (not `data(for:)`) to keep the task
+  identifier a pin failure is recorded under. No cache, cookies or credential storage; nothing logged.
+
 ---
 
 ## Phase 8 — `Reconciler` and `SyncEngine`

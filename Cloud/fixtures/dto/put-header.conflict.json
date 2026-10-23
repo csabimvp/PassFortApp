@@ -1,0 +1,5 @@
+{
+  "error": "conflict",
+  "headerVersion": 3,
+  "message": "the header changed since baseHeaderVersion"
+}

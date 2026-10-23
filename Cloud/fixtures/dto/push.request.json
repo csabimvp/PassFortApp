@@ -1,0 +1,28 @@
+{
+  "records": [
+    {
+      "baseVersion": 0,
+      "hlc": {
+        "counter": 0,
+        "deviceId": "0f1e2d3c-4b5a-4978-8796-a5b4c3d2e1f0",
+        "wallMillis": 1792789295294
+      },
+      "id": "11111111-2222-4333-8444-555555555555",
+      "isDeleted": false,
+      "sealed": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dzj6vH4/wYNFBsiKTA3PkVMU1phaG92fYSLkpmgp661vMPK0djf5u30+wIJEBceJSwzOkFIT1ZdZGtyeYCHjpWco6qxuL/GzdTb4unw9/4FDBMaISgvNj1ES1JZYGdudXyDipGYn6attLvCydDX3uXs8/oBCA8WHSQrMjlAR05VXGNqcXh/ho2Um6KpsLe+xczT2uHo7/b9BAsSGSAnLjU8Q0pRWF9mbXR7gomQl56lrLO6wcjP1t3k6/L5AAcOFRwjKjE4P0ZNVFtiaXB3foWMk5qhqK+2vcTL0tng5+71/AMKERgfJi00O0JJUFdeZWxzeoGIj5adpKuyucDHztXc4+rx+P8GDRQ=",
+      "version": 1
+    },
+    {
+      "baseVersion": 3,
+      "hlc": {
+        "counter": 2,
+        "deviceId": "0f1e2d3c-4b5a-4978-8796-a5b4c3d2e1f0",
+        "wallMillis": 1792789295297
+      },
+      "id": "66666666-7777-4888-9999-aaaaaaaaaaaa",
+      "isDeleted": true,
+      "sealed": "BRAbJjE8R1JdaHN+iZSfqrXAy9bh7PcCDRgjLjlET1plcHuGkZynsr3I097p9P8KFSArNkFMV2JteIOOmaSvusXQ2+bx/AcSHSgzPklUX2p1gIuWoay3ws3Y4+75BA8aJTA7RlFcZ3J9iJOeqbS/ytXg6/YBDBciLThDTllkb3qFkJumsbzH0t3o8/4JFB8qNUBLVmFsd4KNmKOuucTP2uXw+wYRHCcyPUhTXml0f4qVoKu2wczX4u34Aw4ZJC86RVBbZnF8h5KdqLO+ydTf6vUACxYhLDdCTVhjbnmEj5qlsLvG0dzn8v0IEx4pND9KVWBrdoGMl6KtuMPO2eTv+gUQGyYxPEdSXWhzfomUn6q1wMvW4ez3Ag0YIy45RE9aZXB7hpGcp7K9yNPe6fT/ChUgKzZBTFdibXiDjpmkr7rF0Nvm8fwHEh0oMz5JVF9qdYCLlqGst8LN2OPu+QQPGiUwO0ZRXGdyfYiTnqm0v8rV4Ov2AQwXIi04Q05ZZG96hZCbprG8x9Ld6PP+CRQfKjVAS1ZhbHeCjZijrrnEz9rl8PsGERwnMj1IU15pdH+KlaCrtsHM1+Lt+AMOGSQvOkVQW2ZxfIeSnaizvsnU3+r1AAsWISw3Qk1YY255hI+apbC7xtHc5/L9CBMeKTQ/SlVga3aBjJeirbjDztnk7/oFEBsmMTxHUl1oc36JlJ+qtcDL1uHs9wINGCMuOURPWmVwe4aRnKey",
+      "version": 4
+    }
+  ]
+}
