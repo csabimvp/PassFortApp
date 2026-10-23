@@ -338,7 +338,9 @@ deviceId, and a token for vault A is rejected on vault B's routes.
   root, two or three SPKI hashes recorded from `openssl s_client -showcerts` in Phase 0), not the leaf —
   and on a pin failure, sync stops with a clear `pinningFailed` problem rather than silently falling
   back. Pinning is skipped for `localhost` only. `passfort-cli sync … --pins <file>` lets you update
-  pins without a rebuild.
+  pins without a rebuild. **No plaintext HTTP off loopback:** the client refuses a non-`https`
+  endpoint unless the host is loopback, in code rather than relying on ATS, which doesn't cover the
+  CLI (Phase 7.2).
 
 ### A.5 Client data model
 
@@ -881,15 +883,28 @@ public protocol SyncAPI: Sendable {
 15 s request timeout, and never logs bodies. The engine owns the token (memory only); `HTTPSyncAPI`
 is stateless.
 
+**HTTPS only, enforced in code.** `HTTPSyncAPI.init` rejects any endpoint whose scheme isn't `https`
+unless its host is loopback (`localhost`, `127.0.0.1`, `::1` -- the same set that skips pinning), and
+`passfort-cli sync` validates `--endpoint` the same way before it prompts for a password. App Transport
+Security already blocks plain HTTP in the app, but ATS only applies to app bundles: without this check
+the CLI would send `k_auth` in cleartext to a mistyped `http://` endpoint. Redirects are refused
+outright (`urlSession(_:task:willPerformHTTPRedirection:…)` returns `nil`; the API never redirects),
+so a `30x` can't downgrade the scheme or move the request to another host. The rule lives in
+`PassFortVault`, so both hosts get it.
+
 ### 7.3 `PinnedTransport.swift`
 
 `URLSessionDelegate` handling `NSURLAuthenticationMethodServerTrust`: evaluate the trust normally first
 (`SecTrustEvaluateWithError`), then require at least one certificate in the chain whose SPKI SHA-256 is
 in the pin set (A.4). Pins come from build configuration (an `Info.plist` key for the app, a file for
-the CLI) — never hard-coded in Swift. Skipped only when the host is `localhost` / `127.0.0.1`.
+the CLI) — never hard-coded in Swift. Skipped only when the host is loopback (`localhost` /
+`127.0.0.1` / `::1`).
 
 **Checkpoint:** DTO round-trip tests against JSON fixtures copied from `openapi.yaml` examples; a pinning
-unit test with a test chain (pin match passes, mismatch fails, localhost skipped).
+unit test with a test chain (pin match passes, mismatch fails, localhost skipped); a scheme test
+(`http://localhost` / `http://127.0.0.1` / `http://[::1]` accepted, `http://example.com` and
+`http://10.0.0.5` rejected before any request is made, `https://` accepted) and a redirect test (a `30x`
+fails the request instead of following it).
 
 ---
 
@@ -1072,6 +1087,7 @@ offline edit on both surfaces a badged copy on both, resolvable from either; air
 | `native-tests/` | `k_auth` KAT, domain separation | the DEK → auth-key map is pinned |
 | `PFCryptoBoundaryTests` | `pf_session_auth_key` fuzz | null / wrong length / closed / double close → `BadInput` |
 | `Cloud/api/test` | Phase 4 table | atomic push, gap-free seq, pagination, `410`, auth, lockout, closed schema, redaction |
+| `PassFortVaultTests` | transport scheme + redirects | non-loopback `http://` rejected before any request; `30x` never followed |
 | `PassFortVaultTests` | migration v1 → v2 fixture | rows readable, all dirty, MAC verifies |
 | `PassFortVaultTests` | `Reconciler` table tests | every A.7 row |
 | `PassFortVaultTests` | `SyncEngine` vs `FakeSyncServer` | convergence, conflict copies, delete-vs-edit, paging, cancel safety |
