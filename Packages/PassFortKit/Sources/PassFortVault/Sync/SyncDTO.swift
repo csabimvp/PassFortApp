@@ -1,8 +1,8 @@
 import Foundation
 
-// The wire types of the sync API -- `Codable` mirrors of `Cloud/openapi.yaml`, one for one, by
+// The wire types of the sync API -- `Codable` mirrors of `SyncAPI/openapi.yaml`, one for one, by
 // hand (`m5-sync.md` 7.1). They are the wire boundary: `SealedRecord` itself is never `Codable`.
-// `Cloud/fixtures/dto/` holds one JSON file per message; `SyncDTOTests` checks these types against
+// `SyncAPI/fixtures/dto/` holds one JSON file per message; `SyncDTOTests` checks these types against
 // it, and the server's test suite checks its validators against the same files.
 //
 // Encoding follows the contract: `Data` as standard padded base64 (the `JSONEncoder` default),

@@ -139,7 +139,7 @@ back in time. Confirm that the restore was deliberate with `verify <vault> --acc
 
 ```bash
 cd Cloud/api && npm ci && npm run typecheck && npm test   # tests run on an in-memory store
-cd Cloud/api && npm run gen   # regenerate src/dto.ts after editing ../openapi.yaml
+cd Cloud/api && npm run gen   # regenerate src/dto.ts after editing SyncAPI/openapi.yaml
 cd Cloud/api && npm run dev   # the API on node:http + in-memory store, http://localhost:7071/api/v1
 ```
 

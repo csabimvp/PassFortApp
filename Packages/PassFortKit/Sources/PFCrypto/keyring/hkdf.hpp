@@ -16,7 +16,7 @@ inline constexpr std::string_view kInfoIndex = "pf-idx-v1";
 inline constexpr std::string_view kInfoManifest = "pf-mft-v1";
 inline constexpr std::string_view kInfoRecoveryKek = "pf-rk-v1"; // recovery-slot KEK (ADR-0007)
 // The sync credential's label is fixed by ADR-0009 and the server contract
-// (Cloud/openapi.yaml), hence no pf-/-v1 pattern. Not on-disk format: nothing in
+// (SyncAPI/openapi.yaml), hence no pf-/-v1 pattern. Not on-disk format: nothing in
 // a vault file depends on it, only SHA-256(k_auth) registered on the server.
 inline constexpr std::string_view kInfoSyncAuth = "sync-auth";
 

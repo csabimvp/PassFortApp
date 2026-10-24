@@ -3,16 +3,16 @@ import Testing
 
 @testable import PassFortVault
 
-/// The Swift DTOs against the shared contract fixtures (`Cloud/fixtures/dto`, m5-sync.md 7.1).
+/// The Swift DTOs against the shared contract fixtures (`SyncAPI/fixtures/dto`, m5-sync.md 7.1).
 /// The server's suite runs its validators over the same request files, so a request that passes
 /// here is one the server accepts.
 @Suite struct SyncDTOTests {
 
-  /// Tests/PassFortVaultTests/ -> the repository root -> Cloud/fixtures/dto.
+  /// Tests/PassFortVaultTests/ -> the repository root -> SyncAPI/fixtures/dto.
   static let fixturesDir = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent().deletingLastPathComponent()
-    .appending(path: "Cloud/fixtures/dto")
+    .appending(path: "SyncAPI/fixtures/dto")
 
   static func fixture(_ name: String) throws -> Data {
     try Data(contentsOf: fixturesDir.appending(path: name))

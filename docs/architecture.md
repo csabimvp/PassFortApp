@@ -925,7 +925,7 @@ RowKey "dev_<uuid>"    name:String · platform:String · lastSeq:Int64 · lastSe
 
 ### 10.3 The sync API
 
-Nine vault endpoints plus a health check. TypeScript Azure Functions under SWA's `/api` prefix (the local `npm run dev` server serves the same paths). The contract lives in `Cloud/openapi.yaml` and is the one source of truth for all three clients.
+Nine vault endpoints plus a health check. TypeScript Azure Functions under SWA's `/api` prefix (the local `npm run dev` server serves the same paths). The contract lives in `SyncAPI/openapi.yaml` and is the one source of truth for all three clients.
 
 ```
 GET    /api/v1/health                                    no auth   -> { ok, apiVersion }
