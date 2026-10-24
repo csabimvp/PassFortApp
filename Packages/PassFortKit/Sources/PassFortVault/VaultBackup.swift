@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import PassFortCrypto
 
 /// File-level vault backup and restore (`docs/runbooks/m3-vault-management.md`).
 ///
@@ -219,18 +220,12 @@ public enum VaultBackup {
       vaultID: vaultID, vaultVersion: try VaultMeta.readVaultVersion(db), manifestMAC: mac)
   }
 
-  /// The one place Swift looks inside the header blob (§5.3, which C++ otherwise owns): magic
-  /// `"PFV\x01"`, `format_version` (u16), then the 16-byte `vault_uuid`. Read-only and for
-  /// naming / mismatch warnings; nothing here is authenticated, so a tampered value can at worst
+  /// The vault UUID written in a header, read by the C++ header codec without opening it
+  /// (`VaultSession.vaultUUID(ofHeader:)`) -- Swift never parses §5.3 itself. For naming and
+  /// mismatch warnings only: nothing here is authenticated, so a tampered value can at worst
   /// mislabel a file -- the unlock still verifies the header through the AEAD.
   static func vaultID(inHeader header: Data) -> UUID? {
-    let magic: [UInt8] = [0x50, 0x46, 0x56, 0x01]
-    let start = header.startIndex + magic.count + 2
-    guard header.count >= magic.count + 2 + 16, header.prefix(magic.count).elementsEqual(magic)
-    else { return nil }
-    return Array(header[start..<start + 16]).withUnsafeBytes {
-      UUID(uuid: $0.loadUnaligned(as: uuid_t.self))
-    }
+    try? VaultSession.vaultUUID(ofHeader: header)
   }
 
   private static func namePrefix(for vaultID: UUID) -> String {
