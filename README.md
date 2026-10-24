@@ -7,168 +7,76 @@
 
 [![CI](https://github.com/csabimvp/PassFortApp/actions/workflows/ci.yml/badge.svg)](https://github.com/csabimvp/PassFortApp/actions/workflows/ci.yml)
 
-macOS-first SwiftUI password manager built around a deliberately tiny Swift↔C++ crypto core (Botan 3),
-with per-record envelope encryption and a custom Azure sync backend.
+A local-first password manager for macOS. Your vault is one encrypted file on your Mac, and the
+app works without an account or a network connection.
 
-## Status
+Status: personal project, in active development. There is no packaged release yet, so you build
+and install the app from source. Sync between devices is being built (milestone M5) and isn't in the
+app yet.
 
-Status: active hobby project. Milestones M0 (toolchain + seam + scaffolding), M1 (the crypto core), and
-M2 (vault + SQLite storage) are complete — a fully working `passfort-cli` creates a vault, does CRUD
-against an encrypted SQLite database, and survives a mid-write kill and a whole-file rollback. M3 (the
-SwiftUI GUI) is next. CI runs on every push (`swift` / `native` / `lint` / `secrets` / `deps` jobs).
-No release yet.
+## Features
 
-## Overview
+- Accounts with usernames, passwords, URLs, notes and custom fields. Search, favourites, categories
+  and password history.
+- One-time codes (TOTP), added from the secret or by reading a QR code.
+- A password generator for random passwords or EFF-wordlist passphrases.
+- Password health: weak, reused, old and expiring passwords, and plain `http://` logins.
+- Quick Access: press ⌃⌥Space in any app, search, and press Return to copy the password. Clipboard
+  managers don't see the copy, and it's cleared after 20 seconds or on lock.
+- Auto-lock when idle, on sleep and on screen lock.
+- Backups to a folder you choose, with retention, optionally on every lock.
+- Import from a Password Safe plain-text export or from another PassFort vault. Plaintext export
+  from the CLI.
+- A recovery key for a forgotten master password, and Recently Deleted for removed accounts.
+- `passfort-cli`, a command-line client for the same vault format.
 
-PassFort keeps every secret key inside a small C++ module and lets nothing else touch key material.
-Swift owns storage, the data model, the UI, and sync; it can ask the C++ session to seal or open bytes
-but can never ask for a key. That single boundary — which bytes live where — is the security property
-the project is organised around, not the mere fact that C++ is involved.
+## Requirements
 
-The vault format is language-agnostic by design so the same sealed vault can be opened by the macOS
-app, the `passfort-cli` tool, and (later) a browser client running the same core compiled to
-WebAssembly. Milestones M1 and M2 are built and tested entirely through `passfort-cli`, before the GUI
-exists.
+- macOS 26.5 or later on Apple silicon
+- Xcode 26.6
+- An Apple ID signed in to Xcode (a free one is enough) to sign the build
 
-`docs/architecture.md` (rev 7) is the specification the project is built against; read it before
-changing anything. The seven ADRs in `docs/adr/` hold the reasoning behind every load-bearing choice.
+## Installation
 
-## Architecture
+1. Clone the repository:
 
-Three build systems, one real one:
+   ```bash
+   git clone https://github.com/csabimvp/PassFortApp.git && cd PassFortApp
+   ```
 
-- **SwiftPM** (`Packages/PassFortKit/Package.swift`) is the actual build. It compiles four targets
-  top to bottom:
-  - `PFCrypto` (C++) — owns every key and nothing else: Argon2id, the HKDF key hierarchy, DEK
-    wrap/unwrap, record seal/open, the vault-header codec, the streaming manifest MAC. Botan 3 is
-    vendored under `Sources/PFCrypto/vendor/botan/` as a two-file amalgamation so its headers never
-    reach the Swift compiler. No interop flag on this target.
-  - `PassFortCrypto` (Swift) — the **only** module compiled with `.interoperabilityMode(.Cxx)`.
-    `import PFCrypto` appears here and nowhere else. `actor VaultSession` owns the opaque C++ session
-    handle and turns `PFStatus` codes into Swift errors. Built with `-enable-library-evolution` so the
-    interop mode does not go viral to its clients.
-  - `PassFortVault` (Swift, no interop flag) — SQLite storage, schema and migrations, the data model,
-    search, tombstones, the sync client. **Cannot** `import PFCrypto` — the missing interop flag turns
-    a layering violation into a compile error. GRDB is added at M2.
-  - `passfort-cli` (Swift executable) — exercises the full seam from M1; the primary interface for
-    M1 and M2.
-- **CMake** (`native-tests/`) builds only the Catch2 unit tests over `PFCrypto`'s C++ internals — RFC
-  known-answer tests, tamper tests, seam fuzzing. It never touches the app build graph.
-- **Xcode project** — a thin shell around the SwiftPM package, added when the GUI starts (M3).
+2. Find your development team ID. It is the `OU` field of your Apple Development certificate. If
+   you don't have the certificate yet, open Xcode, go to Settings > Accounts, select your Apple ID
+   and click Manage Certificates.
 
-Key decisions and their ADRs: Botan as a static minimized amalgamation (`docs/adr/0001`); the
-`noexcept` / opaque-handle / POD-only seam style (`docs/adr/0002`); per-record envelope encryption in
-SQLite (`docs/adr/0003`); **Swift owns storage, C++ owns only keys** (`docs/adr/0004`, which amends
-0002 and 0003); a custom Azure sync backend rather than CloudKit (`docs/adr/0005`); the web client
-running the core as WebAssembly (`docs/adr/0006`); the recovery-key DEK slot folded into header format
-v1 with no migration (`docs/adr/0007`).
+   ```bash
+   security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
+   ```
 
-## Project structure
+3. Build and install. The script makes a Release build, signs it with your team and copies it to
+   `/Applications/PassFort.app`. The first build takes a few minutes, mostly compiling the crypto
+   library.
 
-```
-PassFortApp/
-├── CLAUDE.md                        # guidance for Claude Code; the canonical Commands list
-├── README.md                       # this file
-├── Packages/
-│   └── PassFortKit/                 # the local SwiftPM package — the entire core lives here
-│       ├── Package.swift            # 4 targets + 1 test target; only PassFortCrypto has the Cxx flag
-│       ├── Sources/
-│       │   ├── PFCrypto/            # C++ — keys only: Argon2id, HKDF, seal/open, header, manifest MAC
-│       │   │   ├── include/PFCrypto/  # PUBLIC headers — the only thing Swift's importer sees
-│       │   │   ├── internal/          # shared C++ headers, NOT exported: Secure/Bytes/Canonical.hpp
-│       │   │   ├── boundary/          # noexcept POD facade (bytes.cpp; session/record/manifest in M1)
-│       │   │   └── vendor/botan/      # Botan 3.13.0 amalgamation (botan_all.{h,cpp}) — ADR-0001
-│       │   ├── PassFortCrypto/      # Swift — the ONLY .interoperabilityMode(.Cxx) module; VaultSession
-│       │   ├── PassFortVault/       # Swift — storage/model/sync; cannot import PFCrypto (enforced)
-│       │   └── passfort-cli/        # Swift executable — primary interface for M1-M2
-│       └── Tests/
-│           └── PFCryptoBoundaryTests/ # Swift-side seam tests (sanctioned interop exception)
-├── native-tests/                   # CMake + Catch2 tests over PFCrypto internals — outside app build
-│   ├── CMakeLists.txt               # each .cpp listed explicitly; add files as milestones create them
-│   ├── tests/                       # test_bytes, test_kat_*, test_header_codec, (tamper/fuzz in M1)
-│   └── build/                       # generated, git-ignored
-├── scripts/
-│   ├── build_botan.sh               # regenerate the minimized Botan amalgamation — run deliberately
-│   ├── make_icon.swift              # regenerate the app icon set from the brand in UI/tokens.json
-│   ├── gen_palette.swift            # UI/tokens.json -> PaletteTokens.swift + AccentColor asset
-│   ├── make_readme_art.swift        # UI/tokens.json -> docs/images/hero-{light,dark}.svg
-│   └── install_app.sh               # Release build + install for personal use
-├── UI/
-│   ├── tokens.json                  # every app colour, light and dark — the retheme surface
-│   └── mockups/                     # the design canvas (gitignored, kept locally only)
-└── docs/
-    ├── architecture.md              # the specification (rev 7); stable §-numbers referenced everywhere
-    ├── adr/                         # 7 ADRs — reasoning behind load-bearing choices
-    ├── bootstrap.md                 # M0 runbook (toolchain → seam → Botan → CMake → CI)
-    ├── runbooks/                    # per-milestone build runbooks (M1 onward)
-    └── images/                      # the README banner, generated by make_readme_art.swift
-```
+   ```bash
+   DEVELOPMENT_TEAM=ABCDE12345 scripts/install_app.sh
+   ```
 
-## Getting started
-
-### Prerequisites
-
-| Tool | Version | Notes |
-|---|---|---|
-| macOS | 14+ (Sonoma) | Apple Silicon or Intel |
-| Xcode | 26.6 | provides Swift 6.3.3 and clang 21; C++ interop is stable on this toolchain |
-| CMake | 4.4+ | `brew install cmake`; builds `native-tests/` only |
-| Python | 3.x | only needed to regenerate the vendored Botan amalgamation |
-| Botan | 3.13.0 | vendored and committed; a Homebrew install is needed only to run `scripts/build_botan.sh` |
-
-Botan itself does not need to be installed to build or test the project — the amalgamation is in the
-repo (ADR-0001).
-
-### Install
-
-```bash
-# 1. Point the toolchain at Xcode, not CommandLineTools (xcodebuild and the Swift 6.3 toolchain).
-sudo xcode-select -s /Applications/Xcode.app
-
-# 2. Build tools for the native C++ test harness.
-brew install cmake
-
-# 3. Build the core (fast loop — roughly 10x quicker than Xcode for core work).
-cd Packages/PassFortKit && swift build
-
-# 4. Configure and build the native C++ tests (from the repo root).
-cmake -S native-tests -B native-tests/build && cmake --build native-tests/build
-
-# 5. Verify everything is green.
-cd Packages/PassFortKit && swift test
-ctest --test-dir native-tests/build          # run from the repo root
-```
+   Replace `ABCDE12345` with your team ID. To update later, `git pull` and run the same command.
+   Your vault lives in the app's sandbox container, so reinstalling doesn't touch it.
 
 ## Usage
 
-`passfort-cli` is the primary interface for M1 and M2. Run it from `Packages/PassFortKit/`
-(`swift run passfort-cli <subcommand>`), or use the built binary at `.build/debug/passfort-cli`.
+On first launch, create a vault and choose a master password. The app then shows a recovery key
+once. Store it somewhere safe and offline: it is the only way back in if you forget the master
+password.
 
-The vault is an encrypted SQLite database. `init` creates one and prompts for a master password
-(no echo); every other command prompts for it and runs the manifest MAC + anti-rollback checks
-(architecture §5.5) before doing anything.
+- **Backups.** In Settings, choose a backup folder (a NAS share works well) and how many backups
+  to keep. Backups are encrypted like the vault and verified after each write.
+- **Moving to another Mac.** Copy a backup over and use Restore from Backup on the new Mac. The
+  vault it replaces is kept as a safety copy, never deleted.
+- **Leaving.** `passfort-cli export` writes a whole vault as plaintext JSON after you type a
+  confirmation phrase. Delete the file once you've imported it elsewhere.
 
-```bash
-passfort-cli bench   [--target-ms 500]                   # calibrate Argon2id; print params + timing
-passfort-cli init    <vault> [--recovery] [--force]      # create a vault; prompt for a password
-passfort-cli unlock  <vault>                             # open + verify; report account counts
-passfort-cli verify  <vault> [--accept-restore]          # manifest + anti-rollback check only
-passfort-cli add     <vault> --title T [--username U] [--prompt-password] [--url U] [--note N] [--totp URI]
-passfort-cli list    <vault> [--search Q] [--all]        # summary index (no secrets)
-passfort-cli get     <vault> <id|title> [--json]         # one account, secrets to stdout
-passfort-cli code    <vault> <id|title>                  # the account's current one-time code (TOTP)
-passfort-cli edit    <vault> <id|title> --set password=… [--add-url U] [--prompt-password]
-passfort-cli rm      <vault> <id|title>                  # tombstone
-passfort-cli undelete <vault> <id|title>                 # bring a tombstoned account back
-passfort-cli audit   <vault>                             # password health: weak, reused, old, expiring, http://
-passfort-cli import  <vault> <export.txt> [--dry-run]     # import a Password Safe plain-text export
-passfort-cli dump    <vault>                             # every record, decrypted, JSON (debug)
-passfort-cli export  <vault> -o out.json                 # decrypt the whole vault; typed phrase required
-passfort-cli recover <vault> --key <grouped-recovery-key>   # reset the master password via the recovery slot
-passfort-cli passwd  <vault> [--no-recovery-key]       # change the master password; issues a new recovery key
-```
-
-Example — create a vault, add an account, read it back:
+The CLI works on the same vault format:
 
 ```bash
 cd Packages/PassFortKit
@@ -177,145 +85,50 @@ swift run passfort-cli add   vault.sqlite --title github --username me --prompt-
 swift run passfort-cli get   vault.sqlite github
 ```
 
-An account reference is a record UUID or a title (exact match, else a unique substring).
-`get` / `dump` / `export` write secrets in the clear — `export` writes the file `0600`; delete it
-when done.
+Every command is listed in [`docs/development.md`](docs/development.md#the-cli).
 
-### The macOS app
+## Security
 
-Build a Release copy and install it. It is signed with your own development certificate (the
-project's team), so no notarization or paid Apple account is involved; Gatekeeper does not object to
-an app you built yourself.
+Everything in the vault is encrypted, including titles, usernames and URLs. The key comes from your
+master password through Argon2id, and each record is sealed with XChaCha20-Poly1305. A manifest MAC
+detects records that were deleted or swapped and a vault file that was rolled back. Sync, when it
+arrives, is end-to-end encrypted and treats the server as hostile.
 
-```bash
-scripts/install_app.sh                       # installs /Applications/PassFort.app
-scripts/install_app.sh --build-only ~/Desktop/PassFort-build   # build and verify, install nothing
-scripts/install_app.sh --keep-build          # keep the ~1 GB Build/ cache for a faster next install
-```
+PassFort has not been independently audited. The threat model, including what it does not defend
+against, is in [`docs/architecture.md` §3](docs/architecture.md#3-threat-model). To report a
+vulnerability, see [`SECURITY.md`](SECURITY.md).
 
-The script deletes its `Build/` cache after a successful install unless you pass `--keep-build`.
-Quit PassFort before re-running the script; the vault lives in the app's sandbox container, which an
-update does not touch. To change the app's colours, edit `UI/tokens.json` and run
-`swift scripts/gen_palette.swift`; the icon and the README banner read the same tokens, so re-run
-`swift scripts/make_icon.swift PassFort/Assets.xcassets/AppIcon.appiconset` and
-`swift scripts/make_readme_art.swift` too (see `UI/README.md`).
+## Architecture
 
-**The window** has three columns: the sidebar picks what to list (All, Favorites, categories, tags,
-Password Health, Recently Deleted); the middle column lists it, with copy buttons on the selected or
-hovered account; the right column shows the selected account. The Account menu copies from the
-selected account without opening it — ⇧⌘C password, ⌘U username, ⌃⌘C one-time code, ⌘E edit.
-Every copy is concealed from clipboard managers and cleared after 20 seconds or on lock.
+The app is a SwiftUI shell over a local Swift package, `PassFortKit`:
 
-**Import.** Tools ▸ Import from Password Safe… (or the button in an empty vault) reads Password Safe's
-File ▸ Export To ▸ Plain Text file, shows what would come in, skips likely duplicates, and imports in
-one transaction. Afterwards it offers to move the export, which holds every password in plain text,
-to the Trash.
+| Module | Language | Role |
+|---|---|---|
+| `PFCrypto` | C++ (Botan 3) | Holds every key and never hands one out: key derivation, record sealing, the vault header, the manifest MAC |
+| `PassFortCrypto` | Swift | The only module that talks to C++; wraps it in an `actor VaultSession` |
+| `PassFortVault` | Swift | Storage in SQLite (GRDB), the data model, migrations, import and export, the sync client |
+| `PassFort` | Swift | The macOS app |
 
-**Start or load a vault.** Settings ▸ Vault (while unlocked) can replace the vault in place. Start a
-New Vault… puts an empty one there, after checking the current password. Load Vault… puts a copy
-of a vault file there (from another Mac, the CLI, or one set aside earlier), after unlocking the
-copy with that vault's password. Either way the old vault is set aside beside it as
-`vault.sqlite.pre-new-<time>` or `vault.sqlite.pre-load-<time>`, never deleted. Load it again to
-switch back, or bring accounts over from it with Tools ▸ Import from Another Vault…. Going back to
-an earlier copy of the same vault is Restore from Backup.
+The rule that shapes the design: keys stay in C++, and Swift can only ask the session to seal or
+open bytes. [`docs/architecture.md`](docs/architecture.md) is the full specification, and
+[`docs/adr/`](docs/adr/) records the reasoning behind each major decision. The sync contract is in
+[`SyncAPI/`](SyncAPI/).
 
-**Quick Access.** Press ⌃⌥Space from any app, or click the key icon in the menu bar: type to search,
-then Return copies the password, ⇧Return the username and ⌥Return the one-time code. The window
-closes and the app you came from is frontmost again, ready to paste; the copy is concealed from
-clipboard managers and cleared after 20 seconds or on lock. The shortcut can be turned off in
-Settings ▸ General.
+The code was written by an AI coding agent ([Claude Code](https://claude.com/claude-code)) against
+the maintainer's specification and phased build plans ([`docs/runbooks/`](docs/runbooks/)).
 
-## Testing
+## Development
 
-### What to run, and when
-
-| Situation | Command(s) |
-|---|---|
-| Edited Swift, or C++ that Swift compiles (`Sources/PFCrypto/`) | `swift build` then `swift test` (in `Packages/PassFortKit/`) |
-| Edited a `.cpp` / `.hpp` under `native-tests/` or `Sources/PFCrypto/` | `cmake --build native-tests/build` then `ctest --test-dir native-tests/build` |
-| Added a file to `native-tests/CMakeLists.txt` (new source or test) | re-run `cmake -S native-tests -B native-tests/build` first, then build |
-| Before a commit / at a runbook checkpoint | full `swift test` **and** `ctest --test-dir native-tests/build --output-on-failure` |
-| Touched a boundary function (`pf_*`) | also run the sanitizer build (below) |
-| Regenerated the Botan amalgamation | rebuild both: `swift build` and a clean `cmake --build` |
-
-### Daily loop (SwiftPM)
+Building, testing and the full CLI reference are in [`docs/development.md`](docs/development.md).
+The quick loop:
 
 ```bash
-cd Packages/PassFortKit && swift build      # compile all four targets
-cd Packages/PassFortKit && swift test       # run the Swift test targets (PFCryptoBoundaryTests + PassFortVaultTests)
-swift test --filter PFCryptoBoundaryTests   # a single suite, from inside Packages/PassFortKit/
+cd Packages/PassFortKit && swift build && swift test
+xcodebuild test -scheme PassFort -destination 'platform=macOS'
 ```
 
-`swift build` also compiles every `.cpp` under `Sources/PFCrypto/` automatically — new files in
-`keyring/`, `aead/`, `manifest/` join the build the moment they exist, with no `Package.swift` edit.
+## License
 
-### Native C++ tests (CMake + Catch2)
-
-Run these from the **repo root** — the paths carry the `native-tests/` prefix.
-
-```bash
-# Configure: generates native-tests/build/. Re-run after ANY edit to native-tests/CMakeLists.txt
-# (for example after adding a new test file to the add_executable list). A file named there that
-# does not exist yet fails this step, not the build.
-cmake -S native-tests -B native-tests/build
-
-# Build: compiles the Catch2 test binary. Enough on its own after editing only .cpp / .hpp files.
-cmake --build native-tests/build
-
-# Run all tests.
-ctest --test-dir native-tests/build
-
-# Run with failure output, or filter by test-case name (a regex over the name string, NOT the
-# Catch2 [tag] — e.g. "-R kat" matches every test whose name starts with "kat ").
-ctest --test-dir native-tests/build --output-on-failure
-ctest --test-dir native-tests/build -R kat
-
-# Or drive the binary directly for Catch2 tag filtering:
-./native-tests/build/pfcrypto_tests "[kat]"
-```
-
-The `native-tests/` harness deliberately reaches past the `boundary/` facade to exercise `keyring/`,
-`aead/`, and `manifest/` directly — the one sanctioned exception to the layering rules
-(`architecture.md` §13).
-
-### Sanitizer build (ASan + UBSan)
-
-Required after touching any boundary function; enforced in CI on every push from M1 onward. Use a
-separate build directory so it does not fight the normal one.
-
-```bash
-cmake -S native-tests -B native-tests/build-san \
-  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined"
-cmake --build native-tests/build-san
-ctest --test-dir native-tests/build-san --output-on-failure
-```
-
-ASan instruments every load/store to catch buffer overflows, use-after-free, and leaks at the moment
-they happen; UBSan traps signed-integer overflow, bad shifts, null dereference, and misaligned access.
-A sanitizer report is a test failure even if every assertion passed. Both roughly double run time, so
-this is a separate build, not the default.
-
-### Full app (M3+)
-
-```bash
-xcodebuild -project PassFort.xcodeproj -scheme PassFort -destination 'platform=macOS' build
-xcodebuild test -project PassFort.xcodeproj -scheme PassFort -destination 'platform=macOS'
-```
-
-### Regenerating vendored crypto (run deliberately, never automatically — ADR-0001)
-
-```bash
-scripts/build_botan.sh        # regenerate the minimized Botan 3.13.0 amalgamation
-scripts/build_wasm.sh         # PFCrypto -> pfcrypto.wasm via Emscripten   (M6 — not present yet)
-scripts/calibrate_kdf.sh      # measure Argon2id parameters for this machine   (M1 — not present yet)
-```
-
-CI never runs these — it builds against the committed amalgamation. Upgrading the Botan pin is an
-explicit, reviewable commit; the version is recorded in the vault header.
-
-## Further documentation
-
-- `docs/architecture.md` — the full specification: threat model, data models, vault format, roadmap.
-- `docs/adr/` — the seven architecture decision records; `docs/adr/README.md` is the template and index.
-- `docs/bootstrap.md` — the M0 runbook (toolchain → seam → Botan → CMake harness → CI).
-- `docs/runbooks/` — per-milestone build runbooks (M1 onward) and the series index.
+MIT, see [`LICENSE`](LICENSE). Bundled third-party code keeps its own license: Botan (BSD-2-Clause,
+`Packages/PassFortKit/Sources/PFCrypto/vendor/botan/license.txt`) and the EFF large wordlist
+(CC BY 3.0 US). GRDB (MIT) and swift-argument-parser (Apache-2.0) are fetched by SwiftPM.

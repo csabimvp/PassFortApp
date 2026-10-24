@@ -1,7 +1,7 @@
 # Development
 
 How to build, test and run every part of PassFort locally. The README has the short version; this is
-the full loop. Toolchain versions are pinned in the README's *Getting started* table and in
+the full loop. Toolchain versions are pinned in the README's *Requirements* and in
 `architecture.md` §4.1.
 
 ## Setup

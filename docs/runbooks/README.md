@@ -6,8 +6,8 @@ order, and how to tell that each step is right. It breaks the milestone into num
 each phase has the exact change, the reasoning behind its shape, and a **Checkpoint**: the tests or
 checks that must pass before the next phase starts.
 
-The code was written by an AI coding agent working through these plans one phase at a time (see
-*How this was built* in the [README](../../README.md#how-this-was-built)). A checkpoint is the
+The code was written by an AI coding agent working through these plans one phase at a time (see the
+[README](../../README.md#architecture)). A checkpoint is the
 acceptance gate for that work. When a phase showed the plan was wrong, the plan was corrected in place,
 and the spec or an ADR as well if the mistake reached that far.
 
