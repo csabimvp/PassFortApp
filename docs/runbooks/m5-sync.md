@@ -6,6 +6,9 @@
 > and `.github/workflows/deploy.yml` as its own. The contract (`Cloud/openapi.yaml`,
 > `Cloud/fixtures/`) moved to `SyncAPI/` in this repository. The client phases (5–11, 13) are
 > unchanged and stay here.
+> Being private on GitHub Free, that repository has no deployment environments, so Phase 12's
+> tag-triggered, per-environment deploy became a manual run from `main` with `_DEV` / `_PROD`
+> repository secrets (its README, *Deploying*).
 
 **Status:** Detailed design, written ahead of the normal cadence (first sketch 2026-09-04; reworked to
 low-level detail 2026-10-21, on request). The design decisions are **ratified** — ADR-0009 and
