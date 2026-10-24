@@ -3,13 +3,15 @@
 .swiftpm/
 DerivedData/
 *.profraw
-Build/                 # Xcode build output when the build location is project-relative (M3+ app target)
+# Xcode build output when the build location is project-relative (M3+ app target)
+Build/
 *.xcuserstate
 xcuserdata/
 .DS_Store
 
-# CMake — out-of-source build dirs, disposable (build, build-san, ...)
+# CMake — out-of-source build dirs, disposable (build, build-san, ...), and the clangd index
 native-tests/build*/
+native-tests/.cache/
 /build/
 
 # VS Code CMake Tools — local editor config, keep out of the repo
