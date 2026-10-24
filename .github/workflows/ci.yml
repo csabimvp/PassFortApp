@@ -26,7 +26,7 @@ jobs:
     # only need `swift` + CMake and stay on macos-15.
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: maxim-lobanov/setup-xcode@v1       # the one third-party action; SHA-pin to lock it
         with:
           xcode-version: latest-stable           # or pin exactly: '26.6' (architecture.md §4.1)
@@ -92,7 +92,7 @@ jobs:
   native:
     runs-on: macos-15            # NOT Linux -- the amalgamation is configured for
     steps:                       # macos/arm64 in Phase 3 (build_botan.sh)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Cache CMake build
         uses: actions/cache@v4
         with:
@@ -111,7 +111,7 @@ jobs:
   deps:
     runs-on: macos-15            # Swift ships with the default Xcode; no build here
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Package.resolved is committed and has not drifted
         working-directory: Packages/PassFortKit
         # One lockfile, every dependency: swift-argument-parser (M1) and GRDB (M2). A
@@ -124,7 +124,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest       # shellcheck ships on the image
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: shellcheck scripts/*.sh
       - name: Pin clang-format to the dev toolchain version
         run: pipx install "clang-format==23.1.0"   # match Homebrew clang-format locally; bump deliberately
@@ -139,7 +139,7 @@ jobs:
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0                        # full history for the scan
       # The repo's only secret scan -- nothing is installed locally. Runs here, on a throwaway
