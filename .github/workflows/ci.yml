@@ -32,7 +32,7 @@ jobs:
           xcode-version: latest-stable           # or pin exactly: '26.6' (architecture.md §4.1)
       - run: swift --version
       - name: Cache SwiftPM build (holds the slow Botan compile + the pf-killtest helper)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: Packages/PassFortKit/.build
           key: spm-${{ runner.os }}-${{ hashFiles('Packages/PassFortKit/Package.swift', 'Packages/PassFortKit/Package.resolved') }}
@@ -94,7 +94,7 @@ jobs:
     steps:                       # macos/arm64 in Phase 3 (build_botan.sh)
       - uses: actions/checkout@v5
       - name: Cache CMake build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: native-tests/build
           key: cmake-${{ runner.os }}-${{ hashFiles('native-tests/CMakeLists.txt', 'Packages/PassFortKit/Sources/PFCrypto/vendor/botan/botan_all.cpp') }}
