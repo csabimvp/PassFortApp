@@ -1,9 +1,9 @@
-# Six jobs (architecture.md §13.2): swift (the Swift build and tests), native (CMake + Catch2 over
+# Five jobs (architecture.md §13.2): swift (the Swift build and tests), native (CMake + Catch2 over
 # PFCrypto, plain and under ASan/UBSan), deps (Package.resolved drift), lint (shellcheck,
-# clang-format, Bicep build), secrets (gitleaks, full history), cloud (Cloud/api: typecheck, DTO
-# drift, unit + HTTP contract tests on the memory store and on Azurite).
-# Verifies a clean build only: never regenerates the Botan amalgamation or the WASM blob, and never
-# holds Azure credentials -- deploys are deploy.yml's job (m5-sync.md Phase 12).
+# clang-format), secrets (gitleaks, full history). The sync backend and its CI and deploy live in
+# the PassFortCloud repository (architecture.md rev 15).
+# Verifies a clean build only: never regenerates the Botan amalgamation or the WASM blob, and holds
+# no credentials.
 name: CI
 
 on:
@@ -125,12 +125,7 @@ jobs:
     runs-on: ubuntu-latest       # shellcheck ships on the image
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck scripts/*.sh Cloud/infra/*.sh
-      - name: Bicep compiles with no linter warnings (az is on the image; no Azure login needed)
-        run: |
-          az bicep build --file Cloud/infra/main.bicep --stdout > /dev/null 2> bicep.log || { cat bicep.log; exit 1; }
-          cat bicep.log
-          if grep -qi warning bicep.log; then exit 1; fi
+      - run: shellcheck scripts/*.sh
       - name: Pin clang-format to the dev toolchain version
         run: pipx install "clang-format==23.1.0"   # match Homebrew clang-format locally; bump deliberately
       - name: clang-format -- our C++ only, never vendor/
@@ -171,30 +166,3 @@ jobs:
       - name: gitleaks -- full history
         run: ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
 
-  cloud:
-    # Cloud/api: typecheck, the DTOs still match openapi.yaml, then the tests -- once in memory and
-    # once against a real Table endpoint. That endpoint is Azurite's Docker image as a service
-    # container, so the emulator is never an npm dependency (m5-sync.md Phase 4).
-    runs-on: ubuntu-latest
-    services:
-      azurite:
-        image: mcr.microsoft.com/azure-storage/azurite:3.37.0   # bump deliberately
-        ports: ["10002:10002"]
-    defaults:
-      run:
-        working-directory: Cloud/api
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: Cloud/api/.nvmrc
-          cache: npm
-          cache-dependency-path: Cloud/api/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - name: Generated DTOs match openapi.yaml
-        run: npm run gen && git diff --exit-code src/dto.ts
-      - name: Tests (memory store, then Azurite)
-        env:
-          PASSFORT_TEST_TABLES: UseDevelopmentStorage=true
-        run: npm test

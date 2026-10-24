@@ -1,5 +1,12 @@
 # M5 — Sync (Azure)
 
+> **Repository split (2026-10-24, `architecture.md` rev 15).** The backend phases (1–4, 12, and the
+> server half of 0.1 and 11) now run in the private `PassFortCloud` repository: read `Cloud/api/` as
+> its `api/`, `Cloud/infra/` as `infra/`, `scripts/sync_drill.sh` as its `scripts/sync_drill.sh`,
+> and `.github/workflows/deploy.yml` as its own. The contract (`Cloud/openapi.yaml`,
+> `Cloud/fixtures/`) moved to `SyncAPI/` in this repository. The client phases (5–11, 13) are
+> unchanged and stay here.
+
 **Status:** Detailed design, written ahead of the normal cadence (first sketch 2026-09-04; reworked to
 low-level detail 2026-10-21, on request). The design decisions are **ratified** — ADR-0009 and
 `architecture.md` rev 12 (2026-10-21). The Azure spike (Phase 0.1) is **half run**: the local half

@@ -29,12 +29,9 @@ native-tests/.cache/
 # macOS Spotlight-exclusion marker VaultDatabase drops in the vault directory
 .metadata_never_index
 
-# Later milestones (Cloud/, Web/)
+# Later milestones (Web/)
 node_modules/
 *.wasm
-.azure/
-Cloud/api/local.settings.json
-Cloud/api/dist/
 
 # Design mockups — kept locally, never published (UI/README.md)
 UI/mockups/

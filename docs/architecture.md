@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Living specification. M0–M3 are built, M4 was scaled back, M5 (sync) is in progress; `docs/runbooks/README.md` tracks each milestone.
-**Revision:** 14 (2026-10-23). What changed in each revision: [Appendix A](#appendix-a--revision-history).
+**Revision:** 15 (2026-10-24). What changed in each revision: [Appendix A](#appendix-a--revision-history).
 
 ---
 
@@ -191,21 +191,7 @@ PassFortApp/
 │       └── Tests/{PFCryptoBoundaryTests,PassFortVaultTests,PassFortAppCoreTests}/
 ├── Tools/passfort-cli/                   # Swift executable: unlock, CRUD, dump, bench, sync
 ├── native-tests/                         # CMake + Catch2 over PFCrypto internals
-├── Cloud/                                # ── Azure backend — infra + API, no cryptography ──
-│   ├── infra/                            # Bicep: Static Web App, Storage account, budget alert
-│   │   ├── main.bicep
-│   │   ├── main.parameters.json
-│   │   └── bootstrap-oidc.sh             # one-time: Entra app + federated credential for GitHub deploys
-│   ├── api/                              # Azure Functions (TypeScript) — the thin sync API, hosted by SWA
-│   │   ├── src/functions/                # health · createVault · openSession · getHeader · putHeader · getChanges
-│   │   │                                 # pushChanges · listDevices · removeDevice · deleteVault
-│   │   ├── src/lib/                      # table · seq · auth · jwt · validate · errors · log
-│   │   ├── src/dto.ts                    # generated from openapi.yaml
-│   │   ├── host.json
-│   │   └── local.settings.json           # dev only — connection string + JWT key; git-ignored
-│   ├── openapi.yaml                      # the sync contract — one source of truth for all three clients
-│   ├── site/  · staticwebapp.config.json # placeholder static content + SWA routes/runtime pin (M6 replaces site/)
-│   └── README.md
+├── SyncAPI/                              # the sync contract: openapi.yaml + DTO fixtures (§10.3); one source of truth for every client and the server
 ├── Web/                                  # ── Web client — WASM crypto core + minimal UI ──
 │   ├── src/
 │   │   ├── crypto/session.ts             # JS↔WASM seam; line-for-line analogue of VaultSession.swift
@@ -217,6 +203,8 @@ PassFortApp/
 ├── scripts/{bootstrap.sh,build_botan.sh,build_wasm.sh,calibrate_kdf.sh,install_app.sh,install_ios.sh}
 └── docs/{architecture.md,adr/}
 ```
+
+The Azure backend (§10) is not in this tree. Since rev 15 it lives in a separate private repository, `PassFortCloud` (`api/`, `infra/`, `site/`, its own CI and deploy workflow), which checks this repository out as a pinned `app/` submodule and reads the contract from `SyncAPI/`. The dependency runs one way: this repository builds and tests the client against the contract and `FakeSyncServer`, never against the server's code.
 
 Six things to notice:
 
@@ -881,7 +869,7 @@ Rotating the *DEK* means re-sealing every record, and with sync it also means de
 
 ## 10. Cloud backend (Azure)
 
-This is §9's sync backend made concrete. The design rule for the whole section: **the server is a dumb, untrusted key/value store with a change feed.** It authenticates callers, assigns `seq`, enforces per-record version monotonicity, and rate-limits. It never holds a key and never opens `sealed`. Everything here is A2 by construction (§3.2).
+This is §9's sync backend made concrete. Its code lives in the private `PassFortCloud` repository (rev 15, §4); this section stays its specification, and `Cloud/…` paths below are that repository's `api/`, `infra/` and `site/`. The design rule for the whole section: **the server is a dumb, untrusted key/value store with a change feed.** It authenticates callers, assigns `seq`, enforces per-record version monotonicity, and rate-limits. It never holds a key and never opens `sealed`. Everything here is A2 by construction (§3.2).
 
 ### 10.1 Footprint and cost
 
@@ -1078,7 +1066,7 @@ Two rules worth stating up front: **a decrypt failure must be indistinguishable 
 
 ### 13.2 Continuous integration
 
-**Status:** built through M5 — `.github/workflows/ci.yml` runs the `swift`, `native`, `deps`, `lint`, `secrets` and `cloud` jobs on every push; `ios` and `web` join with their milestones (§13.4). It follows from ADR-0001 and ADR-0005 rather than from an ADR of its own.
+**Status:** built through M5 — `.github/workflows/ci.yml` runs the `swift`, `native`, `deps`, `lint` and `secrets` jobs on every push; `ios` and `web` join with their milestones (§13.4). The `cloud` job, the Bicep lint and the deploy workflow moved to `PassFortCloud` with the backend (rev 15). It follows from ADR-0001 and ADR-0005 rather than from an ADR of its own.
 
 At this scale CI earns its keep by doing one thing well: **proving that a fresh checkout still builds and passes every check in §13.1 on a machine that is not yours.** A solo project accumulates "works because of something I installed months ago" faster than any other kind of rot, and a clean runner is what catches it.
 
@@ -1102,7 +1090,7 @@ At this scale CI earns its keep by doing one thing well: **proving that a fresh 
 | `secrets` | Linux | `gitleaks` over full history — the repo's only secret scan (no local hook, rev 13). It first self-tests the custom `.gitleaks.toml` rules against fake secrets generated at run time |
 | `deps` | Linux | clean dependency resolve; fail if `Package.resolved` or any `package-lock.json` drifted |
 | `ios` *(M7+)* | macOS | the `PassFortKit` test suites on the iOS Simulator, and `PassFortiOS` built for the Simulator unsigned (`CODE_SIGNING_ALLOWED=NO`). A second macOS job — path-filter it to `PassFortiOS/`, `Packages/` and `Package.resolved` if minutes bind (§14.16) |
-| `cloud` *(M5+)* | Linux | `Cloud/api`: `npm ci`, `tsc --noEmit`, the generated-DTO check, then `npm test` — in memory and against a service-container Azurite (§13.1) |
+| `cloud` *(M5+, in `PassFortCloud` since rev 15)* | Linux | `api/`: `npm ci`, `tsc --noEmit`, the generated-DTO check, then `npm test` — in memory and against a service-container Azurite (§13.1) |
 | `web` *(M6+)* | Linux | `Web/`: `npm ci`, `tsc`, production build, the seam fuzz suite against `pfcrypto.wasm` under Node, the three-core byte-agreement vectors, and the CSP / SRI / reproducible-bundle checks of §13.1 |
 
 Dependencies are pinned and their lockfiles committed; CI uses `npm ci`, never `npm install`. Version bumps arrive as their own reviewed PRs — that deliberate review *is* the A7 mitigation from §3.2, not a formality. Cache: SwiftPM `.build`, the Botan object file (keyed on `botan_all.cpp`, the one genuinely slow compile), `~/.npm`, the Catch2 `FetchContent` checkout.
@@ -1173,10 +1161,10 @@ Resolved ones link to their ADR.
 The bootstrap steps that used to live here (toolchain, repository skeleton, package targets, the Botan amalgamation, the M1 surface, the local half of the Azure spike) are done (rev 14). The milestone in flight is M5, and its phase-by-phase plan is `docs/runbooks/m5-sync.md`, which is authoritative over this list:
 
 1. **The native sync client (Phases 5–11):** `k_auth` in the crypto core (ADR-0009), schema v2 with the HLC and dirty tracking, the pinned transport, `Reconciler` and `SyncEngine` against a `FakeSyncServer`, header sync, the hostile-server tests, and CLI `sync` with a two-device drill.
-2. **Deploy (Phase 12, plus the pending deploy half of the Phase 0.1 spike):** Bicep, the SPKI pins (§9.4) recorded against the real certificate chain, and a teardown that leaves nothing behind. Run from Cloud Shell.
+2. **Deploy (Phase 12, plus the pending deploy half of the Phase 0.1 spike):** Bicep, the SPKI pins (§9.4) recorded against the real certificate chain, and a teardown that leaves nothing behind. Run from Cloud Shell, against the `PassFortCloud` repository (rev 15).
 3. **The app (Phase 13):** sync settings, the join flow and the conflict UI. M5 closes on its §12 exit criterion: two machines converge through Azure.
 
-Standing rule, unchanged since rev 1: never commit `Cloud/api/local.settings.json`, any `*.pfvault` / `*.sqlite` holding real data, `.build/` or `DerivedData/`. `.gitignore` covers them, and the CI `secrets` job is the only secret scan (§13.2).
+Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in `PassFortCloud`), any `*.pfvault` / `*.sqlite` holding real data, `.build/` or `DerivedData/`. `.gitignore` covers them, and the CI `secrets` job is the only secret scan (§13.2).
 
 ---
 
@@ -1184,6 +1172,7 @@ Standing rule, unchanged since rev 1: never commit `Cloud/api/local.settings.jso
 
 Newest first. Revisions 1–3 predate the log.
 
+- **rev 15** (2026-10-24) — **the backend moves to its own private repository, no design change.** `Cloud/` (API, Bicep, static site), its CI job, the deploy workflow and the two-device drill now live in `PassFortCloud`, split out with history. The contract moves from `Cloud/openapi.yaml` and `Cloud/fixtures/` to `SyncAPI/` here, and `PassFortCloud` consumes it as a pinned `app/` submodule; §4, §10, §13.2, §15 updated. The client still treats the server as hostile (§3.2 A2), so nothing in the threat model depends on the server's code being public.
 - **rev 14** (2026-10-23) — **documentation restructure, no design change.** The revision log moves from the header into this appendix; the status line, §13.2's status and §15 are brought up to date; `docs/bootstrap.md` and `docs/runbooks/cli-guide.md` are retired, their commands folded into `docs/development.md`.
 - **rev 13** (2026-10-22) — **minimal local toolchain and dependency trim** for M5: no Azurite, `func`, `swa` or gitleaks on the dev Mac; `Cloud/api` keeps two runtime dependencies (`@azure/functions`, `@azure/data-tables` — `jose` dropped, HS256 over `node:crypto`) and three dev ones; storage logic is tested against an in-memory `VaultStore` locally and against Azurite as a CI service container; the local loop is a zero-dependency `node:http` dev server; one-time Azure setup runs in Cloud Shell; the secret scan runs in CI only and self-tests its custom rules; §4.1, §10.3, §10.6, §13.1, §13.2 updated
 - **rev 12** — M5 sync designed to endpoint level (`docs/runbooks/m5-sync.md` Part A) and ratified here: **ADR-0009** — sync authenticates with `k_auth = HKDF(DEK, 'sync-auth')`, server stores only its SHA-256; the Argon2-side `auth_secret` and the §10.4 offline-cracking limitation are gone (§5.1, §10.4, §14.8); §9 / §10 rewritten — one Table partition per vault (`meta` / `rec_` / `dev_`), transactional `seq` allocation, nine endpoints with a single batch push carrying per-record `baseVersion`, header-version sync for recovery-key rotation and recovery, purge + `410` full resync that re-uploads rather than deletes; the server `seq` cursor lives in `vault_meta`, separate from `vault_version`; blind indexes and DEK rotation move out of M5 (§12, open decision 20); schema migration v2 adds full-HLC and sync-bookkeeping columns (§8.1); pinning targets the CA keys of the managed certificate (§9.4); §3.4 gains the sync limitations; open decisions 8, 12, 13, 14 resolved; two more stale Keychain mentions fixed (§5.5, §7.4)

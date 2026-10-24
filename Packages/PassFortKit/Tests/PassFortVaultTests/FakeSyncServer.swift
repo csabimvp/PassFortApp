@@ -2,10 +2,10 @@ import Foundation
 
 @testable import PassFortVault
 
-/// The sync server in memory (`m5-sync.md` Phase 8): A.3's semantics as `Cloud/api` implements
-/// them -- the all-or-nothing push against `baseVersion`, one gap-free `seq` per record, the pull
-/// that records a device's `lastSeq`, the tombstone purge inside `openSession`, and `410` once a
-/// cursor falls behind it. No HTTP, no crypto: it moves sealed blobs, as the real one does.
+/// The sync server in memory (`m5-sync.md` Phase 8): A.3's semantics as the real server
+/// (`PassFortCloud`) implements them -- the all-or-nothing push against `baseVersion`, one gap-free
+/// `seq` per record, the pull that records a device's `lastSeq`, the tombstone purge inside
+/// `openSession`, and `410` once a cursor falls behind it. No HTTP, no crypto: it moves sealed blobs, as the real one does.
 ///
 /// `onRequest` runs before every call and may throw (a dropped connection) or cancel the calling
 /// task -- the call runs in the engine's task, so `withUnsafeCurrentTask { $0?.cancel() }` there

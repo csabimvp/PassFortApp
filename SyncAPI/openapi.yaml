@@ -1,8 +1,8 @@
 # PassFort sync API -- the contract (docs/runbooks/m5-sync.md Part A.3, architecture.md §10.3).
 #
-# Source of truth for the server DTOs (Cloud/api/src/dto.ts, generated: `npm run gen`), the Swift DTOs
-# (PassFortVault/Sync/SyncDTO.swift, hand-written, contract-tested against this file) and the M6 web
-# client. Change this file first, then regenerate.
+# Source of truth for the server DTOs (PassFortCloud's api/src/dto.ts, generated: `npm run gen`), the
+# Swift DTOs (PassFortVault/Sync/SyncDTO.swift, hand-written, contract-tested against this file) and
+# the M6 web client. Change this file first, then regenerate.
 #
 # Every object schema is closed (`additionalProperties: false`). That closure IS the "the server never
 # accepts a key" guarantee: a body carrying `dek`, `password` or any field not listed here is a 400.

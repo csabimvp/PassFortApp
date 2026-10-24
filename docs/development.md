@@ -14,8 +14,7 @@ brew install cmake                     # native-tests/ only
 ```
 
 Botan is vendored and committed (ADR-0001), so it doesn't need to be installed. A Homebrew Botan is
-only for running `scripts/build_botan.sh`. Since rev 13, the only local cloud tool is Node: Azurite
-runs in CI, and `az` / Bicep run in Azure Cloud Shell.
+only for running `scripts/build_botan.sh`.
 
 ## What to run, and when
 
@@ -26,7 +25,7 @@ runs in CI, and `az` / Bicep run in Azure Cloud Shell.
 | Added a file to `native-tests/CMakeLists.txt` | re-run `cmake -S native-tests -B native-tests/build` first, then build |
 | Touched a boundary function (`pf_*`) | also the sanitizer build (below) |
 | Edited the app (`PassFort/`) | `xcodebuild test -scheme PassFort -destination 'platform=macOS'` |
-| Edited `Cloud/` | `npm run typecheck && npm test` in `Cloud/api/` |
+| Edited `SyncAPI/` or `Sources/PassFortVault/Sync/` | `swift test --filter SyncDTOTests` (in `Packages/PassFortKit/`), then the server's suite (below) |
 | Before a commit | everything above that the change touches, plus the format checks |
 
 ## Swift package
@@ -135,16 +134,16 @@ done.
 After a `restore`, the next unlock reports a rollback on purpose, because the vault really did go
 back in time. Confirm that the restore was deliberate with `verify <vault> --accept-restore`.
 
-## Cloud API
+## The sync contract
 
-```bash
-cd Cloud/api && npm ci && npm run typecheck && npm test   # tests run on an in-memory store
-cd Cloud/api && npm run gen   # regenerate src/dto.ts after editing SyncAPI/openapi.yaml
-cd Cloud/api && npm run dev   # the API on node:http + in-memory store, http://localhost:7071/api/v1
-```
+`SyncAPI/openapi.yaml` and `SyncAPI/fixtures/dto/` are the wire contract between the client and a
+sync server. `SyncDTOTests` checks the Swift DTOs against the fixtures, and the client's sync logic
+is tested against `FakeSyncServer`, an in-memory server in `Tests/PassFortVaultTests/`, so
+`swift test` needs no server.
 
-CI re-runs the tests against Azurite. See [`Cloud/README.md`](../Cloud/README.md) for the API and its
-configuration.
+The server itself lives in the separate, private `PassFortCloud` repository, which pins this one as
+a submodule. After a contract change, move its pin forward and run its suite and the two-device
+drill there (`architecture.md` §4, rev 15).
 
 ## Format checks
 
@@ -177,6 +176,6 @@ header. After regenerating the amalgamation, rebuild both `swift build` and a cl
 
 ## Never commit
 
-`Cloud/api/local.settings.json`, any `*.pfvault` / `*.sqlite` holding real data (the migration
+Any `*.pfvault` / `*.sqlite` holding real data (the migration
 fixture under `Tests/` is synthetic by rule), `.build/`, `DerivedData/`, `Build/`. `.gitignore` covers
 all of them. Secrets are scanned by gitleaks in CI only, after a push, so check each diff yourself.
