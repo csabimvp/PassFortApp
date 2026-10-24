@@ -102,7 +102,7 @@ Packages/PassFortKit/Sources/PassFortVault/
     ├── Reconciler.swift                  Phase 8   pure function: (local row, remote record) -> Decision
     ├── SyncEngine.swift                  Phase 8   actor: session → pull → reconcile → push → header
     ├── SyncError.swift                   Phase 8   the error taxonomy (Part A.11)
-    └── FakeSyncServer.swift              Phase 8   in-memory server for tests; adversarial modes (Phase 10) — test target only
+    └── (FakeSyncServer.swift)            Phase 8   in-memory server for tests; adversarial modes (Phase 10) — lives in Tests/PassFortVaultTests/
 
 Packages/PassFortKit/Sources/passfort-cli/
 └── SyncCommands.swift                    Phase 11  sync enable · join · now · status · devices · disable
@@ -1023,6 +1023,48 @@ fails the request instead of following it).
 A creates 3 records and syncs → B joins and has 3; A edits X, B edits X offline, both sync → both end
 with the HLC winner **and** one conflict copy, identical on both sides; A deletes Y while B edits Y →
 both keep Y's edit as a copy; 2,000 records sync in pages; cancelling mid-run leaves both DBs verifying.
+
+**Done (2026-10-24).** `swift test` green (233 + 15 tests), `xcodebuild` build and test green. Every
+checkpoint scenario is a `SyncEngineTests` test, ending with both vaults reopened and verified
+(manifest + mark). The A.7 rows are `ReconcilerTests`. Where it differs from the text above:
+
+- **`FakeSyncServer` is in the test target** (`Tests/PassFortVaultTests/`), not `Sync/`. It follows
+  `Cloud/api`'s semantics: the all-or-nothing push, one `seq` per record, `lastSeq` on pull, the purge
+  in `openSession`, `410`. An `onRequest` hook runs inside the engine's task, so a test can cancel the
+  run at an exact call.
+- **The `Reconciler` API** is `isConflict(local:remote:)` plus
+  `decide(local:remote:payloads:) -> Decision` (`insert`, `ignore`, `confirm`, `fastForward`,
+  `takeRemote(copyLocal:)`, `keepLocal(copyRemote:)`). The engine decrypts the local row only when
+  `isConflict` is true. A conflict without payloads skips 5a and keeps a copy, the safe direction.
+- **5a "same edit"** also ignores `passwordChangedAt` and each password-history entry's
+  `replacedAt`, both stamped "now" by the editing device; the replaced password values must still
+  match. It also requires the same deletion state, because a delete is an edit too. **5e** always
+  takes the server's tombstone, clean: both sides deleted, so pushing one tombstone over another
+  gains nothing.
+- **`applyRemote`** goes through `commit(basedOn:)`. The plan carries the `vault_version` it was
+  built against, so a local write made while a page is being planned makes the commit `staleWrite`,
+  and the engine plans the page again (up to 3 times). A page of nothing but echoes changes only
+  bookkeeping outside the MAC (`synced_*`, the cursor), so it takes a plain transaction and
+  `vault_version` doesn't move.
+- **The vaultId is a fresh random UUID** chosen by `SyncEngine.enable`, not the header's vault
+  UUID. `enable` (`POST /vaults`, `sync_config`, `sync_header_version`) and `join` (`sync_config`
+  for a vault already built on the server's header) are on the engine. The rest of the join flow
+  (fetch the header, unlock it, bootstrap the vault) is Phase 11 / 13.
+- **Built now because A.6 needs them; Phase 10 tests the rest:** the `seq ≥ sync_cursor` floor at
+  session and on every page (`serverRollback`); a record that fails `pf_open` rejects its whole page
+  (`tamperedRecord(id)`, nothing applied); a page must be ascending, after the cursor, within its
+  own `seq`, one entry per id, or it is `invalidResponse`. The fake has `loseNextPushResponse`,
+  `rewind` and `flipBit` for these; Phase 10 adds the other adversarial modes.
+- **Not wired yet:** step 3 (header, Phase 9). A `410` ends the run with `resyncRequired` (full
+  resync is Phase 10).
+- **Run behaviour:** a `409` pulls again and re-pushes, up to 3 rounds, then throws `conflicts`; a
+  `401` mid-run opens one fresh session. `run()` is single-flight: a call during a run sets
+  run-again and returns immediately. `SyncStatus.problem` carries the `SyncError`; Phase 13 maps it to
+  `SyncProblem`.
+- **A lost push response** (stored, but the client saw `offline`) is handled by 5a: the echo is the
+  same edit, so no copy is made and nothing is pushed twice. Accepted edge case: if the record is
+  edited again before the next run, the echo no longer matches and a spurious conflict copy appears,
+  which is the safe direction.
 
 ---
 

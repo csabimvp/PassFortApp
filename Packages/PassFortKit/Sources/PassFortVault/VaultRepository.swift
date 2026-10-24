@@ -59,7 +59,8 @@ public actor VaultRepository {
   private let highWater: HighWaterMark
   private let faultHook: FaultHook?
   /// Stamps every write (A.5): seeded with the vault's newest stamp, so it never goes backwards.
-  private let clock: HLCClock
+  /// A sync run feeds every pulled stamp through it (`receive`).
+  let clock: HLCClock
 
   private init(
     database: VaultDatabase, session: VaultSession, deviceID: UUID, highWater: HighWaterMark,
@@ -391,18 +392,21 @@ public actor VaultRepository {
   /// A row the push no longer matches (gone, or behind the pushed version) is left alone.
   public func markPushed(_ applied: [PushedRecord]) async throws {
     guard !applied.isEmpty else { return }
-    try await database.dbQueue.write { db in
-      for record in applied {
-        try db.execute(
-          sql: """
-            UPDATE records SET synced_version = ?, synced_seq = ?
-            WHERE uuid = ? AND version >= ?
-            """,
-          arguments: [
-            Int64(bitPattern: record.version), Int64(bitPattern: record.seq), record.id.rawData,
-            Int64(bitPattern: record.version),
-          ])
-      }
+    try await database.dbQueue.write { db in try Self.markSynced(db, applied) }
+  }
+
+  /// `markPushed`'s update, shared with an ingest's echo confirmations.
+  private static func markSynced(_ db: Database, _ records: [PushedRecord]) throws {
+    for record in records {
+      try db.execute(
+        sql: """
+          UPDATE records SET synced_version = ?, synced_seq = ?
+          WHERE uuid = ? AND version >= ?
+          """,
+        arguments: [
+          Int64(bitPattern: record.version), Int64(bitPattern: record.seq), record.id.rawData,
+          Int64(bitPattern: record.version),
+        ])
     }
   }
 
@@ -417,6 +421,105 @@ public actor VaultRepository {
     guard count > 0 else { return }
     try await commit { db in
       try db.execute(sql: "DELETE FROM records WHERE \(clean)")
+    }
+  }
+
+  // MARK: - Ingest (A.6, A.7)
+
+  /// Write one reconciled page and move `sync_cursor` to `cursor` -- the generalised `commit`:
+  /// every row and conflict copy, the manifest re-MAC, `vault_version` and the cursor in ONE
+  /// transaction, or nothing (§8.2). A page of echoes only moves bookkeeping outside the MAC
+  /// (`synced_*`, the cursor), so it takes a plain transaction instead and `vault_version` stays.
+  ///
+  /// - Throws: `VaultError.staleWrite` if a local write landed after `plan` was built -- plan the
+  ///   page again against the new rows.
+  public func applyRemote(_ plan: ReconcilePlan, cursor: UInt64) async throws {
+    guard !plan.isBookkeepingOnly else {
+      try await database.dbQueue.write { db in
+        try Self.markSynced(db, plan.confirmations)
+        try VaultMeta.writeSyncCursor(db, cursor)
+      }
+      return
+    }
+    try await commit(basedOn: plan.vaultVersion) { db in
+      for row in plan.rows + plan.conflictCopies { try row.save(db) }
+      try Self.markSynced(db, plan.confirmations)
+      try VaultMeta.writeSyncCursor(db, cursor)
+    }
+  }
+
+  /// The local rows a page lands on, keyed by id, and the `vault_version` they were read at --
+  /// one snapshot, so a plan built from them can be checked for staleness.
+  func rowsForIngest(_ ids: [UUID]) async throws -> (
+    vaultVersion: UInt64, rows: [UUID: SealedRecord]
+  ) {
+    try await database.dbQueue.read { db in
+      let rows = try SealedRecord.fetchAll(db, keys: ids.map(\.rawData))
+      return (
+        try VaultMeta.readVaultVersion(db),
+        Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+      )
+    }
+  }
+
+  /// Decrypt a stored row -- the local side of a rule-5 conflict.
+  func payload(of record: SealedRecord) async throws -> AccountPayload {
+    try await decrypt(record)
+  }
+
+  /// Decrypt a pulled record against its own id and version. Fails exactly as a tampered blob
+  /// does (`pf_open` binds both into the AAD, §5.4), which is how a forged or swapped record is
+  /// caught before anything is written (A.9).
+  func payload(of remote: RecordDTO) async throws -> AccountPayload {
+    try await decrypt(SealedRecord(remote))
+  }
+
+  /// Rule 5c: `local`'s payload re-sealed at `version` -- the AEAD binds the version (§5.4), so
+  /// the winner can't move above the server's version without a new seal. Keeps its own stamp:
+  /// it is still the newer edit.
+  func resealed(_ local: SealedRecord, payload: AccountPayload, at version: UInt64) async throws
+    -> SealedRecord
+  {
+    var row = local
+    row.version = version
+    row.sealed = try await seal(id: local.id, version: version, payload: payload)
+    return row
+  }
+
+  /// A conflict copy (A.7): a new record holding the losing side's payload, `conflictOf` the
+  /// original, a `["conflict copy"]` revision entry, version 1, stamped now. Never synced yet, so
+  /// the next push uploads it and every device gets it.
+  func conflictCopy(of original: UUID, payload: AccountPayload) async throws -> SealedRecord {
+    var payload = payload
+    payload.conflictOf = original
+    payload.revisionHistory.insert(
+      RevisionEntry(version: 1, at: Date(), changed: ["conflict copy"]), at: 0)
+    payload.revisionHistory = Array(payload.revisionHistory.prefix(Self.revisionHistoryLimit))
+
+    let id = UUID()
+    return SealedRecord(
+      id: id, version: 1, schemaVersion: 1,
+      sealed: try await seal(id: id, version: 1, payload: payload),
+      isDeleted: false, updatedAt: await clock.tick())
+  }
+
+  // MARK: - Sync state (A.5)
+
+  func syncConfig() async throws -> SyncConfig? {
+    try await database.dbQueue.read { db in try VaultMeta.readSyncConfig(db) }
+  }
+
+  func syncCursor() async throws -> UInt64 {
+    try await database.dbQueue.read { db in try VaultMeta.readSyncCursor(db) }
+  }
+
+  /// Turn sync on: where to, and the server header version this vault's header corresponds to.
+  /// The cursor starts at 0 -- the first run pulls everything and pushes every (dirty) row.
+  func enableSync(_ config: SyncConfig, headerVersion: UInt64) async throws {
+    try await database.dbQueue.write { db in
+      try VaultMeta.writeSyncConfig(db, config)
+      try VaultMeta.writeSyncHeaderVersion(db, headerVersion)
+      try VaultMeta.writeSyncCursor(db, 0)
     }
   }
 
@@ -489,8 +592,18 @@ public actor VaultRepository {
   /// the next unlock see `vault_version` < mark and refuse a good vault). The
   /// `ManifestBuilder` is opened before the transaction -- that is the one actor
   /// hop; folding rows through it inside the closure is synchronous.
-  private func commit(_ rowChange: @Sendable @escaping (Database) throws -> Void) async throws {
-    let previous = try await database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) }
+  ///
+  /// `basedOn` is the `vault_version` the change was computed against, when that was read
+  /// earlier than this call (a sync ingest); a write in between makes it `staleWrite`.
+  private func commit(
+    basedOn expected: UInt64? = nil, _ rowChange: @Sendable @escaping (Database) throws -> Void
+  ) async throws {
+    let previous: UInt64
+    if let expected {
+      previous = expected
+    } else {
+      previous = try await database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) }
+    }
     let next = previous + 1
     let builder = try await session.makeManifestBuilder(vaultVersion: next)
     let fault = faultHook

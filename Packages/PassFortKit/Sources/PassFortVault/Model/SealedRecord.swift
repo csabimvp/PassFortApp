@@ -40,6 +40,17 @@ public struct SealedRecord: Sendable, Identifiable, Equatable {
   public var isDirty: Bool { syncedVersion != version }
 }
 
+extension SealedRecord {
+  /// A pulled record as it lands locally: byte-identical `sealed` (§9.1), the server's version
+  /// and seq as its sync base -- clean.
+  init(_ remote: RecordDTO) {
+    self.init(
+      id: remote.id, version: remote.version, schemaVersion: 1, sealed: remote.sealed,
+      isDeleted: remote.isDeleted, updatedAt: remote.hlc.hlc, syncedVersion: remote.version,
+      syncedSeq: remote.seq)
+  }
+}
+
 // MARK: - GRDB
 
 extension SealedRecord: FetchableRecord, PersistableRecord {

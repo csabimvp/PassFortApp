@@ -49,4 +49,15 @@ public enum SyncError: Error, Sendable, Equatable {
   case rateLimited(retryAfter: TimeInterval)
   /// `5xx` (or any status the contract doesn't name). `503` comes with `Retry-After`.
   case server(status: Int, retryAfter: TimeInterval?)
+
+  // MARK: The engine (A.6, A.9)
+
+  /// This vault has no `sync_config`: sync is off.
+  case notEnabled
+  /// The server's `seq` is behind what this device already ingested -- it was rolled back, or is
+  /// not the server it was. Sync stops (A.9).
+  case serverRollback
+  /// A pulled record failed to open under its own id and version: forged, altered or swapped.
+  /// Its whole page is rejected; nothing from it is written (A.9).
+  case tamperedRecord(UUID)
 }
