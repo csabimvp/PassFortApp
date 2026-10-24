@@ -228,7 +228,8 @@ public struct CreateVaultResponse: Codable, Sendable, Equatable {
 
 /// `OpenSessionResponse`.
 public struct SessionResponse: Codable, Sendable, Equatable {
-  /// A 15-minute bearer token. Memory only -- never logged, never stored (ADR-0009).
+  /// A 15-minute session token, sent as `X-PassFort-Token`. Memory only -- never logged, never
+  /// stored (ADR-0009).
   public var token: String
   public var expiresAt: Date
   public var seq: UInt64

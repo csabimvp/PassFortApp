@@ -251,8 +251,11 @@ atomically**.
 
 Base: `https://<site>.azurestaticapps.net/api/v1` (deployed), `http://localhost:7071/api/v1` (local).
 JSON bodies; binary fields base64 (standard alphabet); UUIDs lower-case; times RFC 3339. Every
-authenticated call carries `Authorization: Bearer <jwt>`; the JWT's `sub` is the vaultId and `dev` the
-deviceId, and a token for vault A is rejected on vault B's routes.
+authenticated call carries the JWT in `X-PassFort-Token: <jwt>`; the JWT's `sub` is the vaultId and
+`dev` the deviceId, and a token for vault A is rejected on vault B's routes. (Until 2026-10-24 this said
+`Authorization: Bearer <jwt>`. The first deployed drill showed that Static Web Apps replaces the
+`Authorization` header before it reaches a managed Function, so every authenticated call was a `401`;
+our own `X-PassFort-Enroll` header passed through untouched.)
 
 | # | Method + path | Auth | Request | Success | Errors |
 |---|---|---|---|---|---|
@@ -676,7 +679,7 @@ ever committed.
 ### 1.2 `Cloud/openapi.yaml` — written before any endpoint
 
 Exactly A.3: every path, request/response schema with `additionalProperties: false` (that closure *is*
-the never-accept-a-key guarantee), every error code, the `bearerAuth` scheme, the `X-PassFort-Enroll`
+the never-accept-a-key guarantee), every error code, the `sessionToken` scheme (`X-PassFort-Token`), the `X-PassFort-Enroll`
 header. Generate `src/dto.ts` with `openapi-typescript`; `npm run gen` regenerates, and CI fails if
 the generated file is stale. The Swift DTOs (Phase 7) are hand-written but contract-tested against the
 same file (Phase 11).

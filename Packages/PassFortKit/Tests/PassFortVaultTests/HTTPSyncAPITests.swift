@@ -144,20 +144,22 @@ import os
     #expect(sent.url.path().hasSuffix("/api/v1/vaults"))
     #expect(sent.headers["X-PassFort-Enroll"] == "enroll-me")
     #expect(sent.headers["Content-Type"] == "application/json")
+    #expect(sent.headers["X-PassFort-Token"] == nil)
     #expect(sent.headers["Authorization"] == nil)
     let body = try JSONSerialization.jsonObject(with: sent.body) as? NSDictionary
     let expected = try JSONSerialization.jsonObject(with: try fixture("create-vault.request.json"))
     #expect(body == expected as? NSDictionary)
   }
 
-  @Test func authenticatedCallsCarryTheBearerTokenAndLowerCaseIDs() async throws {
+  @Test func authenticatedCallsCarryTheSessionTokenAndLowerCaseIDs() async throws {
     let (api, id) = try stubbed(Reply(body: try fixture("changes.response.json")))
     let page = try await api.changes(vaultID: vaultID, since: 40, limit: 500, token: "tok")
     #expect(page.records.count == 2)
 
     let sent = try #require(Stub.captured(id).first)
     #expect(sent.method == "GET")
-    #expect(sent.headers["Authorization"] == "Bearer tok")
+    #expect(sent.headers["X-PassFort-Token"] == "tok")
+    #expect(sent.headers["Authorization"] == nil)
     #expect(sent.url.path().hasSuffix("/vaults/6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b/changes"))
     let query = URLComponents(url: sent.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
     #expect(

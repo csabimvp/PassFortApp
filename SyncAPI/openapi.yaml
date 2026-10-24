@@ -23,7 +23,7 @@ servers:
       site:
         default: passfort
 security:
-  - bearerAuth: []
+  - sessionToken: []
 tags:
   - name: meta
     description: Liveness.
@@ -230,13 +230,16 @@ paths:
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+    sessionToken:
+      type: apiKey
+      in: header
+      name: X-PassFort-Token
       description: >-
-        HS256 `{ sub: vaultId, dev: deviceId, iat, exp }` from openSession, 15-minute lifetime. Held in
-        memory only. A token for one vault is rejected on every other vault's routes.
+        The JWT from openSession, sent bare (no `Bearer ` prefix): HS256
+        `{ sub: vaultId, dev: deviceId, iat, exp }`, 15-minute lifetime. Held in memory only. A token
+        for one vault is rejected on every other vault's routes. Not the `Authorization` header: Static
+        Web Apps reserves that one for its own authentication and replaces it before the request
+        reaches the API, so a token sent there never arrives.
 
   parameters:
     VaultId:

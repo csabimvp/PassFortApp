@@ -166,7 +166,8 @@ public final class HTTPSyncAPI: SyncAPI {
       request.httpBody = try SyncCoding.encoder.encode(body)
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
-    if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+    // Not `Authorization`: Static Web Apps replaces that header before the API sees it.
+    if let token { request.setValue(token, forHTTPHeaderField: "X-PassFort-Token") }
     for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
 
     let (data, response) = try await perform(request)
