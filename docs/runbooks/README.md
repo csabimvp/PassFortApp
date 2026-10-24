@@ -1,8 +1,15 @@
-# PassFort build runbooks
+# PassFort build plans
 
-Step-by-step runbooks, one per milestone (`architecture.md` §12). Each is written the same way as
-`../bootstrap.md`: numbered phases, the exact commands, an explanation of *why* each step is shaped the
-way it is, and a **Checkpoint** you can verify before moving on. Follow them top to bottom.
+One implementation plan (a runbook) per milestone (`architecture.md` §12), the plans the system was
+built against. The specification and the ADRs say *what* to build and *why*. A runbook says in what
+order, and how to tell that each step is right. It breaks the milestone into numbered phases, and
+each phase has the exact change, the reasoning behind its shape, and a **Checkpoint**: the tests or
+checks that must pass before the next phase starts.
+
+The code was written by an AI coding agent working through these plans one phase at a time (see
+*How this was built* in the [README](../../README.md#how-this-was-built)). A checkpoint is the
+acceptance gate for that work. When a phase showed the plan was wrong, the plan was corrected in place,
+and the spec or an ADR as well if the mistake reached that far.
 
 A runbook is written **when the previous milestone is done**, not before — a runbook drafted two
 milestones ahead is fiction, because it can't account for what the earlier work taught you. If the
@@ -10,7 +17,7 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 
 | Milestone | Runbook | Status |
 |---|---|---|
-| **M0** Toolchain spike + M1 scaffolding | [`../bootstrap.md`](../bootstrap.md) | ✅ done |
+| **M0** Toolchain spike + M1 scaffolding | `bootstrap.md` (retired 2026-10-23; see below) | ✅ done |
 | **M1** Crypto core + seam | [`m1-crypto-core.md`](m1-crypto-core.md) | ✅ done ([retrospective](m1-retrospective.md)) |
 | **M2** Vault + storage | [`m2-vault-storage.md`](m2-vault-storage.md) | ✅ done |
 | **M3** GUI | [`m3-gui.md`](m3-gui.md) | ✅ done — Phases 1–9 done; Phase 10 ("last used") deliberately deferred |
@@ -21,20 +28,19 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | **M7** iOS client | [`m7-ios.md`](m7-ios.md) | ✎ sketch — written ahead of cadence (2026-10-21); depends on M5 only, not M6; only Phase 0 (the spikes) is actionable, the rest is a plan to validate |
 | **M8** Hardening | — | write after M7 |
 
-## Not a milestone runbook
-
-| Doc | What it is |
-|---|---|
-| [`cli-guide.md`](cli-guide.md) | A hands-on walkthrough of everything `passfort-cli` can do after M2 — create a vault, full CRUD, the restore-from-backup drill, recovery, and how to run every test suite. Real transcripts. Read it to exercise the M0–M2 stack by hand. |
-
 ## How these relate to the other docs
 
 - **`architecture.md`** is the specification. The runbooks implement it and cite its `§` numbers; where
   a runbook and the architecture disagree, the architecture wins and the runbook has a bug.
 - **`adr/`** holds the reasoning behind load-bearing choices. A runbook step that follows from an ADR
   says so by number instead of re-arguing it.
-- **`bootstrap.md`** is the M0 runbook. It also stood up the M1 *scaffolding* (Botan, CMake harness,
-  CI). `m1-crypto-core.md` picks up exactly where its "Where this leaves you" section stops.
+- **[`../development.md`](../development.md)** is the standing build-and-test guide. Once a
+  milestone's commands are stable they move there, and the runbook remains a record of how the
+  milestone was built.
+- **Retired 2026-10-23:** `bootstrap.md` (the M0 runbook, which also stood up M1's Botan, CMake and
+  CI scaffolding) and `cli-guide.md` (a hands-on `passfort-cli` walkthrough). Their commands now
+  live in `development.md`. The older runbooks still mention them by name; the originals are in git
+  history.
 
 ## The C++ exit criterion (`architecture.md` §12.1)
 
