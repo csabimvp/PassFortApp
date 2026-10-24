@@ -1,6 +1,30 @@
 import Foundation
 import PassFortCrypto
 
+/// What one `run` did -- for `passfort-cli sync now` and the status line.
+public struct SyncReport: Sendable, Equatable {
+  /// Records received from the server (echoes of this device's own pushes included).
+  public var pulled = 0
+  /// Records the server accepted from this device.
+  public var pushed = 0
+  /// Conflict copies made (A.7).
+  public var conflictCopies = 0
+  /// The run was a full resync (A.10) ...
+  public var fullResync = false
+  /// ... and found this many rows the server lacked, uploaded again.
+  public var reuploaded = 0
+
+  public init() {}
+
+  mutating func add(_ other: SyncReport) {
+    pulled += other.pulled
+    pushed += other.pushed
+    conflictCopies += other.conflictCopies
+    fullResync = fullResync || other.fullResync
+    reuploaded += other.reuploaded
+  }
+}
+
 /// Where a sync run is, for the status line (A.11).
 public enum SyncPhase: Sendable, Equatable {
   case connecting
@@ -55,6 +79,8 @@ public actor SyncEngine {
   private var running = false
   private var runAgain = false
   private var lastSyncedAt: Date?
+  /// The run in progress so far.
+  private var report = SyncReport()
 
   /// Status changes, newest kept if nobody is reading. One consumer (the app's `SyncController`).
   public nonisolated let statusUpdates: AsyncStream<SyncStatus>
@@ -98,22 +124,28 @@ public actor SyncEngine {
   // MARK: - Running
 
   /// Sync now. Single-flight: called while a run is in progress, it asks that run to go round
-  /// once more when it finishes and returns at once.
+  /// once more when it finishes and returns at once, with an empty report.
   ///
+  /// - Returns: what the run did, every round of it.
   /// - Throws: the `SyncError` (or storage error) that stopped the run, after publishing it;
   ///   `CancellationError` if the calling task was cancelled -- the vault is consistent either
   ///   way.
-  public func run() async throws {
+  @discardableResult
+  public func run() async throws -> SyncReport {
     guard !running else {
       runAgain = true
-      return
+      return SyncReport()
     }
     running = true
     defer { running = false }
+    var total = SyncReport()
     repeat {
       runAgain = false
+      report = SyncReport()
       try await runOnce()
+      total.add(report)
     } while runAgain
+    return total
   }
 
   private func runOnce() async throws {
@@ -146,6 +178,7 @@ public actor SyncEngine {
       try await repository.compactSynced()
       token = nil
       lastSyncedAt = Date()
+      try await repository.recordSyncFinished(at: lastSyncedAt ?? Date())
       // Reported once the records are in: they synced; only this device's header change didn't.
       if headerLost { throw SyncError.headerChangedElsewhere }
       publish(.idle(lastSyncedAt: lastSyncedAt))
@@ -230,6 +263,7 @@ public actor SyncEngine {
 
       if let last = page.records.last {
         try await ingest(page.records, cursor: full ? 0 : last.seq)
+        report.pulled += page.records.count
         since = last.seq
         if full { returned.formUnion(page.records.map(\.id)) }
       }
@@ -240,7 +274,9 @@ public actor SyncEngine {
     // nothing can be purged while this device's pull from 0 holds the server's minimum
     // `lastSeq` at 0, so every live record at or under the mark was in the scan.
     if full {
-      try await repository.finishResync(serverHas: returned, cursor: max(since, purgedThrough))
+      report.fullResync = true
+      report.reuploaded += try await repository.finishResync(
+        serverHas: returned, cursor: max(since, purgedThrough))
     }
   }
 
@@ -253,7 +289,9 @@ public actor SyncEngine {
       try Task.checkCancellation()
       let plan = try await plan(records)
       do {
-        return try await repository.applyRemote(plan, cursor: cursor)
+        try await repository.applyRemote(plan, cursor: cursor)
+        report.conflictCopies += plan.conflictCopies.count
+        return
       } catch VaultError.staleWrite where attempt < Self.staleRetries {
         attempt += 1
       }
@@ -314,6 +352,42 @@ public actor SyncEngine {
     return plan
   }
 
+  // MARK: - Devices and the server copy (A.11)
+
+  /// Every device registered for this vault (`GET /devices`).
+  public func devices() async throws -> [DeviceInfoDTO] {
+    let config = try await enabledConfig()
+    defer { token = nil }
+    return try await authorized(config) { token in
+      try await self.api.devices(vaultID: config.vaultID, token: token)
+    }
+  }
+
+  /// Remove a device, so it stops holding back the server's tombstone purge. If it syncs again it
+  /// gets `410` and resyncs (A.10).
+  public func removeDevice(_ deviceID: UUID) async throws {
+    let config = try await enabledConfig()
+    defer { token = nil }
+    try await authorized(config) { token in
+      try await self.api.removeDevice(vaultID: config.vaultID, deviceID: deviceID, token: token)
+    }
+  }
+
+  /// Delete the whole server copy (`DELETE /vaults/{id}`). This vault keeps every record; turning
+  /// sync off locally is `VaultRepository.disableSync`.
+  public func deleteServerCopy() async throws {
+    let config = try await enabledConfig()
+    defer { token = nil }
+    try await authorized(config) { token in
+      try await self.api.deleteVault(vaultID: config.vaultID, token: token)
+    }
+  }
+
+  private func enabledConfig() async throws -> SyncConfig {
+    guard let config = try await repository.syncConfig() else { throw SyncError.notEnabled }
+    return config
+  }
+
   // MARK: - Header (A.6 step 3, A.8)
 
   /// Push this device's header change, or fetch another device's to adopt at the next unlock.
@@ -371,6 +445,7 @@ public actor SyncEngine {
         try await self.api.push(vaultID: config.vaultID, batch, token: token)
       }
       try await repository.markPushed(response.applied.map(\.pushed))
+      report.pushed += response.applied.count
     }
   }
 

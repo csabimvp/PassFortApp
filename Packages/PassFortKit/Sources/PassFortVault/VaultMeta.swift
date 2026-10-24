@@ -20,6 +20,8 @@ enum VaultMetaKey: String {
   case headerDirty = "header_dirty"
   /// u64 BE `headerVersion` ‖ header bytes: a newer server header not yet adopted.
   case pendingHeader = "pending_header"
+  /// u64 BE Unix milliseconds: when the last sync run finished. Status only.
+  case syncLastSynced = "sync_last_synced"
 }
 
 /// Where this vault syncs (A.5). Written by enable / join, removed by disable.
@@ -128,6 +130,14 @@ enum VaultMeta {
   static func writeLocalHeader(_ db: Database, _ header: Data) throws {
     try write(db, .header, header)
     if try read(db, .syncConfig) != nil { try writeHeaderDirty(db, true) }
+  }
+
+  static func readSyncLastSynced(_ db: Database) throws -> Date? {
+    try readU64(db, .syncLastSynced).map { Date(timeIntervalSince1970: Double($0) / 1000) }
+  }
+
+  static func writeSyncLastSynced(_ db: Database, _ date: Date) throws {
+    try write(db, .syncLastSynced, bigEndian(UInt64(max(0, date.timeIntervalSince1970 * 1000))))
   }
 
   // MARK: - u64 big-endian

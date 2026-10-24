@@ -12,7 +12,9 @@ struct PassFortCLI: AsyncParsableCommand {
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
       Add.self, List.self, Get.self, Code.self, History.self, Edit.self, Remove.self,
       Undelete.self, Audit.self, Import.self, ImportVault.self,
-      Dump.self, Export.self, Backup.self, Restore.self, Recover.self, Passwd.self, Seam.self,
+      Dump.self, Export.self, Backup.self, Restore.self, Recover.self, RecoveryKeyCommand.self,
+      Passwd.self, Sync.self,
+      Seam.self,
     ]
   )
 }
@@ -808,6 +810,26 @@ struct Recover: AsyncParsableCommand {
     // The recovery slot is consumed by `recover`; issue a fresh one.
     let fresh = try await repo.rotateRecoveryKey()
     print("recovered \(vault) -- master password reset.")
+    RecoveryBanner.show(fresh)
+  }
+}
+
+// MARK: - recovery-key
+
+struct RecoveryKeyCommand: AsyncParsableCommand {
+  static let configuration = CommandConfiguration(
+    commandName: "recovery-key",
+    abstract: "Issue a new recovery key (§5.6). Any existing recovery key stops working.")
+
+  @Argument(help: "Path to the vault file.") var vault: String
+
+  func run() async throws {
+    let repo = try await VaultCLI.open(vault)
+    let fresh = try await repo.rotateRecoveryKey()
+    print("new recovery key issued for \(vault).")
+    if try await repo.syncState() != nil {
+      print("the next `sync now` sends the new header; other devices take it at their next unlock.")
+    }
     RecoveryBanner.show(fresh)
   }
 }

@@ -14,20 +14,32 @@ struct CLIError: Error, CustomStringConvertible {
 
 /// This install's device (`m5-sync.md` A.5): `~/.config/passfort/device.json`, created on first
 /// use -- the CLI's own, separate from the app's (which lives in its sandbox container). It
-/// stamps every write's HLC and, from Phase 11, names this device to the sync server.
+/// stamps every write's HLC and names this device to the sync server.
+///
+/// `PASSFORT_DEVICE_FILE` points every command at another identity file, so two CLI "devices"
+/// can share one machine (the Phase 11 drill). Every command, not just `sync`: the id stamps
+/// each `add` and `edit` too.
 enum CLIDevice {
+  static let fileVariable = "PASSFORT_DEVICE_FILE"
+
   static var url: URL {
-    FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/passfort/device.json")
+    if let path = ProcessInfo.processInfo.environment[fileVariable], !path.isEmpty {
+      return URL(fileURLWithPath: path)
+    }
+    return FileManager.default.homeDirectoryForCurrentUser.appending(
+      path: ".config/passfort/device.json")
   }
 
-  static func id() throws -> UUID {
+  static func identity() throws -> DeviceIdentity {
     do {
-      return try DeviceIdentity.loadOrCreate(at: url, name: "\(DeviceIdentity.hostName) (CLI)").id
+      return try DeviceIdentity.loadOrCreate(at: url, name: "\(DeviceIdentity.hostName) (CLI)")
     } catch {
       throw CLIError(
         "can't read or create the device identity at \(url.path(percentEncoded: false)): \(error)")
     }
   }
+
+  static func id() throws -> UUID { try identity().id }
 }
 
 // MARK: - Opening a vault
@@ -45,7 +57,18 @@ enum VaultCLI {
     }
     let password = try Password.prompt(message)
     do {
-      return try await Vault.unlock(databasePath: path, password: password, deviceID: try CLIDevice.id())
+      let repo = try await Vault.unlock(
+        databasePath: path, password: password, deviceID: try CLIDevice.id())
+      if try await repo.headerChangedElsewhere() {
+        FileHandle.standardError.write(
+          Data(
+            """
+            note: the master password or recovery key was changed on another device. Unlock with \
+            the new password to finish updating this vault.
+
+            """.utf8))
+      }
+      return repo
     } catch PassFortError.authFailed {
       throw CLIError("AuthFailed -- wrong password or corrupt vault")
     } catch VaultError.notFound {

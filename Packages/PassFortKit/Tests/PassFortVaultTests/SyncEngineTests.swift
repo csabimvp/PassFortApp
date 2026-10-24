@@ -350,6 +350,88 @@ import Testing
     try await world.verify(a)
   }
 
+  // MARK: - What the CLI and the app read (Phase 11)
+
+  @Test func aRunReportsWhatItDid() async throws {
+    let world = try SyncWorld()
+    defer { world.cleanUp() }
+    let (a, vaultID) = try await world.enableA()
+    let x = try await a.repo.create(AccountPayload(title: "X"))
+    _ = try await a.repo.create(AccountPayload(title: "Y"))
+    let first = try await a.engine.run()
+    #expect(first.pushed == 2)
+    #expect(first.pulled == 0)
+    #expect(first.fullResync, "a first run from cursor 0")
+
+    let b = try await world.join("B", vaultID)
+    #expect(try await b.engine.run().pulled == 2)
+    _ = try await a.repo.update(id: x.id) { $0.notes = "A" }
+    _ = try await b.repo.update(id: x.id) { $0.notes = "B" }
+    try await a.engine.run()
+    let conflicted = try await b.engine.run()
+    #expect(conflicted.conflictCopies == 1)
+    #expect(conflicted.pushed == 2, "the resolution and the copy")
+    #expect(!conflicted.fullResync)
+  }
+
+  @Test func syncStateTracksTheCursorTheQueueAndTheLastRun() async throws {
+    let world = try SyncWorld()
+    defer { world.cleanUp() }
+    let (a, vaultID) = try await world.enableA()
+    _ = try await a.repo.create(AccountPayload(title: "X"))
+
+    let before = try #require(try await a.repo.syncState())
+    #expect(before.vaultID == vaultID)
+    #expect(before.endpoint == SyncWorld.endpoint)
+    #expect(before.dirtyCount == 1)
+    #expect(before.cursor == 0)
+    #expect(before.headerVersion == 1)
+    #expect(before.lastSyncedAt == nil)
+
+    try await a.engine.run()
+    try await a.engine.run()
+    let after = try #require(try await a.repo.syncState())
+    #expect(after.dirtyCount == 0)
+    #expect(after.cursor == 1)
+    #expect(after.lastSyncedAt != nil)
+  }
+
+  @Test func devicesAreListedAndOneCanBeRemoved() async throws {
+    let world = try SyncWorld()
+    defer { world.cleanUp() }
+    let (a, vaultID) = try await world.enableA()
+    try await a.engine.run()
+    let b = try await world.join("B", vaultID)
+    try await b.engine.run()
+
+    #expect(Set(try await a.engine.devices().map(\.id)) == [a.id, b.id])
+    try await a.engine.removeDevice(b.id)
+    #expect(try await a.engine.devices().map(\.id) == [a.id])
+    await #expect(throws: SyncError.notFound) { try await a.engine.removeDevice(b.id) }
+  }
+
+  @Test func disablingForgetsTheServerAndReEnablingUploadsEverything() async throws {
+    let world = try SyncWorld()
+    defer { world.cleanUp() }
+    let (a, vaultID) = try await world.enableA()
+    _ = try await a.repo.create(AccountPayload(title: "X"))
+    _ = try await a.repo.create(AccountPayload(title: "Y"))
+    try await a.engine.run()
+
+    try await a.engine.deleteServerCopy()
+    #expect(await world.server.vault(vaultID) == nil)
+    try await a.repo.disableSync()
+    #expect(try await a.repo.syncState() == nil)
+    #expect(try await a.repo.dirtyRecords().count == 2, "every row is unsynced again")
+    #expect(try await a.repo.allAccounts().count == 2, "records untouched")
+    await #expect(throws: SyncError.notEnabled) { try await a.engine.run() }
+    try await world.verify(a)
+
+    let fresh = try await a.engine.enable(endpoint: SyncWorld.endpoint, enrollSecret: "enroll")
+    #expect(fresh != vaultID)
+    #expect(try await a.engine.run().pushed == 2)
+  }
+
   // MARK: - Batching
 
   @Test func batchesRespectTheRecordAndByteLimits() {

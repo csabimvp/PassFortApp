@@ -1192,6 +1192,74 @@ the drill and validate them with the OpenAPI schema in a Node test — catches S
 **Checkpoint:** the drill passes end to end against `npm run dev`, then against the dev resource group.
 Commit the script.
 
+**Local half done (2026-10-24).** `scripts/sync_drill.sh` passes against a dev server it starts
+itself, and the recorded traffic passes the contract check. `swift test` green (257 + 16 tests),
+`npm test` green (81), `xcodebuild` build and test green, `shellcheck` clean. **The dev-resource-group
+half waits for Phase 12**, which builds and deploys that resource group. Run it as
+`scripts/sync_drill.sh --endpoint https://<site>/api/v1 --pins <file>`; it prompts for the enrollment
+secret and deletes its server copy at the end. Where it differs from the text above:
+
+- **Commands take the vault as an argument**, like every other `passfort-cli` command:
+  `sync enable <vault> --endpoint … [--enroll-secret …]`, `sync join <new vault> --endpoint …
+  --vault-id …`, `sync now|status <vault>`, `sync devices <vault> [--remove <id>]`,
+  `sync disable <vault> [--delete-server-copy] [--yes]`. The enrollment secret is prompted for when
+  `--enroll-secret` is omitted, which keeps it out of `ps` and the shell history. The endpoint is
+  checked (https with pins, or loopback) before any prompt. Pins come from `--pins <file>` or
+  `~/.config/passfort/pins`: one base64 SHA-256 per line.
+- **`PASSFORT_DEVICE_FILE` instead of `--device-id`.** The device id stamps every write, so a second
+  CLI "device" has to apply to `add` and `edit`, not only to `sync`. An environment variable that
+  points every command at another identity file does that; a flag on the sync commands would have
+  left B's edits stamped as A's.
+- **Added for the drill and the CLI:** `passfort-cli recovery-key <vault>` (rotate the recovery key;
+  the app already had it in Settings). `SyncEngine.run()` returns a `SyncReport` (pulled, pushed,
+  conflict copies, full resync and re-uploads). The engine gained `devices`, `removeDevice` and
+  `deleteServerCopy`; the repository gained `syncState()` and `disableSync()`; and a
+  `sync_last_synced` meta key holds the time of the last run for `sync status`. Any unlock that leaves a
+  pending header prints the A.8 note.
+- **The contract check uses the shared fixtures, not `openapi.yaml`.** The dev server records each
+  exchange when `PASSFORT_RECORD_DIR` is set. `test/recording.test.ts` then runs every recorded
+  request through the server's closed validators and checks each response's shape against its
+  `Cloud/fixtures/dto` file, which `SyncDTOTests` decodes on the Swift side. A real OpenAPI
+  validator would mean a new npm dependency (rev 13); the fixtures already pin both ends. Tested by
+  tampering: an extra request field and an extra response key each fail it.
+- **Passwords** reach the CLI only through its terminal prompt, which is unchanged. The script answers
+  the prompts with `expect(1)`, which ships with macOS, using a random throwaway drill password.
+
+Transcript of the local run (step and check lines; each command's own output is omitted):
+
+```
+== building passfort-cli
+== starting the dev server (in-memory store, recording on)
+== A: a new vault with three accounts
+== A: enable sync
+   ok: A pushed all three
+== B: join
+   ok: B pulled all three
+== an edit on A reaches B
+   ok: B has A's edit
+== both edit Email offline, then sync
+   ok: B made a conflict copy
+   ok: one conflict copy of Email on both
+== B edits GitHub, then A deletes it, then both sync
+   ok: the delete won and B's edit survives as a copy on both
+== A rotates its recovery key; B adopts the new header at its next unlock
+   ok: A pushed header version 2
+   ok: B adopted header version 2
+== verify both
+   ok: A verifies
+   ok: A has nothing left to push
+   ok: B verifies
+   ok: B has nothing left to push
+== A lists the devices, then turns sync off and deletes the drill's server copy
+   ok: A is marked as this device
+   ok: the server copy is gone
+   ok: A's sync is off
+== the contract check over the recorded traffic
+   40 exchanges recorded
+   ok: every request passes the validators, every response has its fixture's shape
+DRILL PASSED
+```
+
 ---
 
 ## Phase 12 — Bicep, deploy, teardown

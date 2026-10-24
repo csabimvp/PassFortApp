@@ -558,6 +558,63 @@ public actor VaultRepository {
     }
   }
 
+  // MARK: - Sync status and turning it off (A.11)
+
+  /// Where this vault syncs and how far it has got -- everything `passfort-cli sync status` and
+  /// the app's Sync section show without asking the server.
+  public struct SyncState: Sendable, Equatable {
+    public var endpoint: URL
+    public var vaultID: UUID
+    public var enabledAt: Date
+    /// The highest server `seq` fully ingested; 0 = the next run is a full resync.
+    public var cursor: UInt64
+    /// Rows the server doesn't have at their current version: what the next push sends.
+    public var dirtyCount: Int
+    public var headerVersion: UInt64?
+    public var headerDirty: Bool
+    /// The version of a newer header from another device, waiting for the next unlock.
+    public var pendingHeaderVersion: UInt64?
+    public var lastSyncedAt: Date?
+  }
+
+  /// `nil` when sync is off.
+  public func syncState() async throws -> SyncState? {
+    try await database.dbQueue.read { db in
+      guard let config = try VaultMeta.readSyncConfig(db) else { return nil }
+      return SyncState(
+        endpoint: config.endpoint, vaultID: config.vaultID, enabledAt: config.enabledAt,
+        cursor: try VaultMeta.readSyncCursor(db),
+        dirtyCount: try Int.fetchOne(
+          db,
+          sql:
+            "SELECT COUNT(*) FROM records WHERE synced_version IS NULL OR synced_version != version"
+        ) ?? 0,
+        headerVersion: try VaultMeta.readSyncHeaderVersion(db),
+        headerDirty: try VaultMeta.readHeaderDirty(db),
+        pendingHeaderVersion: try VaultMeta.readPendingHeader(db)?.headerVersion,
+        lastSyncedAt: try VaultMeta.readSyncLastSynced(db))
+    }
+  }
+
+  /// Turn sync off on this device: forget the server -- `sync_config`, the cursor, the header
+  /// bookkeeping -- and every row's sync columns, so enabling again starts from scratch (every
+  /// row dirty). Records are untouched and the manifest doesn't move: all of it is outside the MAC.
+  /// The server copy is not touched; `SyncEngine.deleteServerCopy` does that, first.
+  public func disableSync() async throws {
+    try await database.dbQueue.write { db in
+      for key: VaultMetaKey in [
+        .syncConfig, .syncCursor, .syncHeaderVersion, .headerDirty, .pendingHeader, .syncLastSynced,
+      ] {
+        try VaultMeta.remove(db, key)
+      }
+      try db.execute(sql: "UPDATE records SET synced_version = NULL, synced_seq = NULL")
+    }
+  }
+
+  func recordSyncFinished(at date: Date) async throws {
+    try await database.dbQueue.write { db in try VaultMeta.writeSyncLastSynced(db, date) }
+  }
+
   // MARK: - Header sync (A.8)
 
   /// What the engine's header step needs, read in one snapshot.
