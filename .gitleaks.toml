@@ -1,10 +1,10 @@
-# gitleaks configuration -- backstop scan in CI (.github/workflows/ci.yml) and
-# the pre-commit hook. Extends the stock ruleset; only adds allowlisting.
+# gitleaks configuration -- the secret scan in CI (.github/workflows/ci.yml), the only one: there
+# is no local hook. Extends the stock ruleset with an allowlist and custom rules.
 
 [extend]
 useDefault = true
 
-# docs/runbooks/cli-guide.md is a walkthrough built almost entirely out of
+# docs/runbooks/cli-guide.md (retired 2026-10-23, still in history) was a walkthrough built almost entirely out of
 # copy-pasted `passfort-cli` session transcripts: demo vault UUIDs, and sample
 # `passfort-cli gen` output (high-entropy by construction). The stock
 # `generic-api-key` rule flags these on entropy alone. They are illustrative

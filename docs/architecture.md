@@ -1103,7 +1103,7 @@ Triggered by a semver tag (`v0.3.0`), never by a push — `release.yml`, the con
 |---|---|---|
 | **macOS app** | `xcodebuild` Release → hardened runtime, no `get-task-allow` → Developer ID sign → `notarytool submit --wait` → `stapler staple` → attach the zipped `.app` to a GitHub Release | M4 dry-run, M8 real |
 | **iOS app** | none — not released. Built and installed locally by `scripts/install_ios.sh` with a free Personal Team (7-day profile). A release target only exists if the paid program is ever joined (§14.19) | M7 (local only) |
-| **Azure infra** | `az deployment group create` from `Cloud/infra/main.bicep` (idempotent; the $5 budget alert is in the template) | M5 |
+| **Azure infra** (`PassFortCloud`'s `deploy.yml`, rev 15) | `az deployment group create` from `Cloud/infra/main.bicep` (idempotent; the $5 budget alert is in the template) | M5 |
 | **Sync API + web** | the Static Web Apps deploy action publishes `Cloud/api` and the built `Web/` bundle together; the deployed bundle hash is recorded on the Release for §11.4's "pinned build" claim | M5 / M6 |
 
 Secrets are GitHub Actions secrets, kept minimal:
