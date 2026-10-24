@@ -238,6 +238,46 @@ TEST_CASE("pf_session_vault_uuid matches the header field", "[session]") {
     REQUIRE(std::equal(uuid.begin(), uuid.end(), info.vault_uuid.begin()));
 }
 
+TEST_CASE("pf_header_vault_uuid reads the field without the password", "[session]") {
+    const auto pw = bytes_of("open sesame");
+    const auto created = pf::pf_vault_create(pw.data(), pw.size(), fast_pod_kdf());
+    REQUIRE(created.status == pf::Status::Ok);
+    const std::vector<uint8_t> header(pf::pf_bytes_data(created.handle),
+                                      pf::pf_bytes_data(created.handle) +
+                                          pf::pf_bytes_size(created.handle));
+    pf::pf_bytes_free(created.handle);
+
+    auto session = pf::pf_session_open(header.data(), header.size(), pw.data(), pw.size());
+    REQUIRE(session.status == pf::Status::Ok);
+    std::array<uint8_t, 16> opened{};
+    REQUIRE(pf::pf_session_vault_uuid(session.handle, opened.data()) == pf::Status::Ok);
+    pf::pf_session_close(session.handle);
+
+    std::array<uint8_t, 16> peeked{};
+    REQUIRE(pf::pf_header_vault_uuid(header.data(), header.size(), peeked.data()) ==
+            pf::Status::Ok);
+    REQUIRE(peeked == opened);
+
+    // Unauthenticated by design: a flipped bit in a slot doesn't change the answer...
+    auto slot_tampered = header;
+    slot_tampered[60] ^= 0x01;
+    REQUIRE(pf::pf_header_vault_uuid(slot_tampered.data(), slot_tampered.size(), peeked.data()) ==
+            pf::Status::Ok);
+    REQUIRE(peeked == opened);
+
+    // ...but the shape checks still apply, and `out` is untouched on failure.
+    std::array<uint8_t, 16> out{};
+    out.fill(0xEE);
+    const auto untouched = out;
+    auto bad_magic = header;
+    bad_magic[0] ^= 0xFF;
+    REQUIRE(pf::pf_header_vault_uuid(bad_magic.data(), bad_magic.size(), out.data()) ==
+            pf::Status::BadInput);
+    REQUIRE(pf::pf_header_vault_uuid(header.data(), header.size() - 1, out.data()) ==
+            pf::Status::BadInput);
+    REQUIRE(out == untouched);
+}
+
 TEST_CASE("pf_session_close is a no-op on nil", "[session]") {
     pf::pf_session_close(nullptr); // must not crash
     SUCCEED();

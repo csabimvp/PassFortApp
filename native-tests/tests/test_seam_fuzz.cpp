@@ -68,6 +68,22 @@ TEST_CASE("seam fuzz: pf_session_auth_key takes exactly 32 bytes and writes noth
     REQUIRE(std::equal(out.begin() + pf::kAuthKeyLen, out.end(), untouched.begin()));
 }
 
+TEST_CASE("seam fuzz: pf_header_vault_uuid rejects null, short and huge input", "[fuzz]") {
+    const std::vector<uint8_t> pw{'p', 'w'};
+    const auto header = make_header(pw);
+    std::array<uint8_t, 16> out{};
+    out.fill(0xEE);
+    const auto untouched = out;
+
+    REQUIRE(pf::pf_header_vault_uuid(nullptr, header.size(), out.data()) == pf::Status::BadInput);
+    REQUIRE(pf::pf_header_vault_uuid(header.data(), header.size(), nullptr) ==
+            pf::Status::BadInput);
+    for (const size_t len : {size_t{0}, size_t{3}, size_t{52}, size_t{132}, kHuge})
+        REQUIRE(pf::pf_header_vault_uuid(header.data(), len, out.data()) == pf::Status::BadInput);
+    REQUIRE(out == untouched);
+    REQUIRE(pf::pf_header_vault_uuid(header.data(), header.size(), out.data()) == pf::Status::Ok);
+}
+
 TEST_CASE("seam fuzz: zero length is handled per contract, never a crash", "[fuzz]") {
     Vault v;
     const std::array<uint8_t, 16> id{2};

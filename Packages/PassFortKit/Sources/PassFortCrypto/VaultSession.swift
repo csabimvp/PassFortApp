@@ -111,6 +111,23 @@ public actor VaultSession {
     return UUID(uuid: bytes)
   }
 
+  /// The vault UUID written in `header`, read without opening it -- no password, no
+  /// Argon2. **Unauthenticated**: use it only to compare identities, as adopting a
+  /// header another device pushed does (`m5-sync.md` A.8). Throws `.badInput` for a
+  /// short or foreign buffer, `.unsupported` for an unknown format.
+  public static func vaultUUID(ofHeader header: Data) throws -> UUID {
+    var bytes: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    let status = header.withUnsafeBytes { h in
+      withUnsafeMutableBytes(of: &bytes) { out in
+        pf.pf_header_vault_uuid(
+          h.bindMemory(to: UInt8.self).baseAddress, h.count,
+          out.bindMemory(to: UInt8.self).baseAddress)
+      }
+    }
+    guard status == pf.Status.Ok else { throw PassFortError(status) }
+    return UUID(uuid: bytes)
+  }
+
   /// The sync credential `k_auth` (ADR-0009): 32 bytes the sync server
   /// authenticates this vault with, storing only their SHA-256. Derived from the
   /// DEK, so it is the same on every device and survives `rewrap` and recovery.

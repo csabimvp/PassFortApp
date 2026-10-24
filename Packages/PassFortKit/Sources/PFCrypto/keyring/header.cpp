@@ -205,6 +205,14 @@ SecureBytes header_encode_with_recovery(const KdfParams &kdf,
     return out;
 }
 
+Status header_peek(const uint8_t *header, size_t header_len, HeaderInfo &info) {
+    HeaderInfo parsed;
+    if (const Status st = parse_prefix(header, header_len, parsed); st != Status::Ok)
+        return st;
+    info = parsed;
+    return Status::Ok;
+}
+
 Status header_decode(const uint8_t *header, size_t header_len, const uint8_t *pw, size_t pw_len,
                      HeaderInfo &info, SecureBytes &dek_out, RootKeys &root_out) {
     HeaderInfo parsed;

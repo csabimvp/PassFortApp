@@ -91,6 +91,13 @@ SessionResult pf_recovery_open(const uint8_t *header, size_t header_len,
 // handle returns Locked.
 Status pf_session_vault_uuid(Session *PF_NONNULL s, uint8_t *out) noexcept;
 
+// Copy the vault UUID out of a header *without opening it* -- no password, no
+// Argon2. The field is unauthenticated (whatever the bytes say), so use it only to
+// compare identities: M5 checks a header another device pushed names the same vault
+// before adopting it (m5-sync.md A.8). A short buffer, bad magic or null pointer
+// returns BadInput, an unknown format Unsupported; `out` is untouched on failure.
+Status pf_header_vault_uuid(const uint8_t *header, size_t header_len, uint8_t *out) noexcept;
+
 // Length of the sync credential pf_session_auth_key copies out.
 inline constexpr size_t kAuthKeyLen = 32;
 

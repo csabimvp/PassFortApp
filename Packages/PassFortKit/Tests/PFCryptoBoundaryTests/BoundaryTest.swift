@@ -179,6 +179,20 @@ import Testing
     #expect(try await other.authKey() != authKey)  // same password, another DEK
   }
 
+  @Test func vaultUUIDOfHeaderMatchesTheOpenedSessionWithoutThePassword() async throws {
+    let password = Data("correct horse".utf8)
+    let header = try VaultSession.create(password: password, params: fastParams)
+    let session = try VaultSession.open(header: header, password: password)
+    #expect(try VaultSession.vaultUUID(ofHeader: header) == (try await session.vaultUUID()))
+
+    let other = try VaultSession.create(password: password, params: fastParams)
+    #expect(try VaultSession.vaultUUID(ofHeader: other) != VaultSession.vaultUUID(ofHeader: header))
+    #expect(throws: PassFortError.badInput) {
+      try VaultSession.vaultUUID(ofHeader: Data([1, 2, 3]))
+    }
+    #expect(throws: PassFortError.badInput) { try VaultSession.vaultUUID(ofHeader: Data()) }
+  }
+
   @Test func calibrateProducesUsableParameters() throws {
     let params = try VaultSession.calibrate(targetMs: 1)
     #expect(params.kdfID == 1)

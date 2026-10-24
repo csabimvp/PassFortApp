@@ -66,4 +66,11 @@ Status header_decode_recovery(const uint8_t *header, size_t header_len,
                               const uint8_t recovery_key[32], HeaderInfo &info,
                               SecureBytes &dek_out);
 
+// Parse the plaintext prefix only -- no password, no unwrap. The fields are
+// *unauthenticated*: whatever the bytes say, checked for shape (length, magic,
+// supported constants, sane KDF params) but not for integrity. For comparing a
+// header's identity with another's (M5 pending-header adoption), never for trusting
+// its KDF params. Same statuses as header_decode's shape checks.
+Status header_peek(const uint8_t *header, size_t header_len, HeaderInfo &info);
+
 } // namespace pf::keyring

@@ -184,6 +184,20 @@ Status pf_session_vault_uuid(Session *s, uint8_t *out) noexcept {
     return Status::Ok;
 }
 
+Status pf_header_vault_uuid(const uint8_t *header, size_t header_len, uint8_t *out) noexcept {
+    try {
+        if (header == nullptr || out == nullptr || bad_len(header_len))
+            return Status::BadInput;
+        keyring::HeaderInfo info;
+        if (const Status st = keyring::header_peek(header, header_len, info); st != Status::Ok)
+            return st;
+        std::memcpy(out, info.vault_uuid.data(), info.vault_uuid.size());
+        return Status::Ok;
+    } catch (...) {
+        return Status::Internal;
+    }
+}
+
 Status pf_session_auth_key(Session *s, uint8_t *out, size_t out_len) noexcept {
     if (s == nullptr || out == nullptr || out_len != kAuthKeyLen)
         return Status::BadInput;
