@@ -5,13 +5,15 @@
 #   scripts/install_app.sh ~/Applications  # -> a folder of your choice
 #   scripts/install_app.sh --build-only DIR  # build into DIR, install nothing
 #   scripts/install_app.sh --keep-build      # keep Build/ (~1 GB) so the next run is incremental
+#   DEVELOPMENT_TEAM=ABCDE12345 scripts/install_app.sh   # sign with your team, not the project's
 #
 # By default Build/ is deleted once the app has been copied out: it is only a cache, and installs are
 # rare enough that a full rebuild next time (a few minutes, mostly the Botan compile) is the better
 # trade. The SwiftPM (.build/) and CMake (native-tests/build*/) caches belong to other loops and are
 # left alone.
 #
-# Signs with your own development certificate (the project's DEVELOPMENT_TEAM), so there is no
+# Signs with your own development certificate (the project's DEVELOPMENT_TEAM, or the one in the
+# environment when set -- anyone building from a clone needs their own), so there is no
 # notarization and no Developer ID: an app you built yourself runs without either. Hardened runtime
 # is on and the debugger-attach entitlement (get-task-allow) is left out. Vault data lives in the
 # app's sandbox container, which an update leaves alone.
@@ -49,7 +51,8 @@ xcodebuild build \
   -project PassFort.xcodeproj -scheme PassFort -configuration Release \
   -destination 'platform=macOS,arch=arm64' \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-  ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO -quiet
+  ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+  ${DEVELOPMENT_TEAM:+DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM"} -quiet
 
 app="Build/Products/Release/PassFort.app"
 [[ -d "$app" ]] || { echo "error: no app at $app" >&2; exit 1; }
