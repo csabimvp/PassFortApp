@@ -178,7 +178,8 @@ Reference material for every phase. Phases say *when* to build each piece; this 
 
 One resource group per environment: **`rg-passfort-dev`** (Phases 12–13 development, torn down freely)
 and **`rg-passfort-prod`** (the real vault). Region: the nearest region where Static Web Apps is
-available (e.g. `westeurope`); Storage goes in the same region.
+available and that accepts the subscription -- `eastus2` since 2026-10-24, because `westeurope`
+refuses new subscriptions (Phase 12, *Deployed*); Storage goes in the same region.
 
 | Resource (Bicep symbol) | Type / SKU | Purpose | Cost at personal scale |
 |---|---|---|---|
@@ -618,10 +619,17 @@ round-trip of real blobs. Results:
   Node 26 is **unverified**. Node 26 is the local default; `Cloud/api/.nvmrc` may need to pin an
   older LTS.
 
-**Deploy half — not run.** It needs `az`, an Azure login and a scratch RG -- run it from **Azure Cloud
-Shell** in the browser (`az` and Bicep preinstalled), so nothing Azure is installed on the Mac
-(2026-10-22). Its measurements (cold start, per-request timeout, `apiRuntime` Node versions, the cert
-chain for the pin set, regional Table prices) are still open.
+**Deploy half — answered by Phase 12's first deploys (2026-10-24)**, not by a scratch RG:
+
+- Cold start (first `/health` after a deploy): 0.57 s and 2.08 s on the two sites deployed.
+- `apiRuntime` `node:22` is accepted: the API built for Node 22 (`.nvmrc`) deployed and served.
+- TLS 1.3 negotiated on both sites, so the client's TLS 1.3 minimum (Phase 7) holds.
+- The served chain: leaf `*.N.azurestaticapps.net` -> an issuing CA "Microsoft TLS G2 RSA CA OCSP
+  NN" -> "Microsoft TLS RSA Root G2" (cross-signed by DigiCert Global Root G2). The issuing CA
+  differed between the two sites (OCSP 10, then OCSP 04), so the pin that lasts is the Microsoft
+  root's key; the issuing CA is pinned alongside it, never alone, and the leaf never.
+- Still open: the per-request timeout and the regional Table prices (portal reading; neither is
+  on the critical path at personal scale).
 
 **Spike exit:** you can state from experience how many days `Cloud/` is, and whether ADR-0005's
 CloudKit fallback should fire. "The custom backend costs more attention than it teaches" is a
@@ -1326,6 +1334,29 @@ the project deletes it with `az ad app delete`.
 **Checkpoint:** deploy `rg-passfort-dev` from a throwaway tag; run the Phase 11 drill against the real
 endpoint **with pinning on**; `az group delete`; redeploy from the same tag; drill again; the cost page
 shows ~$0 and the budget exists.
+
+**Deployed (2026-10-24), checkpoint passed** apart from a cost reading that lags a day. `dev` runs in
+`eastus2`; after a teardown (`az group delete`, `bootstrap-oidc.sh` again) and a redeploy of the same
+ref, the Phase 11 drill passed against the rebuilt site with pinning on. The budget was created with
+the deployment. Getting there took four fixes, each recorded where it lives:
+
+- **Region.** `westeurope` refused the deployment before creating anything (`RequestDisallowedByAzure`:
+  "not accepting new customers" -- a capacity rule on newer subscriptions). `az deployment group
+  validate` across every Static Web Apps region passed `centralus`, `eastus2`, `westus2` and
+  `eastasia`; `eastus2` is the nearest to Europe. A US region costs no confidentiality (the server
+  holds sealed records and a key hash only) and about 0.1 s per request.
+- **GitHub Free.** The backend repository is private, and GitHub Free gives a private repository no
+  deployment environments or environment secrets. `deploy.yml` became a manual run from `main`
+  (environment and ref as inputs) with `_DEV` / `_PROD` repository secrets looked up by name.
+- **OIDC subject.** The repository's tokens carry GitHub's immutable subject
+  (`repo:<owner>@<id>/<repo>@<id>:ref:refs/heads/main`), not `repo:<owner>/<repo>:...`;
+  `bootstrap-oidc.sh` now reads the prefix from GitHub and repairs an existing credential.
+- **The session token's header.** Static Web Apps replaces the `Authorization` header before a
+  managed Function sees it, so every authenticated call was a `401`. The token now travels as
+  `X-PassFort-Token` (A.3, `SyncAPI/openapi.yaml`), with a server regression test that a token sent
+  as `Authorization: Bearer` is refused.
+
+The text below is the pre-deploy record.
 
 **Written (2026-10-24), not deployed yet.** The checkpoint needs the 12.3 setup in Cloud Shell and a
 tag push, and both are the maintainer's to do. Nothing here has run against Azure: `main.bicep` is
