@@ -26,7 +26,8 @@ import Testing
   /// and encoded (lower-case UUIDs, base64) exactly as the file has it, and nothing extra.
   private func expectRoundTrip<T: Codable>(_ type: T.Type, _ name: String) throws {
     let original = try Self.fixture(name)
-    let reencoded = try SyncCoding.encoder.encode(try SyncCoding.decoder.decode(type, from: original))
+    let reencoded = try SyncCoding.encoder.encode(
+      try SyncCoding.decoder.decode(type, from: original))
     let expected = try JSONSerialization.jsonObject(with: original) as? NSDictionary
     let actual = try JSONSerialization.jsonObject(with: reencoded) as? NSDictionary
     #expect(expected != nil && actual == expected, "\(name)")
@@ -104,7 +105,8 @@ import Testing
   @Test func datesDecodeWithAndWithoutFractionalSeconds() throws {
     struct Stamp: Decodable { let at: Date }
     let decoder = SyncCoding.decoder
-    let withMillis = try decoder.decode(Stamp.self, from: Data(#"{"at":"2026-10-23T12:00:00.500Z"}"#.utf8))
+    let withMillis = try decoder.decode(
+      Stamp.self, from: Data(#"{"at":"2026-10-23T12:00:00.500Z"}"#.utf8))
     let without = try decoder.decode(Stamp.self, from: Data(#"{"at":"2026-10-23T12:00:00Z"}"#.utf8))
     #expect(withMillis.at.timeIntervalSince(without.at) == 0.5)
     #expect(throws: DecodingError.self) {

@@ -93,7 +93,10 @@ public final class HTTPSyncAPI: SyncAPI {
   {
     try await call(
       "GET", "vaults/\(vaultID.wire)/changes",
-      query: [URLQueryItem(name: "since", value: String(since)), URLQueryItem(name: "limit", value: String(limit))],
+      query: [
+        URLQueryItem(name: "since", value: String(since)),
+        URLQueryItem(name: "limit", value: String(limit)),
+      ],
       token: token)
   }
 
@@ -129,9 +132,9 @@ public final class HTTPSyncAPI: SyncAPI {
   private typealias ConflictMapper = @Sendable (Data) -> SyncError?
 
   private func call<Response: Decodable>(
-    _ method: String, _ path: String, query: [URLQueryItem] = [], body: (some Encodable)? = nil
-      as Never?, token: String? = nil, headers: [String: String] = [:],
-    conflict: ConflictMapper? = nil
+    _ method: String, _ path: String, query: [URLQueryItem] = [],
+    body: (some Encodable)? = nil as Never?, token: String? = nil,
+    headers: [String: String] = [:], conflict: ConflictMapper? = nil
   ) async throws -> Response {
     let data = try await send(
       method, path, query: query, body: body, token: token, headers: headers, conflict: conflict)
@@ -182,7 +185,8 @@ public final class HTTPSyncAPI: SyncAPI {
       try await withCheckedThrowingContinuation { continuation in
         let task = session.dataTask(with: request) { [transport] data, response, error in
           if let error {
-            continuation.resume(throwing: Self.error(for: error, pinFailed: transport.takePinFailure(box.identifier)))
+            continuation.resume(
+              throwing: Self.error(for: error, pinFailed: transport.takePinFailure(box.identifier)))
           } else if let response = response as? HTTPURLResponse {
             continuation.resume(returning: (data ?? Data(), response))
           } else {
@@ -220,7 +224,8 @@ public final class HTTPSyncAPI: SyncAPI {
     switch urlError.code {
     case .cancelled:
       return CancellationError()
-    case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot,
+    case .serverCertificateUntrusted, .serverCertificateHasBadDate,
+      .serverCertificateHasUnknownRoot,
       .serverCertificateNotYetValid:
       return SyncError.pinningFailed
     default:

@@ -28,7 +28,8 @@ import Testing
       #expect(try db.tableExists("schema_version"))
       // v2 is a schema change, not a format change: schema_version stays 1 (A.5).
       #expect(try Int.fetchOne(db, sql: "SELECT version FROM schema_version") == 1)
-      #expect(try Set(String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations")) == ["v1", "v2"])
+      #expect(
+        try Set(String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations")) == ["v1", "v2"])
 
       let columns = Set(try db.columns(in: "records").map(\.name))
       #expect(

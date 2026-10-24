@@ -853,7 +853,8 @@ struct Passwd: AsyncParsableCommand {
     let current = try Password.prompt("Current vault password: ")
     let repo: VaultRepository
     do {
-      repo = try await Vault.unlock(databasePath: vault, password: current, deviceID: try CLIDevice.id())
+      repo = try await Vault.unlock(
+        databasePath: vault, password: current, deviceID: try CLIDevice.id())
     } catch PassFortError.authFailed {
       throw CLIError("AuthFailed -- wrong password or corrupt vault")
     }

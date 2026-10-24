@@ -86,7 +86,8 @@ import Testing
     for host in ["localhost", "LOCALHOST", "127.0.0.1", "::1", "[::1]"] {
       #expect(PinnedTransport.isLoopback(host: host), "\(host)")
     }
-    for host in ["sync.test", "127.0.0.2", "10.0.0.1", "localhost.evil.test", "", nil] as [String?] {
+    let remote: [String?] = ["sync.test", "127.0.0.2", "10.0.0.1", "localhost.evil.test", "", nil]
+    for host in remote {
       #expect(!PinnedTransport.isLoopback(host: host), "\(host ?? "nil")")
     }
   }
@@ -94,6 +95,8 @@ import Testing
   @Test func pinsMustBeBase64SHA256s() throws {
     #expect(try PinSet(base64: [" \(leafPin)\n"]).hashes.count == 1)
     #expect(throws: PinSet.InvalidPin.self) { try PinSet(base64: ["not base64"]) }
-    #expect(throws: PinSet.InvalidPin.self) { try PinSet(base64: [Data(count: 20).base64EncodedString()]) }
+    #expect(throws: PinSet.InvalidPin.self) {
+      try PinSet(base64: [Data(count: 20).base64EncodedString()])
+    }
   }
 }

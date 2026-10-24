@@ -45,7 +45,8 @@ import Testing
     -> VaultRepository
   {
     try await VaultRepository.open(
-      database: try h.database, session: try VaultSession.open(header: h.header, password: h.password),
+      database: try h.database,
+      session: try VaultSession.open(header: h.header, password: h.password),
       deviceID: device, highWater: HighWaterMark(sidecarFor: h.path), wallClock: wallClock)
   }
 
@@ -62,7 +63,9 @@ import Testing
     let deleted = try #require(try await h.repo.account(id: made.id))
     let restored = try await h.repo.restore(id: made.id)
 
-    let stamps = [made.updatedAt, once.updatedAt, twice.updatedAt, deleted.updatedAt, restored.updatedAt]
+    let stamps = [
+      made.updatedAt, once.updatedAt, twice.updatedAt, deleted.updatedAt, restored.updatedAt,
+    ]
     for (earlier, later) in zip(stamps, stamps.dropFirst()) { #expect(earlier < later) }
     #expect(stamps.allSatisfy { $0.wallMillis == 1_800_000_000_000 && $0.deviceID == device })
     #expect(stamps.map(\.counter) == [0, 1, 2, 3, 4])
@@ -137,7 +140,8 @@ import Testing
     let before = try await h.database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) }
 
     try await h.repo.markPushed([PushedRecord(id: a.id, version: 1, seq: 1)])
-    #expect(try await h.database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) } == before)
+    #expect(
+      try await h.database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) } == before)
     _ = try await reopen(h)  // the manifest still verifies: sync columns are outside the MAC
   }
 
@@ -170,7 +174,8 @@ import Testing
     try await h.repo.delete(id: a.id)
     let before = try await h.database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) }
     try await h.repo.compactSynced()
-    #expect(try await h.database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) } == before)
+    #expect(
+      try await h.database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) } == before)
   }
 
   // MARK: - vault_meta sync keys

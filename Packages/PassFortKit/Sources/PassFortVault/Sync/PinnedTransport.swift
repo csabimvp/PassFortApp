@@ -61,8 +61,8 @@ final class PinnedTransport: NSObject, URLSessionTaskDelegate, Sendable {
 
   func urlSession(
     _ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
-    completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) ->
-      Void
+    completionHandler:
+      @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
   ) {
     let space = challenge.protectionSpace
     guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust else {
@@ -79,7 +79,8 @@ final class PinnedTransport: NSObject, URLSessionTaskDelegate, Sendable {
   /// Never follow a redirect: the API doesn't issue them, and one could move the request -- and
   /// its token -- to another host or scheme. The `3xx` itself comes back as the response.
   func urlSession(
-    _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+    _ session: URLSession, task: URLSessionTask,
+    willPerformHTTPRedirection response: HTTPURLResponse,
     newRequest request: URLRequest,
     completionHandler: @escaping @Sendable (URLRequest?) -> Void
   ) {

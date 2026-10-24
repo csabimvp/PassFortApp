@@ -50,10 +50,11 @@ import os
       let capture = Captured(
         method: request.httpMethod ?? "", url: url,
         headers: request.allHTTPHeaderFields ?? [:], body: body)
-      guard let reply = Self.routes.withLock({ routes -> Reply? in
-        routes[id]?.captured.append(capture)
-        return routes[id]?.reply
-      })
+      guard
+        let reply = Self.routes.withLock({ routes -> Reply? in
+          routes[id]?.captured.append(capture)
+          return routes[id]?.reply
+        })
       else { return client?.urlProtocol(self, didFailWithError: URLError(.badURL)) ?? () }
 
       if let error = reply.error { return client?.urlProtocol(self, didFailWithError: error) ?? () }
@@ -90,7 +91,8 @@ import os
     configuration.protocolClasses = [Stub.self]
     let endpoint =
       https
-      ? URL(string: "https://sync.test/\(id)/api/v1")! : URL(string: "http://localhost:7071/\(id)/api/v1")!
+      ? URL(string: "https://sync.test/\(id)/api/v1")!
+      : URL(string: "http://localhost:7071/\(id)/api/v1")!
     let pins = try PinSet(base64: ["M1AWPj3AZEniRAxIO4lxAIEtRyVX2LOoj7MHpuzGpDU="])
     return (try HTTPSyncAPI(endpoint: endpoint, pins: pins, configuration: configuration), id)
   }
@@ -158,7 +160,10 @@ import os
     #expect(sent.headers["Authorization"] == "Bearer tok")
     #expect(sent.url.path().hasSuffix("/vaults/6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b/changes"))
     let query = URLComponents(url: sent.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-    #expect(Set(query) == [URLQueryItem(name: "since", value: "40"), URLQueryItem(name: "limit", value: "500")])
+    #expect(
+      Set(query) == [
+        URLQueryItem(name: "since", value: "40"), URLQueryItem(name: "limit", value: "500"),
+      ])
   }
 
   @Test func everyEndpointHitsItsRoute() async throws {
@@ -176,13 +181,15 @@ import os
     }
 
     try await check(Reply(body: try fixture("session.response.json")), "POST", "\(v)/session") {
-      _ = try await $0.openSession(vaultID: vaultID, SessionRequest(authKey: Data(count: 32), device: device))
+      _ = try await $0.openSession(
+        vaultID: vaultID, SessionRequest(authKey: Data(count: 32), device: device))
     }
     try await check(Reply(body: try fixture("header.response.json")), "GET", "\(v)/header") {
       _ = try await $0.header(vaultID: vaultID)
     }
     try await check(Reply(body: try fixture("put-header.response.json")), "PUT", "\(v)/header") {
-      let version = try await $0.putHeader(vaultID: vaultID, header: Data(count: 133), base: 2, token: "t")
+      let version = try await $0.putHeader(
+        vaultID: vaultID, header: Data(count: 133), base: 2, token: "t")
       #expect(version == 3)
     }
     try await check(Reply(body: try fixture("push.response.json")), "POST", "\(v)/changes") {
@@ -192,7 +199,9 @@ import os
       let devices = try await $0.devices(vaultID: vaultID, token: "t")
       #expect(devices.count == 2)
     }
-    try await check(Reply(status: 204), "DELETE", "\(v)/devices/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d") {
+    try await check(
+      Reply(status: 204), "DELETE", "\(v)/devices/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+    ) {
       try await $0.removeDevice(vaultID: vaultID, deviceID: other, token: "t")
     }
     try await check(Reply(status: 204), "DELETE", v) {
@@ -221,7 +230,8 @@ import os
   @Test func retryAfterIsCarriedOn429And503() async throws {
     let (limited, _) = try stubbed(Reply(status: 429, headers: ["Retry-After": "30"]))
     await #expect(throws: SyncError.rateLimited(retryAfter: 30)) {
-      _ = try await limited.openSession(vaultID: vaultID, SessionRequest(authKey: Data(count: 32), device: device))
+      _ = try await limited.openSession(
+        vaultID: vaultID, SessionRequest(authKey: Data(count: 32), device: device))
     }
     let (busy, _) = try stubbed(Reply(status: 503, headers: ["Retry-After": "1"]))
     await #expect(throws: SyncError.server(status: 503, retryAfter: 1)) {
@@ -245,7 +255,8 @@ import os
 
     let (header, _) = try stubbed(Reply(status: 409, body: try fixture("put-header.conflict.json")))
     await #expect(throws: SyncError.headerConflict(headerVersion: 3)) {
-      _ = try await header.putHeader(vaultID: vaultID, header: Data(count: 133), base: 2, token: "t")
+      _ = try await header.putHeader(
+        vaultID: vaultID, header: Data(count: 133), base: 2, token: "t")
     }
   }
 
@@ -259,7 +270,8 @@ import os
   @Test(arguments: [
     (URLError.Code.notConnectedToInternet, SyncError.offline), (.timedOut, .offline),
     (.cannotFindHost, .offline), (.networkConnectionLost, .offline),
-    (.serverCertificateUntrusted, .pinningFailed), (.serverCertificateHasUnknownRoot, .pinningFailed),
+    (.serverCertificateUntrusted, .pinningFailed),
+    (.serverCertificateHasUnknownRoot, .pinningFailed),
   ])
   func transportErrorsMapToOfflineOrPinning(_ code: URLError.Code, _ expected: SyncError)
     async throws
