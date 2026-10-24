@@ -1314,6 +1314,37 @@ the project deletes it with `az ad app delete`.
 endpoint **with pinning on**; `az group delete`; redeploy from the same tag; drill again; the cost page
 shows ~$0 and the budget exists.
 
+**Written (2026-10-24), not deployed yet.** The checkpoint needs the 12.3 setup in Cloud Shell and a
+tag push, and both are the maintainer's to do. Nothing here has run against Azure: `main.bicep` is
+first compiled by CI's new lint step (`az bicep build`, warnings fail it). The deploy workflow's
+`run` steps are shellcheck-clean, and its TLS/pin pipeline was tried against a public host with
+OpenSSL 3. The cost brief (2026-10-24) is unchanged: a personal project, so the bill rounds to $0,
+and every resource is free or pay-per-use. Where it differs from the text above:
+
+- **Two GitHub environments, one workflow.** 12.3/12.4 named only `rg-passfort-prod`, but the
+  checkpoint deploys `rg-passfort-dev`. Tags `dev-*` deploy the `dev` environment, `v*` deploy `prod`.
+  Each environment has its own secrets and `RESOURCE_GROUP` variable, and its own deploy identity:
+  `bootstrap-oidc.sh <env> <rg> <repo>` makes an app registration whose federated credential trusts
+  only `repo:<repo>:environment:<env>`, with Contributor on that resource group alone.
+  `dev.parameters.json` / `prod.parameters.json` replace `main.parameters.json`.
+- **`budgetEmail` is a secret (`BUDGET_EMAIL`), not a parameters-file value.** The repository is
+  public, and that address is personal.
+- **`staticwebapp.config.json` lives in `Cloud/site/`**, the deploy's `app_location`, which is where
+  SWA reads it. Node is `node:22`, the `.nvmrc` major.
+- **The API is built in the workflow** (`skip_api_build`): `npm ci`, `tsc`, `npm prune --omit=dev`,
+  then only `host.json`, `package*.json`, `node_modules` and `dist/src` ship. `dist/test` stays
+  behind, as `Cloud/README.md` required.
+- **The deploy answers Phase 0's deploy half.** Its summary page reports the cold-start time,
+  whether TLS 1.3 was negotiated (the Phase 7 question: the client requires it, and a warning is raised
+  if it's missing), and the SPKI pin of every served certificate, using the Phase 7 fixture recipe.
+  The per-request timeout and regional Table prices are still to be read off the portal.
+- **Teardown deletes the resource group itself**, and with it the role assignment. Re-running 12.3's
+  `bootstrap-oidc.sh` before the redeploy restores both and leaves the rest as it was.
+- **To verify on the first deploys:** the API versions and the conditional-insights expression
+  compile without warnings (CI). Also: whether a redeploy in a *later month* accepts the budget's
+  `startDate`, which defaults to the current month. If Azure refuses to move an existing budget's
+  start, pass `budgetStartDate=<original yyyy-MM-01>` or pin it in the parameters file.
+
 ---
 
 ## Phase 13 — The app
