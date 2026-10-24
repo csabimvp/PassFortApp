@@ -69,7 +69,7 @@ final class AppModel {
 
   /// The GUI's `verify --accept-restore`: clear the anti-rollback mark, then retry.
   func acceptRestoreAndRetry(password: Data) async {
-    try? service.acceptRestoredBackup()
+    try? await service.acceptRestoredBackup()
     await unlock(password: password)
   }
 

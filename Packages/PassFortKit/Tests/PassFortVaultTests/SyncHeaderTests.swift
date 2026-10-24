@@ -84,10 +84,7 @@ import Testing
     let recovered = try await Vault.recover(
       databasePath: a.path, recoveryKey: recovery, newPassword: newPassword, deviceID: a.id)
     #expect(try await meta(a).dirty)
-    let session = try VaultSession.open(header: try await recovered.header(), password: newPassword)
-    let a2 = SyncEngine(
-      api: world.server, repository: recovered, session: session,
-      device: DeviceDTO(id: a.id, name: "A", platform: .cli))
+    let a2 = world.engine(for: recovered, a.id, "A")
     try await a2.run()
     try await b1.engine.run()
     #expect(try await meta(b1).pending != nil)

@@ -147,6 +147,44 @@ import Testing
     }
   }
 
+  // MARK: - Descent (Phase 10)
+
+  private func history(_ versions: UInt64...) -> [RevisionEntry] {
+    versions.reversed().map {
+      RevisionEntry(version: $0, at: Date(timeIntervalSince1970: Double($0)), changed: ["notes"])
+    }
+  }
+
+  @Test func aRemoteThatAlreadyHasTheLocalEditWinsWithNoCopy() {
+    var mine = AccountPayload(title: "X", notes: "v2")
+    mine.revisionHistory = history(1, 2)
+    var theirs = AccountPayload(title: "X", notes: "v3")
+    theirs.revisionHistory = history(1, 2, 3)
+    // Even with the local stamp newer (a restored backup's row): the remote has seen it.
+    #expect(
+      Reconciler.decide(
+        local: local(version: 2, synced: 1, wall: 300), remote: remote(version: 3, wall: 200),
+        payloads: .init(local: mine, remote: theirs)) == .takeRemote(copyLocal: false))
+    // And the other way round: a local edit made on top of the remote version.
+    #expect(
+      Reconciler.decide(
+        local: local(version: 3, synced: 1, wall: 100), remote: remote(version: 2, wall: 200),
+        payloads: .init(local: theirs, remote: mine)) == .keepLocal(copyRemote: false))
+  }
+
+  @Test func rivalEditsFromTheSameBaseAreNotDescent() {
+    var mine = AccountPayload(title: "X", notes: "mine")
+    mine.revisionHistory = history(1, 2)
+    var theirs = AccountPayload(title: "X", notes: "theirs")
+    theirs.revisionHistory = history(1)
+    theirs.revisionHistory.insert(
+      RevisionEntry(version: 2, at: Date(timeIntervalSince1970: 99), changed: ["notes"]), at: 0)
+    #expect(!Reconciler.descends(theirs, from: mine))
+    #expect(!Reconciler.descends(mine, from: theirs))
+    #expect(!Reconciler.descends(mine, from: mine), "the same point is not later")
+    #expect(!Reconciler.descends(mine, from: AccountPayload(title: "no history")))
+  }
+
   @Test func aConflictWithoutPayloadsResolvesByClockAndKeepsACopy() {
     // Same content, but undecrypted: no 5a shortcut, so the safe outcome -- a copy.
     #expect(

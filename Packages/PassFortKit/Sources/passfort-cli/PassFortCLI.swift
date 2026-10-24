@@ -140,7 +140,7 @@ struct Verify: AsyncParsableCommand {
 
   func run() async throws {
     if acceptRestore {
-      try HighWaterMark(sidecarFor: vault).reset()
+      try await Vault.acceptRestoredBackup(databasePath: vault)
       FileHandle.standardError.write(Data("anti-rollback mark cleared; re-verifying...\n".utf8))
     }
     _ = try await VaultCLI.open(vault)

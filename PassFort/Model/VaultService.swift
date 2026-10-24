@@ -79,10 +79,11 @@ nonisolated struct VaultService {
     }
   }
 
-  /// The GUI's `verify --accept-restore`: clear the anti-rollback sidecar so the
-  /// next `unlock` accepts the file and repairs the mark forward.
-  func acceptRestoredBackup() throws {
-    try highWaterMark.reset()
+  /// The GUI's `verify --accept-restore`: clear the anti-rollback mark so the next
+  /// `unlock` accepts the file and repairs the mark forward -- and, with sync on, reset
+  /// the sync cursor so the next sync is a full resync (`m5-sync.md` A.10).
+  func acceptRestoredBackup() async throws {
+    try await Vault.acceptRestoredBackup(databasePath: databasePath, highWater: highWaterMark)
   }
 
   // MARK: - Replacing the vault

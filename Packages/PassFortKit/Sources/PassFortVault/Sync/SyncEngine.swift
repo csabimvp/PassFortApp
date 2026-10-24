@@ -25,14 +25,14 @@ public enum SyncStatus: Sendable, Equatable {
 
 /// One vault's sync client: runs `m5-sync.md` A.6 against a `SyncAPI` -- session, pull and
 /// reconcile page by page, push, compact. It adds no crypto of its own (§9.1): it asks the
-/// session for `k_auth` and the repository to open, seal and commit.
+/// repository for `k_auth` and to open, seal and commit.
 ///
 /// Every ingest is one repository commit, so a run cancelled or killed at any point leaves the
 /// vault verifying; the next run picks up from the last committed cursor. The session token
 /// lives here, in memory only, for one run.
 ///
-/// Full resync on `410` (A.10, Phase 10) is not wired yet: a `410` ends the run with
-/// `SyncError.resyncRequired`.
+/// A pull from cursor 0 is a full resync (A.10): after joining, after accepting a restored
+/// backup, and after a `410`. Rows the server didn't return are uploaded again -- never deleted.
 public actor SyncEngine {
   /// `GET /changes` page size -- the contract's ceiling.
   static let pageLimit = 500
@@ -47,7 +47,6 @@ public actor SyncEngine {
 
   private let api: any SyncAPI
   private let repository: VaultRepository
-  private let session: VaultSession
   private let device: DeviceDTO
 
   private var token: String?
@@ -61,16 +60,11 @@ public actor SyncEngine {
   public nonisolated let statusUpdates: AsyncStream<SyncStatus>
   private let statusContinuation: AsyncStream<SyncStatus>.Continuation
 
-  /// - Parameters:
-  ///   - session: the unlocked session `repository` was opened with -- the source of `k_auth`.
-  ///   - device: this device as the server sees it; its `id` must be the repository's device id,
-  ///     which stamps every local write.
-  public init(
-    api: any SyncAPI, repository: VaultRepository, session: VaultSession, device: DeviceDTO
-  ) {
+  /// - Parameter device: this device as the server sees it; its `id` must be the repository's
+  ///   device id, which stamps every local write.
+  public init(api: any SyncAPI, repository: VaultRepository, device: DeviceDTO) {
     self.api = api
     self.repository = repository
-    self.session = session
     self.device = device
     (statusUpdates, statusContinuation) = AsyncStream.makeStream(
       bufferingPolicy: .bufferingNewest(1))
@@ -93,21 +87,12 @@ public actor SyncEngine {
     let created = try await api.createVault(
       CreateVaultRequest(
         vaultId: vaultID, header: try await repository.header(),
-        authKey: try await session.authKey(), device: device),
+        authKey: try await repository.authKey(), device: device),
       enrollSecret: enrollSecret)
     try await repository.enableSync(
       SyncConfig(endpoint: endpoint, vaultID: vaultID, enabledAt: Date()),
       headerVersion: created.headerVersion)
     return vaultID
-  }
-
-  /// Record that this vault is `vaultID` on the server. The caller has already built the local
-  /// vault from that server's header (`GET /header`, then unlock -- A.11 `join`); the next `run`
-  /// pulls everything.
-  public func join(endpoint: URL, vaultID: UUID, headerVersion: UInt64) async throws {
-    try await repository.enableSync(
-      SyncConfig(endpoint: endpoint, vaultID: vaultID, enabledAt: Date()),
-      headerVersion: headerVersion)
   }
 
   // MARK: - Running
@@ -186,7 +171,7 @@ public actor SyncEngine {
     try Task.checkCancellation()
     let opened = try await api.openSession(
       vaultID: config.vaultID,
-      SessionRequest(authKey: try await session.authKey(), device: device))
+      SessionRequest(authKey: try await repository.authKey(), device: device))
     guard opened.seq >= (try await repository.syncCursor()) else { throw SyncError.serverRollback }
     serverHeaderVersion = opened.headerVersion
     token = opened.token
@@ -209,26 +194,53 @@ public actor SyncEngine {
 
   // MARK: - Pull (A.6 step 2)
 
+  /// Pull every page after the cursor and ingest it. From cursor 0 this is a full resync (A.10):
+  /// the stored cursor stays at 0 until the last page has landed, then every synced row the
+  /// server didn't return is marked never-synced, so the push uploads it again. A resync cut
+  /// short is simply redone. A `410` (tombstones after the cursor were purged) resets the cursor
+  /// to 0 and starts one.
   private func pull(_ config: SyncConfig) async throws {
-    var cursor = try await repository.syncCursor()
+    let floor = try await repository.syncCursor()
+    let full = floor == 0
+    var since = floor
+    var purgedThrough: UInt64 = 0
+    var returned = Set<UUID>()
     while true {
-      let since = cursor
-      let page = try await authorized(config) { token in
-        try await self.api.changes(
-          vaultID: config.vaultID, since: since, limit: Self.pageLimit, token: token)
+      let from = since
+      let page: ChangesResponse
+      do {
+        page = try await authorized(config) { token in
+          try await self.api.changes(
+            vaultID: config.vaultID, since: from, limit: Self.pageLimit, token: token)
+        }
+      } catch SyncError.resyncRequired where !full {
+        try await repository.resetSyncCursor()
+        return try await pull(config)
       }
-      guard page.seq >= cursor else { throw SyncError.serverRollback }
+      guard page.seq >= floor else { throw SyncError.serverRollback }
       serverHeaderVersion = page.headerVersion
-      guard let last = page.records.last else { return }
-      // Ascending, after the cursor, within the server's own high-water mark, one entry per id.
-      guard page.records.allSatisfy({ $0.seq > cursor && $0.seq <= page.seq }),
+      purgedThrough = page.purgedThroughSeq
+      // Ascending, after `since`, within the server's own high-water mark, one entry per id --
+      // and a page that says there is more has something in it.
+      guard page.records.allSatisfy({ $0.seq > from && $0.seq <= page.seq }),
         zip(page.records, page.records.dropFirst()).allSatisfy({ $0.seq < $1.seq }),
-        Set(page.records.map(\.id)).count == page.records.count
+        Set(page.records.map(\.id)).count == page.records.count,
+        !(page.hasMore && page.records.isEmpty)
       else { throw SyncError.invalidResponse }
 
-      try await ingest(page.records, cursor: last.seq)
-      cursor = last.seq
-      if !page.hasMore { return }
+      if let last = page.records.last {
+        try await ingest(page.records, cursor: full ? 0 : last.seq)
+        since = last.seq
+        if full { returned.formUnion(page.records.map(\.id)) }
+      }
+      if !page.hasMore { break }
+    }
+    // Finishing at the purge mark too: otherwise a vault whose newest entries were purged
+    // tombstones would stay below it and resync on every run. Nothing is skipped by it --
+    // nothing can be purged while this device's pull from 0 holds the server's minimum
+    // `lastSeq` at 0, so every live record at or under the mark was in the scan.
+    if full {
+      try await repository.finishResync(serverHas: returned, cursor: max(since, purgedThrough))
     }
   }
 

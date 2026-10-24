@@ -72,6 +72,14 @@ public enum Reconciler {
     {
       return .takeRemote(copyLocal: false)  // 5a
     }
+    // Not in A.7's table (Phase 10): one side has already seen the other's latest edit, so it
+    // is a later state of the same record rather than a rival edit -- the later one wins with
+    // nothing to copy. A restored backup's dirty rows hit this, and so does a row edited again
+    // after a push whose response was lost.
+    if let payloads {
+      if descends(payloads.remote, from: payloads.local) { return .takeRemote(copyLocal: false) }
+      if descends(payloads.local, from: payloads.remote) { return .keepLocal(copyRemote: false) }
+    }
     // 5b / 5c, and 5d by the same token: the loser's payload survives as a copy unless the loser
     // is a tombstone -- a deletion that loses just means the record lives on.
     if remote.hlc.hlc > local.updatedAt {
@@ -86,6 +94,17 @@ public enum Reconciler {
   /// replaced password values themselves still have to match.
   static func sameContent(_ a: AccountPayload, _ b: AccountPayload) -> Bool {
     normalized(a) == normalized(b)
+  }
+
+  /// `later` is a later state of `earlier`: its revision history holds `earlier`'s newest entry,
+  /// and has moved past it. The history is sealed (only a DEK holder writes it), so a server
+  /// can't fake this to make an edit disappear without a copy. A history capped past the entry
+  /// (`revisionHistoryLimit`) just doesn't match -- and a copy is kept, the safe direction.
+  static func descends(_ later: AccountPayload, from earlier: AccountPayload) -> Bool {
+    guard let mark = earlier.revisionHistory.first, later.revisionHistory.first != mark else {
+      return false
+    }
+    return later.revisionHistory.contains(mark)
   }
 
   private static func normalized(_ payload: AccountPayload) -> AccountPayload {

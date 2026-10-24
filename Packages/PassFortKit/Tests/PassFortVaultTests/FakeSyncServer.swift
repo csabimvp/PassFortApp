@@ -30,6 +30,8 @@ actor FakeSyncServer: SyncAPI {
     var seq: UInt64 = 0
     var purgedThroughSeq: UInt64 = 0
     var records: [UUID: RecordDTO] = [:]
+    /// Every version ever pushed, for `replayOldVersion`.
+    var history: [UUID: [RecordDTO]] = [:]
     var devices: [UUID: Device] = [:]
   }
 
@@ -54,7 +56,7 @@ actor FakeSyncServer: SyncAPI {
 
   func vault(_ id: UUID) -> Vault? { vaults[id] }
 
-  // MARK: - Faults (Phase 10 adds the rest of the hostile server)
+  // MARK: - Faults: the hostile server (A.9, Phase 10)
 
   private var losePushResponse = false
 
@@ -73,6 +75,48 @@ actor FakeSyncServer: SyncAPI {
     guard var stored = vaults[vaultID]?.records[record], !stored.sealed.isEmpty else { return }
     stored.sealed[stored.sealed.startIndex] ^= 0x01
     vaults[vaultID]?.records[record] = stored
+  }
+
+  /// Lose a record outright, as if its entity were deleted from the table.
+  func dropRecord(_ vaultID: UUID, record: UUID) {
+    vaults[vaultID]?.records[record] = nil
+  }
+
+  /// Serve an older, genuine version of a record again, under a new `seq` -- a replay.
+  func replayOldVersion(_ vaultID: UUID, record: UUID, version: UInt64) {
+    guard var vault = vaults[vaultID],
+      var old = vault.history[record]?.first(where: { $0.version == version })
+    else { return }
+    vault.seq += 1
+    old.seq = vault.seq
+    vault.records[record] = old
+    vaults[vaultID] = vault
+  }
+
+  /// Corrupt the stored header (one bit of its wrapped DEK) -- what a forging server serves a
+  /// joining device.
+  func forgeHeader(_ vaultID: UUID) {
+    guard var header = vaults[vaultID]?.header, header.count > 60 else { return }
+    header[header.startIndex + 60] ^= 0x01
+    vaults[vaultID]?.header = header
+  }
+
+  // MARK: - Operations a test drives directly
+
+  /// Purge every tombstone up to `seq` and raise `purgedThroughSeq` -- as the opportunistic purge
+  /// would once every device had pulled that far.
+  func purge(_ vaultID: UUID, through seq: UInt64) {
+    guard var vault = vaults[vaultID] else { return }
+    for record in vault.records.values where record.isDeleted && record.seq <= seq {
+      vault.records[record.id] = nil
+    }
+    vault.purgedThroughSeq = max(vault.purgedThroughSeq, seq)
+    vaults[vaultID] = vault
+  }
+
+  /// Settings -> Devices -> Remove, without a token.
+  func unregister(_ vaultID: UUID, device: UUID) {
+    vaults[vaultID]?.devices[device] = nil
   }
 
   // MARK: - SyncAPI
@@ -165,9 +209,11 @@ actor FakeSyncServer: SyncAPI {
     var applied: [AppliedDTO] = []
     for record in records {
       vault.seq += 1
-      vault.records[record.id] = RecordDTO(
+      let stored = RecordDTO(
         id: record.id, version: record.version, hlc: record.hlc, sealed: record.sealed,
         isDeleted: record.isDeleted, seq: vault.seq, writer: writer)
+      vault.records[record.id] = stored
+      vault.history[record.id, default: []].append(stored)
       applied.append(AppliedDTO(id: record.id, version: record.version, seq: vault.seq))
     }
     vaults[vaultID] = vault

@@ -513,6 +513,41 @@ public actor VaultRepository {
     try await database.dbQueue.read { db in try VaultMeta.readSyncCursor(db) }
   }
 
+  /// `k_auth` (ADR-0009), for the sync session -- the session is the repository's, so a caller
+  /// holding only `Vault.unlock`'s result can build a `SyncEngine`.
+  func authKey() async throws -> Data {
+    try await session.authKey()
+  }
+
+  /// Start the next pull from 0 -- a full resync (A.10). Behind is always safe: a re-pulled
+  /// record is an echo.
+  func resetSyncCursor() async throws {
+    try await database.dbQueue.write { db in try VaultMeta.writeSyncCursor(db, 0) }
+  }
+
+  /// Close a full resync: every row the server has a version of but didn't return goes back to
+  /// never-synced, so the next push uploads it with `baseVersion` 0 (A.10 -- the server lost it,
+  /// or purged a tombstone while this device was away). Nothing is deleted. Then the cursor moves
+  /// to the last record pulled. Bookkeeping outside the MAC: one plain transaction.
+  ///
+  /// - Returns: how many rows will be uploaded again.
+  @discardableResult
+  func finishResync(serverHas returned: Set<UUID>, cursor: UInt64) async throws -> Int {
+    try await database.dbQueue.write { db in
+      let synced = try Data.fetchAll(
+        db, sql: "SELECT uuid FROM records WHERE synced_version IS NOT NULL")
+      var reupload = 0
+      for raw in synced where !returned.contains(UUID(fromRawData: raw)) {
+        try db.execute(
+          sql: "UPDATE records SET synced_version = NULL, synced_seq = NULL WHERE uuid = ?",
+          arguments: [raw])
+        reupload += 1
+      }
+      try VaultMeta.writeSyncCursor(db, cursor)
+      return reupload
+    }
+  }
+
   /// Turn sync on: where to, and the server header version this vault's header corresponds to.
   /// The cursor starts at 0 -- the first run pulls everything and pushes every (dirty) row.
   func enableSync(_ config: SyncConfig, headerVersion: UInt64) async throws {

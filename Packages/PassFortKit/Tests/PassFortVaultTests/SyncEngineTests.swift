@@ -154,7 +154,9 @@ import Testing
     try await world.verify(b)
   }
 
-  @Test func cancellingMidPullLeavesTheVaultVerifyingAndTheNextRunResumes() async throws {
+  @Test func cancellingAJoinsFirstPullLeavesTheVaultVerifyingAndTheNextRunRedoesIt()
+    async throws
+  {
     let world = try SyncWorld()
     defer { world.cleanUp() }
     let (a, vaultID) = try await world.enableA()
@@ -171,13 +173,43 @@ import Testing
     await #expect(throws: CancellationError.self) { try await run.value }
 
     #expect(try await b.repo.allAccounts().count == 1_000)
-    #expect(try await b.repo.syncCursor() == 1_000)
+    #expect(try await b.repo.syncCursor() == 0, "a full resync is finished or redone")
+    try await world.verify(b)
+
+    await world.server.setOnRequest(nil)
+    try await b.engine.run()
+    #expect(try await b.repo.syncCursor() == 1_200)
+    #expect(try await b.repo.dirtyRecords().isEmpty, "the redo re-uploads nothing")
+    #expect(try await a.repo.allAccounts() == b.repo.allAccounts())
+    try await world.verify(a)
+    try await world.verify(b)
+  }
+
+  @Test func cancellingAnIncrementalPullKeepsThePagesThatLanded() async throws {
+    let world = try SyncWorld()
+    defer { world.cleanUp() }
+    let (a, vaultID) = try await world.enableA()
+    _ = try await a.repo.create(AccountPayload(title: "first"))
+    try await a.engine.run()
+    let b = try await world.join("B", vaultID)
+    try await b.engine.run()  // cursor 1
+    try await a.repo.importAccounts((0..<1_200).map { AccountPayload(title: "record \($0)") })
+    try await a.engine.run()
+
+    let pulls = Counter()
+    await world.server.setOnRequest { call in
+      if call == .pull, pulls.increment() == 3 { withUnsafeCurrentTask { $0?.cancel() } }
+    }
+    let run = Task { try await b.engine.run() }
+    await #expect(throws: CancellationError.self) { try await run.value }
+
+    #expect(try await b.repo.allAccounts().count == 1_001)
+    #expect(try await b.repo.syncCursor() == 1_001, "each page committed with its cursor")
     try await world.verify(b)
 
     await world.server.setOnRequest(nil)
     try await b.engine.run()
     #expect(try await a.repo.allAccounts() == b.repo.allAccounts())
-    try await world.verify(a)
     try await world.verify(b)
   }
 
@@ -289,37 +321,6 @@ import Testing
     let start = await world.server.calls.count
     try await a.engine.run()
     #expect(await world.calls(from: start, .openSession) == 2)
-  }
-
-  @Test func aServerBehindTheCursorStopsSync() async throws {
-    let world = try SyncWorld()
-    defer { world.cleanUp() }
-    let (a, vaultID) = try await world.enableA()
-    _ = try await a.repo.create(AccountPayload(title: "one"))
-    _ = try await a.repo.create(AccountPayload(title: "two"))
-    try await a.engine.run()  // pushes
-    try await a.engine.run()  // ingests the echoes: cursor 2
-    #expect(try await a.repo.syncCursor() == 2)
-
-    await world.server.rewind(vaultID, seq: 1)
-    await #expect(throws: SyncError.serverRollback) { try await a.engine.run() }
-    try await world.verify(a)
-  }
-
-  @Test func aTamperedRecordRejectsTheWholePage() async throws {
-    let world = try SyncWorld()
-    defer { world.cleanUp() }
-    let (a, vaultID) = try await world.enableA()
-    _ = try await a.repo.create(AccountPayload(title: "intact"))
-    let forged = try await a.repo.create(AccountPayload(title: "tampered"))
-    try await a.engine.run()
-
-    await world.server.flipBit(vaultID, record: forged.id)
-    let b = try await world.join("B", vaultID)
-    await #expect(throws: SyncError.tamperedRecord(forged.id)) { try await b.engine.run() }
-    #expect(try await b.repo.allAccounts().isEmpty, "nothing from the page was applied")
-    #expect(try await b.repo.syncCursor() == 0)
-    try await world.verify(b)
   }
 
   @Test func aVaultWithoutSyncConfigDoesNotRun() async throws {

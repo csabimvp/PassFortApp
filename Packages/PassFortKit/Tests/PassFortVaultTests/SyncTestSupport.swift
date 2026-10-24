@@ -85,7 +85,7 @@ struct SyncWorld {
     let repo = try await VaultRepository.bootstrap(
       database: try VaultDatabase(path: path), session: session, header: header, deviceID: id,
       highWater: HighWaterMark(sidecarFor: path), wallClock: clock.wallClock)
-    return SyncDevice(id: id, path: path, repo: repo, engine: engine(for: repo, session, id, name))
+    return SyncDevice(id: id, path: path, repo: repo, engine: engine(for: repo, id, name))
   }
 
   /// `device` after a lock and an unlock with `password` -- through `Vault.unlock`, so a pending
@@ -93,22 +93,13 @@ struct SyncWorld {
   func unlock(_ device: SyncDevice, password: Data) async throws -> SyncDevice {
     let repo = try await Vault.unlock(
       databasePath: device.path, password: password, deviceID: device.id)
-    // The engine needs the session the repository was opened with; reopen it from the header
-    // the unlock left in place.
-    let session = try VaultSession.open(header: try await repo.header(), password: password)
     return SyncDevice(
       id: device.id, path: device.path, repo: repo,
-      engine: engine(for: repo, session, device.id, "relocked"))
+      engine: engine(for: repo, device.id, "relocked"))
   }
 
-  private func engine(
-    for repo: VaultRepository, _ session: VaultSession, _ id: UUID, _ name: String
-  )
-    -> SyncEngine
-  {
-    SyncEngine(
-      api: server, repository: repo, session: session,
-      device: DeviceDTO(id: id, name: name, platform: .cli))
+  func engine(for repo: VaultRepository, _ id: UUID, _ name: String) -> SyncEngine {
+    SyncEngine(api: server, repository: repo, device: DeviceDTO(id: id, name: name, platform: .cli))
   }
 
   /// Device A: a brand-new vault, put on the server.
@@ -119,13 +110,13 @@ struct SyncWorld {
     return (a, vaultID)
   }
 
-  /// Another device joins: an empty vault built on the server's header.
+  /// Another device joins (`Vault.join`): an empty vault built on the server's header.
   func join(_ name: String, _ vaultID: UUID) async throws -> SyncDevice {
-    let fetched = try await server.header(vaultID: vaultID)
-    let device = try await makeDevice(name, header: fetched.header)
-    try await device.engine.join(
-      endpoint: Self.endpoint, vaultID: vaultID, headerVersion: fetched.headerVersion)
-    return device
+    let id = UUID()
+    let repo = try await Vault.join(
+      databasePath: path(name), password: password, api: server, endpoint: Self.endpoint,
+      vaultID: vaultID, deviceID: id, wallClock: clock.wallClock)
+    return SyncDevice(id: id, path: path(name), repo: repo, engine: engine(for: repo, id, name))
   }
 
   /// Reopen from disk with the stored header: the manifest MAC and the anti-rollback mark must

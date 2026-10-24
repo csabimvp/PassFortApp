@@ -1064,7 +1064,7 @@ checkpoint scenario is a `SyncEngineTests` test, ending with both vaults reopene
 - **A lost push response** (stored, but the client saw `offline`) is handled by 5a: the echo is the
   same edit, so no copy is made and nothing is pushed twice. Accepted edge case: if the record is
   edited again before the next run, the echo no longer matches and a spurious conflict copy appears,
-  which is the safe direction.
+  which is the safe direction. *(Fixed in Phase 10 by the descent rule.)*
 
 ---
 
@@ -1129,6 +1129,40 @@ differs from the text above:
 
 **Checkpoint:** every adversarial mode produces exactly the expected outcome and never a silent
 acceptance or a local deletion; `passfort-cli verify` passes on both devices after each scenario.
+
+**Done (2026-10-24).** `swift test` green (253 + 16 tests), `xcodebuild` build and test green.
+Every scenario ends with each vault reopened and verified: the same manifest and mark check that
+`passfort-cli verify` runs. The adversarial modes are `SyncHostileServerTests`; purge, `410`,
+resync and restore are `SyncResyncTests`. Where it differs from the text above:
+
+- **Adversarial modes** in `FakeSyncServer`: `dropRecord`, `replayOldVersion` (the fake now keeps
+  every pushed version), `rewind`, `flipBit`, `forgeHeader`, plus `purge(through:)` and `unregister`
+  to drive a `410`. The floors and the tampered-page rejection were built in Phase 8. Their tests
+  moved here, with one new case: a `seq` rewound mid-run, caught on the page.
+- **`Vault.join`** (`Sync/VaultJoin.swift`) replaces Phase 8's `SyncEngine.join`. It fetches the
+  header, unlocks it, bootstraps the vault and writes `sync_config`. A forged header fails at the
+  unlock, after a `GET /header` and nothing else, and nothing is written. **`SyncEngine` no longer
+  takes a session:** `k_auth` comes from the repository, so the CLI and the app can build an engine
+  from whatever `Vault.unlock` / `Vault.join` returns.
+- **Full resync = any pull from cursor 0:** after a join, after accepting a restore, or after a
+  `410` (which resets the cursor first). The stored cursor stays at 0 until the last page has
+  landed, so a resync that is cut short is redone, not left half-finished. Then every synced row
+  the server didn't return goes back to never-synced and is pushed with `baseVersion` 0. Nothing
+  is deleted. The resync finishes at `max(last seq, purgedThroughSeq)`. Without the mark, a vault
+  whose newest entries were purged tombstones would `410` on every run. Nothing is skipped: while
+  this device pulls from 0, the server's minimum `lastSeq` is 0, so nothing can be purged under it.
+- **A rule added to A.7, descent:** if one side's revision history already contains the other
+  side's newest entry, it is a later state of the same record, and it wins with no copy. The
+  history is sealed, so a server can't fake it. This keeps a restored backup's dirty rows from
+  making spurious copies (A.10's "no spurious copies" needed more than 5a) and fixes the Phase 8
+  lost-push edge case. An edit that records no revision entry (it changed only derived fields:
+  `strength`, `breach`, `usedAt`) counts as no edit.
+- **`Vault.acceptRestoredBackup`** resets `sync_cursor` (only if sync is on) and then the mark. The
+  app's `VaultService` and `passfort-cli verify --accept-restore` both call it.
+- **Accepted, for §3.4 at the doc sweep:** a replayed old version is ignored (rule 2), but the
+  server goes on serving it to new devices. Existing devices don't push over it, and a resync
+  doesn't either, because the record was returned. The same class as "withhold or delay" in A.9.
+- A page that says `hasMore` with no records is `invalidResponse`.
 
 ---
 
