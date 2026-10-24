@@ -122,6 +122,14 @@ enum VaultMeta {
     try write(db, .pendingHeader, bigEndian(pending.headerVersion) + pending.header)
   }
 
+  /// Store a header this device changed itself -- a recovery-key rotation, a password change, a
+  /// recovery (A.8). With sync on it is also marked dirty, so the next run pushes it. A header
+  /// adopted *from* the server is written with plain `write` instead.
+  static func writeLocalHeader(_ db: Database, _ header: Data) throws {
+    try write(db, .header, header)
+    if try read(db, .syncConfig) != nil { try writeHeaderDirty(db, true) }
+  }
+
   // MARK: - u64 big-endian
 
   /// 8 raw bytes, big-endian -- the canonical-int convention the header codec uses

@@ -1080,6 +1080,39 @@ both. A runs `recover` with a new password → B unlocks with the **new** passwo
 **old** password it unlocks and shows the banner. Both rotate concurrently → one `409`, that device
 ends with the server's header pending.
 
+**Done (2026-10-24).** `swift test` green (241 + 16 tests), native tests green (64; 61 under ASan),
+`xcodebuild` build and test green. Each checkpoint scenario is a test in `SyncHeaderTests`. Where it
+differs from the text above:
+
+- **A seam addition, `pf_header_vault_uuid`** (its own commit). It reads a header's vault UUID
+  through the existing prefix parser without opening the header. The field is unauthenticated and
+  used only to compare identities. Unlock still costs one Argon2 run, and Swift duplicates none of
+  the header layout.
+- **A password change marks the header dirty too.** A.8 names `rotateRecoveryKey` and `recover`,
+  but `changePassword` also rewrites the header. Without this, a device joining later would need
+  the old password. All three go through `VaultMeta.writeLocalHeader`, which marks the header dirty
+  only when `sync_config` exists. An adopted header is written plainly and is not marked dirty.
+- **Adoption** (`Vault.unlock`): first compare the pending header's UUID with the local one (before
+  any Argon2), then open the pending header with the typed password, then require the manifest to
+  verify under it, which proves the same DEK. If any step fails, the stored header is used as before.
+  A rollback is rethrown, since it has nothing to do with the header. A wrong password with a header
+  pending costs two Argon2 runs. Adopting clears `header_dirty`: a local change made on top of the
+  old header loses to the server's, the same outcome as a `409`.
+- **Surfacing:** after a `409` the run finishes the records, then throws `headerChangedElsewhere`
+  (status `.problem`). `VaultRepository.headerChangedElsewhere()` stays true while a pending header
+  survives an unlock, which is the A.8 banner. Phase 13 adds the UI.
+- **Edges:** `headerPushed` clears `header_dirty` only if the stored header is still the one sent; a
+  header rotated again during the PUT stays dirty and is pushed next run. A pending header is stored
+  only if it is newer than both `sync_header_version` and any header already pending.
+  `Vault.recover` works on the local header and ignores a pending one; its result is pushed like
+  any other header change (a `409` if it is stale).
+- **For §3.4 at the doc sweep:** a hostile server can serve an old but genuine header as "pending".
+  If the user then unlocks with that header's old password, it is adopted, which reverts a password
+  change on that device. This is the same class of risk as A.8's "the old password keeps working
+  until a DEK rotation (D6)".
+- The two-device test harness moved to `SyncTestSupport.swift`, shared by `SyncEngineTests` and
+  `SyncHeaderTests`.
+
 ---
 
 ## Phase 10 — Anti-rollback, the hostile server, compaction, full resync

@@ -81,7 +81,7 @@ public enum Vault {
     let session = try VaultSession.openWithRecovery(
       header: oldHeader, recoveryKey: recoveryKey.raw)
     let newHeader = try await session.rewrap(newPassword: newPassword)
-    try await database.dbQueue.write { db in try VaultMeta.write(db, .header, newHeader) }
+    try await database.dbQueue.write { db in try VaultMeta.writeLocalHeader(db, newHeader) }
     return try await VaultRepository.open(
       database: database, session: session, deviceID: deviceID,
       highWater: highWater ?? HighWaterMark(sidecarFor: databasePath))
@@ -91,19 +91,59 @@ public enum Vault {
   /// crypto session, verify the manifest and the anti-rollback mark. Throws
   /// `.authFailed` for a wrong password or a corrupt header, `VaultManifest.Failure`
   /// for tamper or rollback.
+  ///
+  /// With sync on, another device's newer header may be waiting (`pending_header`, A.8). The
+  /// password is tried against it first; if it opens, names this vault and the manifest verifies
+  /// under it (so it wraps the same DEK), it becomes the header. Otherwise the stored header is
+  /// tried as usual, and `VaultRepository.headerChangedElsewhere()` stays true for the banner.
   public static func unlock(
     databasePath: String, password: Data, deviceID: UUID, highWater: HighWaterMark? = nil,
     faultHook: FaultHook? = nil
   ) async throws -> VaultRepository {
     let database = try VaultDatabase(path: databasePath)
-    let header = try await database.dbQueue.read { db in
+    let (header, pending) = try await database.dbQueue.read { db in
       guard let header = try VaultMeta.read(db, .header) else { throw VaultError.notFound }
-      return header
+      return (header, try VaultMeta.readPendingHeader(db))
     }
+    let highWater = highWater ?? HighWaterMark(sidecarFor: databasePath)
+
+    if let pending,
+      let repository = try await adopting(
+        pending, over: header, database: database, password: password, deviceID: deviceID,
+        highWater: highWater, faultHook: faultHook)
+    {
+      return repository
+    }
+
     let session = try VaultSession.open(header: header, password: password)
     return try await VaultRepository.open(
-      database: database, session: session, deviceID: deviceID,
-      highWater: highWater ?? HighWaterMark(sidecarFor: databasePath), faultHook: faultHook)
+      database: database, session: session, deviceID: deviceID, highWater: highWater,
+      faultHook: faultHook)
+  }
+
+  /// Unlock through `pending` and make it the header, or `nil` to fall back to the stored one: a
+  /// header naming another vault (checked before spending Argon2 on it), one the password doesn't
+  /// open, or one whose DEK isn't this vault's (the manifest doesn't verify under it). A rollback
+  /// is not about the header, so it is thrown rather than retried.
+  private static func adopting(
+    _ pending: PendingHeader, over header: Data, database: VaultDatabase, password: Data,
+    deviceID: UUID, highWater: HighWaterMark, faultHook: FaultHook?
+  ) async throws -> VaultRepository? {
+    guard let pendingVault = try? VaultSession.vaultUUID(ofHeader: pending.header),
+      pendingVault == (try? VaultSession.vaultUUID(ofHeader: header)),
+      let session = try? VaultSession.open(header: pending.header, password: password)
+    else { return nil }
+
+    let repository: VaultRepository
+    do {
+      repository = try await VaultRepository.open(
+        database: database, session: session, deviceID: deviceID, highWater: highWater,
+        faultHook: faultHook)
+    } catch VaultManifest.Failure.macMismatch {
+      return nil
+    }
+    try await repository.adoptPendingHeader(pending)
+    return repository
   }
 
   /// Proves the allowed direction: PassFortVault -> PassFortCrypto (pure Swift API).

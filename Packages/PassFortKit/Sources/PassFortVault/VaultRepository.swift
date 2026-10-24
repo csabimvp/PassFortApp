@@ -145,7 +145,7 @@ public actor VaultRepository {
   public func rotateRecoveryKey() async throws -> RecoveryKey {
     let recovery = RecoveryKey.generate()
     let newHeader = try await session.addRecoverySlot(recoveryKey: recovery.raw)
-    try await database.dbQueue.write { db in try VaultMeta.write(db, .header, newHeader) }
+    try await database.dbQueue.write { db in try VaultMeta.writeLocalHeader(db, newHeader) }
     return recovery
   }
 
@@ -175,7 +175,7 @@ public actor VaultRepository {
       recovery = key
     }
     let header = newHeader
-    try await database.dbQueue.write { db in try VaultMeta.write(db, .header, header) }
+    try await database.dbQueue.write { db in try VaultMeta.writeLocalHeader(db, header) }
     return recovery
   }
 
@@ -521,6 +521,66 @@ public actor VaultRepository {
       try VaultMeta.writeSyncHeaderVersion(db, headerVersion)
       try VaultMeta.writeSyncCursor(db, 0)
     }
+  }
+
+  // MARK: - Header sync (A.8)
+
+  /// What the engine's header step needs, read in one snapshot.
+  struct HeaderSyncState: Sendable {
+    var header: Data
+    /// The server `headerVersion` `header` corresponds to; `nil` if it was never on the server.
+    var headerVersion: UInt64?
+    var dirty: Bool
+    var pending: PendingHeader?
+  }
+
+  func headerSyncState() async throws -> HeaderSyncState {
+    try await database.dbQueue.read { db in
+      guard let header = try VaultMeta.read(db, .header) else { throw VaultError.notFound }
+      return HeaderSyncState(
+        header: header, headerVersion: try VaultMeta.readSyncHeaderVersion(db),
+        dirty: try VaultMeta.readHeaderDirty(db), pending: try VaultMeta.readPendingHeader(db))
+    }
+  }
+
+  /// The server stored `header` as `headerVersion`. Clears `header_dirty` only if `header` is
+  /// still the stored one -- a header changed again during the PUT stays dirty, and its next push
+  /// is based on `headerVersion`.
+  func headerPushed(_ header: Data, headerVersion: UInt64) async throws {
+    try await database.dbQueue.write { db in
+      try VaultMeta.writeSyncHeaderVersion(db, headerVersion)
+      if try VaultMeta.read(db, .header) == header { try VaultMeta.writeHeaderDirty(db, false) }
+    }
+  }
+
+  /// A newer server header, waiting for the next unlock to adopt it. With `discardingLocalChange`
+  /// (the PUT lost to another device's) `header_dirty` is cleared: the server's header wins.
+  func storePendingHeader(_ pending: PendingHeader, discardingLocalChange: Bool) async throws {
+    try await database.dbQueue.write { db in
+      try VaultMeta.writePendingHeader(db, pending)
+      if discardingLocalChange { try VaultMeta.writeHeaderDirty(db, false) }
+    }
+  }
+
+  /// Make `pending` this vault's header -- `Vault.unlock` calls it once the typed password opened
+  /// it and the manifest verified under it. Not a local change, so not dirty; a local change made
+  /// on top of the old header since is discarded with it (the server's header wins, as on a `409`).
+  /// A no-op if the pending header was replaced in the meantime.
+  func adoptPendingHeader(_ pending: PendingHeader) async throws {
+    try await database.dbQueue.write { db in
+      guard try VaultMeta.readPendingHeader(db) == pending else { return }
+      try VaultMeta.write(db, .header, pending.header)
+      try VaultMeta.writeSyncHeaderVersion(db, pending.headerVersion)
+      try VaultMeta.writePendingHeader(db, nil)
+      try VaultMeta.writeHeaderDirty(db, false)
+    }
+  }
+
+  /// A newer header from another device is waiting that this unlock's password did not open --
+  /// the master password or recovery key was changed elsewhere (A.8). The app shows the unlock
+  /// banner: "Unlock with the new password to finish updating this Mac."
+  public func headerChangedElsewhere() async throws -> Bool {
+    try await database.dbQueue.read { db in try VaultMeta.readPendingHeader(db) != nil }
   }
 
   // MARK: - History (§7.2 / §7.7)

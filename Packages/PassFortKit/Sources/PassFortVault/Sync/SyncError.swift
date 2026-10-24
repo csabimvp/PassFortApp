@@ -60,4 +60,8 @@ public enum SyncError: Error, Sendable, Equatable {
   /// A pulled record failed to open under its own id and version: forged, altered or swapped.
   /// Its whole page is rejected; nothing from it is written (A.9).
   case tamperedRecord(UUID)
+  /// This device's header change lost to another device's (a `409` on the header PUT). The
+  /// server's header is now pending, to be adopted at the next unlock; the local change -- a new
+  /// recovery key, say -- is discarded with it (A.8). Records synced as usual.
+  case headerChangedElsewhere
 }

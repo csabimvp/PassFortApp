@@ -31,8 +31,8 @@ public enum SyncStatus: Sendable, Equatable {
 /// vault verifying; the next run picks up from the last committed cursor. The session token
 /// lives here, in memory only, for one run.
 ///
-/// Header sync (step 3, Phase 9) and full resync on `410` (A.10, Phase 10) are not wired yet: a
-/// `410` ends the run with `SyncError.resyncRequired`.
+/// Full resync on `410` (A.10, Phase 10) is not wired yet: a `410` ends the run with
+/// `SyncError.resyncRequired`.
 public actor SyncEngine {
   /// `GET /changes` page size -- the contract's ceiling.
   static let pageLimit = 500
@@ -51,6 +51,8 @@ public actor SyncEngine {
   private let device: DeviceDTO
 
   private var token: String?
+  /// The server's `headerVersion` as of the latest session or page this run.
+  private var serverHeaderVersion: UInt64 = 0
   private var running = false
   private var runAgain = false
   private var lastSyncedAt: Date?
@@ -136,10 +138,12 @@ public actor SyncEngine {
       token = nil
       _ = try await currentToken(config)
 
+      publish(.syncing(.pulling))
+      try await pull(config)
+      let headerLost = try await syncHeader(config)
+
       var round = 0
       while true {
-        publish(.syncing(.pulling))
-        try await pull(config)
         publish(.syncing(.pushing))
         do {
           try await push(config)
@@ -148,6 +152,8 @@ public actor SyncEngine {
           // Someone pushed between our pull and our push: pull again, which reconciles them.
           round += 1
           if round >= Self.conflictRounds { throw SyncError.conflicts(conflicts) }
+          publish(.syncing(.pulling))
+          try await pull(config)
         }
       }
 
@@ -155,6 +161,8 @@ public actor SyncEngine {
       try await repository.compactSynced()
       token = nil
       lastSyncedAt = Date()
+      // Reported once the records are in: they synced; only this device's header change didn't.
+      if headerLost { throw SyncError.headerChangedElsewhere }
       publish(.idle(lastSyncedAt: lastSyncedAt))
     } catch {
       token = nil
@@ -180,6 +188,7 @@ public actor SyncEngine {
       vaultID: config.vaultID,
       SessionRequest(authKey: try await session.authKey(), device: device))
     guard opened.seq >= (try await repository.syncCursor()) else { throw SyncError.serverRollback }
+    serverHeaderVersion = opened.headerVersion
     token = opened.token
     return opened.token
   }
@@ -209,6 +218,7 @@ public actor SyncEngine {
           vaultID: config.vaultID, since: since, limit: Self.pageLimit, token: token)
       }
       guard page.seq >= cursor else { throw SyncError.serverRollback }
+      serverHeaderVersion = page.headerVersion
       guard let last = page.records.last else { return }
       // Ascending, after the cursor, within the server's own high-water mark, one entry per id.
       guard page.records.allSatisfy({ $0.seq > cursor && $0.seq <= page.seq }),
@@ -290,6 +300,52 @@ public actor SyncEngine {
       }
     }
     return plan
+  }
+
+  // MARK: - Header (A.6 step 3, A.8)
+
+  /// Push this device's header change, or fetch another device's to adopt at the next unlock.
+  /// Nothing is adopted while unlocked: the session keeps working on the same DEK either way.
+  ///
+  /// - Returns: true if this device's change lost to another device's (`409`) -- the server's
+  ///   header is then pending and the local change discarded.
+  private func syncHeader(_ config: SyncConfig) async throws -> Bool {
+    let state = try await repository.headerSyncState()
+    if state.dirty {
+      do {
+        let version = try await authorized(config) { token in
+          try await self.api.putHeader(
+            vaultID: config.vaultID, header: state.header, base: state.headerVersion ?? 0,
+            token: token)
+        }
+        try await repository.headerPushed(state.header, headerVersion: version)
+        return false
+      } catch SyncError.headerConflict {
+        try await fetchPendingHeader(
+          config, newerThan: state.headerVersion ?? 0, discardingLocalChange: true)
+        return true
+      }
+    }
+
+    let known = max(state.headerVersion ?? 0, state.pending?.headerVersion ?? 0)
+    if serverHeaderVersion > known {
+      try await fetchPendingHeader(config, newerThan: known, discardingLocalChange: false)
+    }
+    return false
+  }
+
+  /// `GET /header` into `pending_header`, if it is newer than `newerThan`. Unauthenticated, like
+  /// the endpoint: whatever the server returns is only adopted if this vault's password opens it
+  /// and the manifest verifies under it.
+  private func fetchPendingHeader(
+    _ config: SyncConfig, newerThan known: UInt64, discardingLocalChange: Bool
+  ) async throws {
+    try Task.checkCancellation()
+    let fetched = try await api.header(vaultID: config.vaultID)
+    guard fetched.headerVersion > known else { return }
+    try await repository.storePendingHeader(
+      PendingHeader(headerVersion: fetched.headerVersion, header: fetched.header),
+      discardingLocalChange: discardingLocalChange)
   }
 
   // MARK: - Push (A.6 step 4)
