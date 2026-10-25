@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
-**Status:** Living specification. M0–M3 are built, M4 was scaled back, M5 (sync) is in progress; `docs/runbooks/README.md` tracks each milestone.
-**Revision:** 15 (2026-10-24). What changed in each revision: [Appendix A](#appendix-a--revision-history).
+**Status:** Living specification. M0–M3 and M5 (sync) are built, M4 was scaled back; `docs/runbooks/README.md` tracks each milestone.
+**Revision:** 16 (2026-10-25). What changed in each revision: [Appendix A](#appendix-a--revision-history).
 
 ---
 
@@ -134,6 +134,7 @@ This section grew when the boundary moved (ADR-0004). Be precise about what was 
 - **The old master password keeps opening the server's copy until the DEK is rotated.** A password change or recovery only re-wraps the DEK, and DEK rotation is deferred past M5 (§9.5, open decision 20). A device that hasn't adopted the new header also keeps accepting the old password locally until its next unlock with the new one.
 - **A re-registered device can resurrect a deleted record.** On a full resync (§10.5) a device re-uploads anything the server lacks rather than deleting on the server's word — a record deleted elsewhere while it was unregistered may reappear. Deliberate: the alternative lets a server delete your passwords.
 - **The sync cursor lives in the vault file.** It inherits the file's rollback protection (`vault_version` vs `<db>.hw`), but an attacker who can edit the file in place *and* controls the server could lower it and hide a server rollback.
+- **The certificate pins ship with the app.** If Azure moves the site to a CA outside the pinned keys (§9.4), sync stops with an explicit pinning error until the app is rebuilt with new pins. An availability cost, never a confidentiality one: the local vault keeps working.
 - **The web client is a lower trust tier than the native app.** Whoever serves its JavaScript — Azure, or whoever runs the deploy — can serve JavaScript that captures the master password on the next unlock. This is inherent to web-delivered E2EE; a strict CSP, Subresource Integrity, pinned and reproducible builds, and near-zero dependencies raise the cost but do not close it. Treat the native app as the client you trust and the web app as a convenience used with eyes open. See §11.4.
 - **The web client's anti-rollback cache lives in browser storage.** The highest-seen `vault_version` (§5.5) sits in IndexedDB / `localStorage`, same-origin with the served code, so the code-serving adversary can wipe it. Whole-vault rollback detection is therefore best-effort in the browser; it stays solid in the native apps, which cache the high-water mark in a local `<db>.hw` sidecar file the server cannot reach (§10.5, §14.18).
 - **The iPhone app's signature expires every ~7 days** (free Personal Team, §14.19). After that it won't launch until reinstalled from the Mac (`scripts/install_ios.sh`); the vault and sync cursor survive the reinstall. This is an availability cost, never a confidentiality one — the Mac app (and the web client, M6) are the fallback when it lapses away from the Mac.
@@ -856,7 +857,7 @@ A conflict copy is a new record (new UUID, version 1) with `conflictOf` set; it 
 ### 9.4 Transport hardening
 
 - TLS 1.3 only; App Transport Security left at its strict defaults (never add an ATS exception). Static Web Apps terminates TLS with a managed certificate, so there is no TLS config to write — only to verify.
-- Certificate pinning from the native app: evaluate trust normally, then require an **SPKI** hash from the served chain to match a pin. Static Web Apps' certificate is Azure-managed and renewed on Azure's schedule, so pin the **CA keys** in the chain (intermediate + root, two or three hashes recorded in the M5 spike), not the leaf. A pin failure stops sync with an explicit error — never a silent fallback. Pins are build configuration (and a CLI flag), so updating them needs no code change. The web client cannot pin (the browser owns TLS) — another reason it is the lower-trust client.
+- Certificate pinning from the native app: evaluate trust normally, then require an **SPKI** hash from the served chain to match a pin. Static Web Apps' certificate is Azure-managed and renewed on Azure's schedule, so pin the **CA keys** in the chain, not the leaf. The first deploys (rev 16) served leaf → "Microsoft TLS G2 RSA CA OCSP NN" → "Microsoft TLS RSA Root G2", with a different issuing CA on each site, so the durable pin is the root's key and the issuing CA is pinned alongside it, never alone. A pin failure stops sync with an explicit error — never a silent fallback. Pins are a bundled resource (`PassFort/Sync/SyncPins.txt`; for the CLI, `--pins` or `~/.config/passfort/pins`), so updating them needs no code change, only a rebuild. The web client cannot pin (the browser owns TLS) — another reason it is the lower-trust client.
 - Understand and be able to explain: ECDHE forward secrecy, the AEAD ciphersuites TLS 1.3 kept and why it dropped CBC, chain validation, and why pinning is an availability risk as much as a security control.
 
 ### 9.5 Key rotation
@@ -891,6 +892,8 @@ Two required resources, plus an optional identity gate.
 The only ways this costs real money are egress far past hobby scale or adding an always-on resource (App Service, Cosmos DB, AKS, a VM) — so don't. Set an **Azure budget alert at $5** anyway; a learning project must not be able to surprise you. Start on an Azure free account or Azure for Students credit.
 
 The API runs as **SWA managed Functions**, which have no managed identity and no VNet integration: they reach Table Storage with a connection string that Bicep computes (`listKeys()`) and writes straight into the SWA app settings, so it never touches GitHub or a file. Besides that, the app settings hold exactly two secrets — the JWT signing key and the enrollment secret (§10.4) — supplied from GitHub secrets at deploy. Not provisioned on purpose: a standalone Function App, Key Vault (managed Functions can't reference it), Front Door, a custom domain. Optional App Insights stays off by default, behind a 0.1 GB daily cap when on — a logging pipeline is one more place a secret could leak (§13.1). The full resource list is `docs/runbooks/m5-sync.md` A.1.
+
+**Region: `eastus2`** (rev 16). `westeurope` refused the first deployment outright (a capacity rule on newer subscriptions), and `eastus2` is the nearest Static Web Apps region that validated. It costs no confidentiality (the server holds sealed records and a key hash only) and about 0.1 s per request from Europe.
 
 ### 10.2 Storage model
 
@@ -941,7 +944,7 @@ DELETE /api/v1/vaults/{id}                               JWT       -> 204 (whole
 **ADR-0009.** The credential is `k_auth = HKDF-Expand(DEK, "sync-auth")` (§5.1). No identity provider on the critical path, no password-derived value ever reaches the server.
 
 1. **Create** (`POST /vaults`, once, when sync is enabled): the client sends the header and `k_auth`; the server stores `SHA-256(k_auth)` in `meta`. Creation requires the `X-PassFort-Enroll` header to match the enrollment secret in app settings, so the public endpoint can't be used to fill the storage account.
-2. **Session** (`POST /vaults/{id}/session`): the client sends `k_auth` over TLS (SPKI-pinned, §9.4); the server hashes it and compares in constant time; success returns a 15-minute HS256 JWT bound to `{ vault, device }` and registers/updates the device row. The token lives in client memory only; on `401` the client opens a new session. No refresh or device tokens — sync runs only while unlocked, and an unlocked device can always re-derive `k_auth`.
+2. **Session** (`POST /vaults/{id}/session`): the client sends `k_auth` over TLS (SPKI-pinned, §9.4); the server hashes it and compares in constant time; success returns a 15-minute HS256 JWT bound to `{ vault, device }` and registers/updates the device row. The token travels in an `X-PassFort-Token` header, not `Authorization`: Static Web Apps replaces `Authorization` before a managed Function sees it (rev 16). The token lives in client memory only; on `401` the client opens a new session. No refresh or device tokens — sync runs only while unlocked, and an unlocked device can always re-derive `k_auth`.
 3. **Abuse limits:** from the 5th consecutive failed session the vault backs off `2^(n−5)` minutes (capped at 1 h, `429 Retry-After`); a success resets it. A wrong key and an unknown vault get the same `401`.
 4. **`GET /header` is unauthenticated** — a joining device needs the KDF salt before it has the DEK. The 122-bit random vaultId is the capability, and the header is the same offline target an A2 adversary already holds (§3.1).
 
@@ -964,7 +967,7 @@ What the server *can* still do is withhold or delay other devices' writes — fr
 
 - **Bicep**, not Terraform: it ships inside `az`, needs no separate binary and no state backend, and practising Azure is the point. `Cloud/infra/main.bicep` provisions the Static Web App, the Storage account, and the budget alert (§14.14).
 - **Local development spends nothing and installs nothing but Node** (rev 13). The handlers are plain functions over a `VaultStore`: locally they run under a zero-dependency `node:http` dev server on an in-memory store, and the tests drive them the same way. The Table-backed run happens in CI (Azurite service container); real HTTP and the managed Functions host are exercised in the dev resource group, behind the $5 budget. One-time Azure setup runs in Cloud Shell.
-- One GitHub Actions workflow: `az deployment` for infra, the Static Web Apps deploy action for the app. Teardown is `az group delete` — M5 is done only when teardown leaves no orphan resources.
+- One GitHub Actions workflow: `az deployment` for infra, the Static Web Apps deploy action for the app. It runs by hand from `main`, with the environment and git ref as inputs: `PassFortCloud` is private on GitHub Free, which gives it no deployment environments, so per-environment values are `_DEV` / `_PROD` repository secrets (rev 16). Teardown is `az group delete` — M5 is done only when teardown leaves no orphan resources.
 
 ---
 
@@ -1054,7 +1057,7 @@ The web client's WASM core (§11.2) assumes C++ survives this criterion. If the 
 | WASM seam | Re-run the Seam fuzz suite against `pfcrypto.wasm` under Node — same inputs, same `BadInput`-not-trap contract. Run the primitive KATs in-browser too: the format is correct only if all three cores agree byte-for-byte on the same vectors. |
 | Anti-rollback | Delete a row behind the app's back → manifest check fails. Restore an old DB file → `vault_version` check fails. A simulated malicious server (`FakeSyncServer` adversarial modes) → rewound `seq` is refused, a flipped bit rejects the page with nothing applied, a replayed old version is ignored, a dropped record is re-uploaded on resync, a forged header fails the unwrap with no session call made. Never a silent acceptance, never a local deletion. |
 | Sync API | Contract tests against `openapi.yaml`, run on the in-memory store locally and on Azurite in CI: `409` on a stale `baseVersion` with nothing written, gap-free `seq` under concurrent pushes, pagination, `410` after purge, wrong key / expired token / cross-vault token → `401`, lockout backoff, enrollment secret, closed request schemas (a key-shaped field is `400`), framing and size limits, a redacting logger. |
-| Sync engine | `Reconciler` table tests (one per §9.3 rule), `SyncEngine` convergence against an in-memory `FakeSyncServer` (two repositories, offline edits on both, delete-vs-edit, paging, cancellation leaves both vaults verifying), header propagation, the schema v1 → v2 fixture. Plus a scripted two-device CLI drill against `func` + Azurite and a check of the Swift client's real requests against `openapi.yaml`. |
+| Sync engine | `Reconciler` table tests (one per §9.3 rule), `SyncEngine` convergence against an in-memory `FakeSyncServer` (two repositories, offline edits on both, delete-vs-edit, paging, cancellation leaves both vaults verifying), header propagation, the schema v1 → v2 fixture. Plus a scripted two-device CLI drill against the local dev server and then the dev resource group, and a check of the Swift client's recorded requests against the shared DTO fixtures. |
 | Backend ↔ client | `passfort-cli` and the web client both push/pull against the local dev server, then the dev resource group; two clients converge; conflict copies appear on both. |
 | Storage | Swift tests over `VaultRepository`: transaction atomicity, tombstones, mid-write kill test |
 | Migrations | Checked-in fixture vaults per format version, opened by every later build |
@@ -1103,8 +1106,10 @@ Triggered by a semver tag (`v0.3.0`), never by a push — `release.yml`, the con
 |---|---|---|
 | **macOS app** | `xcodebuild` Release → hardened runtime, no `get-task-allow` → Developer ID sign → `notarytool submit --wait` → `stapler staple` → attach the zipped `.app` to a GitHub Release | M4 dry-run, M8 real |
 | **iOS app** | none — not released. Built and installed locally by `scripts/install_ios.sh` with a free Personal Team (7-day profile). A release target only exists if the paid program is ever joined (§14.19) | M7 (local only) |
-| **Azure infra** (`PassFortCloud`'s `deploy.yml`, rev 15) | `az deployment group create` from `Cloud/infra/main.bicep` (idempotent; the $5 budget alert is in the template) | M5 |
-| **Sync API + web** | the Static Web Apps deploy action publishes `Cloud/api` and the built `Web/` bundle together; the deployed bundle hash is recorded on the Release for §11.4's "pinned build" claim | M5 / M6 |
+| **Azure infra** (`PassFortCloud`'s `deploy.yml`, rev 15) | `az deployment group create` from `Cloud/infra/main.bicep` (idempotent; the $5 budget alert is in the template) | M5 — **live** since 2026-10-24 (`rg-passfort-dev`) |
+| **Sync API + web** | the Static Web Apps deploy action publishes `Cloud/api` and the built `Web/` bundle together; the deployed bundle hash is recorded on the Release for §11.4's "pinned build" claim | M5 (API, **live**) / M6 (web) |
+
+The two Azure rows are not tag-triggered: they are a manual run of `deploy.yml` from `main` (§10.6).
 
 Secrets are GitHub Actions secrets, kept minimal:
 
@@ -1146,7 +1151,7 @@ Resolved ones link to their ADR.
 13. ~~**Sync data path: thin Functions API vs clients direct to Storage via SAS + one token-minting Function.**~~ → **Resolved (rev 12):** the thin API, hosted as SWA managed Functions (§10.3) — SAS can't enforce `baseVersion`, gap-free `seq` or rate limits. Revisit only if cold-start latency actually bites.
 14. ~~**Infra as code: Bicep vs Terraform.**~~ → **Resolved (rev 12):** Bicep (ADR-0005) — ships in `az`, no state backend. The one thing outside it is the GitHub OIDC app registration, created once by `Cloud/infra/bootstrap-oidc.sh`.
 15. **Web UI framework: vanilla Web Components vs Lit (~6 KB) vs Svelte (compiles away).** Leaning Lit for M6 — smallest runtime that still gives components. Revisit if the UI outgrows a dozen components.
-16. **CI macOS runners: GitHub-hosted minutes vs a self-hosted runner.** Hosted `macos-15` is zero-setup but bills at 10× and the free tier is finite; the `swift` and `native` jobs (§13.2) are the only ones that need macOS. Leaning hosted until the monthly minutes actually bind, then a self-hosted runner on the dev Mac — at the cost of it becoming a build dependency that can rot. Decide at M3, when the app build joins CI.
+16. ~~**CI macOS runners: GitHub-hosted minutes vs a self-hosted runner.**~~ → **Resolved (rev 16):** GitHub-hosted. This repository went public on 2026-10-24, and standard hosted runners, macOS included, cost no minutes for a public repository. The `cloud` job, the only one M5 added, moved to the private `PassFortCloud` (rev 15) and runs on Linux under that account's free allowance. Revisit only if this repository goes private again.
 17. ~~**Recovery-key header slot: fold it into format v1 now, or bump to format v2 with a re-seal migration in M2?**~~ → **ADR-0007** — fold into v1 (`slot_count` + optional slot 1, §5.3). Justified only because no vault had shipped; the versioned-format discipline applies in full from the first release.
 
 18. **Notarization, Touch ID and Keychain use.** → **Dropped for now** (2026-10-21). PassFort is a personal-use app built locally in Xcode, which needs none of them; notarization needs the paid Apple Developer Program, and the Keychain needs a `keychain-access-groups` entitlement and a provisioning profile. Revisit only if the app is ever given to other people (M8) or Touch ID is wanted (ADR-0008 holds the design). → **rev 11 (iOS only):** every iOS install carries a provisioning profile anyway, so the entitlement problem that killed the Keychain on macOS should not exist on the iPhone. M7 Phase 0 tests it under a Personal Team; if it holds, M7 Phase 9 may adopt ADR-0008's design for Face ID **on iOS only**, via a new ADR (ADR-0008 itself stays as amended). macOS is unchanged.
@@ -1158,11 +1163,11 @@ Resolved ones link to their ADR.
 
 ## 15. Immediate next steps
 
-The bootstrap steps that used to live here (toolchain, repository skeleton, package targets, the Botan amalgamation, the M1 surface, the local half of the Azure spike) are done (rev 14). The milestone in flight is M5, and its phase-by-phase plan is `docs/runbooks/m5-sync.md`, which is authoritative over this list:
+The bootstrap steps that used to live here (toolchain, repository skeleton, package targets, the Botan amalgamation, the M1 surface, the local half of the Azure spike) are done (rev 14). M5 is done (rev 16): two devices converge through the deployed `rg-passfort-dev`, conflicts surface in the app, and teardown-then-redeploy leaves no orphans (`docs/runbooks/m5-sync.md`). Next, in either order (§12 note 4):
 
-1. **The native sync client (Phases 5–11):** `k_auth` in the crypto core (ADR-0009), schema v2 with the HLC and dirty tracking, the pinned transport, `Reconciler` and `SyncEngine` against a `FakeSyncServer`, header sync, the hostile-server tests, and CLI `sync` with a two-device drill.
-2. **Deploy (Phase 12, plus the pending deploy half of the Phase 0.1 spike):** Bicep, the SPKI pins (§9.4) recorded against the real certificate chain, and a teardown that leaves nothing behind. Run from Cloud Shell, against the `PassFortCloud` repository (rev 15).
-3. **The app (Phase 13):** sync settings, the join flow and the conflict UI. M5 closes on its §12 exit criterion: two machines converge through Azure.
+1. **M6, the web client** — `PFCrypto` to WASM over the same API. Its runbook is written when it starts.
+2. **M7, the iOS client** — `docs/runbooks/m7-ios.md`; only its Phase 0 spikes are actionable yet.
+3. **A production environment** — `rg-passfort-prod` from the same Bicep, whenever the real vault should sync. No design work: `PassFortCloud`'s README, *Deploying*.
 
 Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in `PassFortCloud`), any `*.pfvault` / `*.sqlite` holding real data, `.build/` or `DerivedData/`. `.gitignore` covers them, and the CI `secrets` job is the only secret scan (§13.2).
 
@@ -1172,6 +1177,7 @@ Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in
 
 Newest first. Revisions 1–3 predate the log.
 
+- **rev 16** (2026-10-25) — **M5 as shipped, no format or API change.** M5 marked built (status line, §15). What the deploys and the two-device checkpoint settled: the region is `eastus2` (§10.1); the session token travels as `X-PassFort-Token` because Static Web Apps replaces `Authorization` (§10.4); `deploy.yml` is a manual run from `main` with `_DEV` / `_PROD` secrets (§10.6, §13.3, whose Azure rows are now live); the pins are the Microsoft root plus the issuing CA, shipped as a bundled file (§9.4), and §3.4 records that a CA change stops sync until a rebuild; §13.1's drill row corrected; open decision 16 resolved (hosted runners, free for a public repository).
 - **rev 15** (2026-10-24) — **the backend moves to its own private repository, no design change.** `Cloud/` (API, Bicep, static site), its CI job, the deploy workflow and the two-device drill now live in `PassFortCloud`, split out with history. The contract moves from `Cloud/openapi.yaml` and `Cloud/fixtures/` to `SyncAPI/` here, and `PassFortCloud` consumes it as a pinned `app/` submodule; §4, §10, §13.2, §15 updated. The client still treats the server as hostile (§3.2 A2), so nothing in the threat model depends on the server's code being public.
 - **rev 14** (2026-10-23) — **documentation restructure, no design change.** The revision log moves from the header into this appendix; the status line, §13.2's status and §15 are brought up to date; `docs/bootstrap.md` and `docs/runbooks/cli-guide.md` are retired, their commands folded into `docs/development.md`.
 - **rev 13** (2026-10-22) — **minimal local toolchain and dependency trim** for M5: no Azurite, `func`, `swa` or gitleaks on the dev Mac; `Cloud/api` keeps two runtime dependencies (`@azure/functions`, `@azure/data-tables` — `jose` dropped, HS256 over `node:crypto`) and three dev ones; storage logic is tested against an in-memory `VaultStore` locally and against Azurite as a CI service container; the local loop is a zero-dependency `node:http` dev server; one-time Azure setup runs in Cloud Shell; the secret scan runs in CI only and self-tests its custom rules; §4.1, §10.3, §10.6, §13.1, §13.2 updated
