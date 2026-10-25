@@ -26,6 +26,8 @@ final class SyncController {
   private(set) var devices: [DeviceInfoDTO] = []
   /// True after a hard problem: only `syncNow` runs again.
   private(set) var isPaused = false
+  /// The hard problem that paused sync, until the user has seen it (`SyncProblemSheet`).
+  private(set) var problemToShow: SyncError?
 
   /// This Mac, as the server sees it.
   let device: DeviceDTO
@@ -118,6 +120,7 @@ final class SyncController {
   /// round it was asked for meanwhile) has finished.
   func syncNow() async {
     isPaused = false
+    problemToShow = nil
     holdOffUntil = nil
     trigger(manual: true)
     await runTask?.value
@@ -176,7 +179,7 @@ final class SyncController {
       engine = try currentEngine()
     } catch let error as SyncError {
       status = .problem(error)
-      isPaused = true
+      pause(error)
       return
     } catch {
       return
@@ -207,8 +210,18 @@ final class SyncController {
       backoff = min(max(backoff * 2, Self.backoffRange.lowerBound), Self.backoffRange.upperBound)
       holdOffUntil = Date().addingTimeInterval(max(backoff, retryAfter ?? 0))
     default:
-      if error.pausesSync { isPaused = true }
+      if error.pausesSync { pause(error) }
     }
+  }
+
+  private func pause(_ error: SyncError) {
+    isPaused = true
+    problemToShow = error
+  }
+
+  /// The problem sheet was closed; sync stays paused until Sync Now.
+  func dismissProblem() {
+    problemToShow = nil
   }
 
   /// The engine for the configured endpoint, made on first use; its status stream feeds `status`.
@@ -272,6 +285,7 @@ final class SyncController {
     cancelTasks()
     stopped = false
     isPaused = false
+    problemToShow = nil
     devices = []
     await refreshState()
   }

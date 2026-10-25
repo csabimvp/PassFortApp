@@ -101,6 +101,15 @@ struct VaultListView: View {
     } message: { _ in
       Text("It moves to Recently Deleted, where you can restore it until you empty it.")
     }
+    .sheet(
+      item: Binding(
+        get: { model.sync?.problemToShow.map(PresentedProblem.init) },
+        set: { if $0 == nil { model.sync?.dismissProblem() } })
+    ) { presented in
+      SyncProblemSheet(problem: presented.problem) {
+        Task { await model.sync?.syncNow() }
+      }
+    }
     .alert(
       "Couldn't copy",
       isPresented: Binding(get: { copyError != nil }, set: { if !$0 { copyError = nil } })
@@ -288,6 +297,12 @@ struct VaultListView: View {
     try? await Task.sleep(for: .seconds(2))
     if copied == message { copied = nil }
   }
+}
+
+/// A paused sync's problem, as a sheet item.
+private struct PresentedProblem: Identifiable {
+  let problem: SyncError
+  var id: String { String(describing: problem) }
 }
 
 /// The edit form for an account picked from a context menu or ⌘E: decrypts it once, then hands

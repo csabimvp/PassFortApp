@@ -164,10 +164,16 @@ struct AppModelSyncTests {
     #expect(a.sync?.isPaused == false, "a server error only holds automatic runs off")
     #expect(await a.createAccount(AccountPayload(title: "Still works")) == nil)
 
+    #expect(a.sync?.problemToShow == nil, "nothing to show for a problem that retries itself")
+
     await server.setOnRequest { _ in throw SyncError.pinningFailed }
     await a.sync?.syncNow()
     #expect(a.sync?.isPaused == true)
+    #expect(a.sync?.problemToShow == .pinningFailed)
     #expect(a.state == .unlocked)
+    a.sync?.dismissProblem()
+    #expect(a.sync?.problemToShow == nil)
+    #expect(a.sync?.isPaused == true, "closing the sheet doesn't resume")
 
     await server.setOnRequest(nil)
     await a.sync?.syncNow()
