@@ -5,7 +5,7 @@ import SwiftUI
 /// Search, copy, get out of the way. Return copies the selected account's password, ⇧Return its
 /// username, ⌥Return its one-time code; the window then closes and PassFort steps back so the app
 /// you came from is frontmost, ready to paste. Copies are transient (concealed, cleared after
-/// 20 s or on lock).
+/// the Settings delay or on lock).
 ///
 /// It *deactivates* rather than hides: hiding would trip lock-on-background, and locking clears
 /// the very clipboard entry just written.

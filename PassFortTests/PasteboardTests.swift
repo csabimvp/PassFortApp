@@ -48,6 +48,17 @@ struct PasteboardTests {
     #expect(board.string(forType: .string) == "something else")
   }
 
+  @Test func theDefaultDelayFollowsThePreference() throws {
+    let defaults = try #require(UserDefaults(suiteName: "app.passfort.tests.\(UUID().uuidString)"))
+    #expect(Pasteboard.clearAfterSeconds(in: defaults) == 20)
+
+    defaults.set(90, forKey: Pasteboard.clearAfterKey)
+    #expect(Pasteboard.clearAfterSeconds(in: defaults) == 90)
+
+    defaults.set(0, forKey: Pasteboard.clearAfterKey)
+    #expect(Pasteboard.clearAfterSeconds(in: defaults) == 20)
+  }
+
   @Test func clearTransientEmptiesTheClipboardImmediately() {
     let board = board()
     Pasteboard.copyTransient("secret", clearAfter: 60, to: board)

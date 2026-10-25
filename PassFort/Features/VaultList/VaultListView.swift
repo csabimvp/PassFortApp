@@ -283,8 +283,9 @@ struct VaultListView: View {
     }
   }
 
-  /// One decrypt, straight to the clipboard (concealed, cleared after 20 s or on lock); the
-  /// plaintext is not kept. Confirms under the list; a failure (no such field) is an alert.
+  /// One decrypt, straight to the clipboard (concealed, cleared after the Settings delay or on
+  /// lock); the plaintext is not kept. Confirms under the list; a failure (no such field) is an
+  /// alert.
   private func copy(_ field: AppModel.CopyField, of summary: AccountSummary) async {
     if let failure = await model.copy(field, from: summary.id) {
       copyError = failure.message
@@ -292,7 +293,7 @@ struct VaultListView: View {
     }
     let message =
       "\(field.name.prefix(1).uppercased())\(field.name.dropFirst()) of "
-      + "“\(summary.title)” copied — clears in 20 s"
+      + "“\(summary.title)” copied — clears in \(Pasteboard.clearAfterDescription)"
     copied = message
     try? await Task.sleep(for: .seconds(2))
     if copied == message { copied = nil }

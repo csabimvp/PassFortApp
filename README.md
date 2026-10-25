@@ -22,7 +22,7 @@ app yet.
 - A password generator for random passwords or EFF-wordlist passphrases.
 - Password health: weak, reused, old and expiring passwords, and plain `http://` logins.
 - Quick Access: press ⌃⌥Space in any app, search, and press Return to copy the password. Clipboard
-  managers don't see the copy, and it's cleared after 20 seconds or on lock.
+  managers don't see the copy, and it's cleared on lock or after 20 seconds (adjustable in Settings).
 - Auto-lock when idle, on sleep and on screen lock.
 - Backups to a folder you choose, with retention, optionally on every lock.
 - Import from a Password Safe plain-text export or from another PassFort vault. Plaintext export

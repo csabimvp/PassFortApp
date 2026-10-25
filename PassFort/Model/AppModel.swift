@@ -521,7 +521,7 @@ final class AppModel {
   }
 
   /// Decrypt one account, put `field` on the clipboard as a transient copy (concealed, cleared
-  /// after 20 s or on lock), and drop the plaintext. Returns why not, or `nil` on success.
+  /// after the Settings delay or on lock), and drop the plaintext. Returns why not, or `nil` on success.
   func copy(
     _ field: CopyField, from id: UUID, to board: NSPasteboard = .general
   ) async -> AppError? {

@@ -9,6 +9,7 @@ struct SettingsView: View {
   @Environment(QuickAccessController.self) private var quickAccess: QuickAccessController?
   @AppStorage(QuickAccessController.enabledKey) private var quickAccessEnabled = true
   @AppStorage("autoLockSeconds") private var autoLockSeconds = 300
+  @AppStorage(Pasteboard.clearAfterKey) private var clearAfterSeconds = Pasteboard.defaultClearAfter
   @State private var cryptoStats: VaultRepository.CryptoStats?
   @State private var changingPassword = false
 
@@ -24,6 +25,14 @@ struct SettingsView: View {
           Text("1 hour").tag(3600)
         }
         .onChange(of: autoLockSeconds) { model.autoLockSettingDidChange() }
+
+        Picker("Clear copied secrets after", selection: $clearAfterSeconds) {
+          Text("10 seconds").tag(10)
+          Text("20 seconds").tag(20)
+          Text("30 seconds").tag(30)
+          Text("1 minute").tag(60)
+          Text("2 minutes").tag(120)
+        }
 
         Toggle(
           "Quick Access shortcut (\(QuickAccessController.shortcutDescription))",

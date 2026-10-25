@@ -8,6 +8,24 @@ import AppKit
 enum Pasteboard {
   static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
 
+  /// `UserDefaults` key for Settings ▸ General ▸ Clear copied secrets after -- a preference, not a
+  /// secret.
+  static let clearAfterKey = "clipboardClearSeconds"
+  static let defaultClearAfter = 20
+
+  /// How long a transient copy stays on the clipboard: the stored preference, or 20 s when none is
+  /// stored (or it isn't positive).
+  static func clearAfterSeconds(in defaults: UserDefaults = .standard) -> Int {
+    let stored = defaults.integer(forKey: clearAfterKey)
+    return stored > 0 ? stored : defaultClearAfter
+  }
+
+  /// The delay as the copy toast says it: "20 sec", "1 min".
+  static var clearAfterDescription: String {
+    Duration.seconds(clearAfterSeconds())
+      .formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
+  }
+
   /// The last transient copy that has not yet been cleared, so locking can clear it at once.
   private static var pending: (board: NSPasteboard, stamp: Int)?
   private static var expiry: Task<Void, Never>?
@@ -18,10 +36,12 @@ enum Pasteboard {
     _ = write(string, to: board)
   }
 
-  /// Copy `string`, then clear it after `seconds` -- or sooner, via `clearTransient()`, when the
-  /// vault locks. Never clears something the user copied in the meantime.
+  /// Copy `string`, then clear it after `seconds` (the Settings preference by default) -- or
+  /// sooner, via `clearTransient()`, when the vault locks. Never clears something the user copied
+  /// in the meantime.
   static func copyTransient(
-    _ string: String, clearAfter seconds: Double = 20, to board: NSPasteboard = .general
+    _ string: String, clearAfter seconds: Double = Double(clearAfterSeconds()),
+    to board: NSPasteboard = .general
   ) {
     expiry?.cancel()
     pending = (board, write(string, to: board))
