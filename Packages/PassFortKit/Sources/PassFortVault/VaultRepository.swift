@@ -358,6 +358,90 @@ public actor VaultRepository {
     return Account(envelope: next, payload: payload)
   }
 
+  // MARK: - Conflict copies (A.11)
+
+  /// How to settle a conflict copy (A.7): which side's payload stays.
+  public enum ConflictResolution: Sendable, Equatable {
+    /// The copy's payload becomes the original's -- bringing the original back if the delete won
+    /// -- and the copy is deleted. With the original already gone (a clean tombstone purged by
+    /// `compactSynced`), the copy simply becomes an ordinary account, as `keepBoth`.
+    case keepCopy
+    /// The original stays as it is; the copy is deleted.
+    case keepOriginal
+    /// Both stay: the copy's `conflictOf` is cleared and it becomes an ordinary account.
+    case keepBoth
+  }
+
+  /// Settle the conflict copy `copyID` -- every row it touches, the manifest re-MAC and the
+  /// version bump in one `commit` (§8.2). Each touched row is a newer version, so the resolution
+  /// syncs like any edit and every device sees the copy go.
+  ///
+  /// - Throws: `VaultError.notFound` if `copyID` is not a live conflict copy.
+  public func resolveConflict(copy copyID: UUID, _ resolution: ConflictResolution) async throws {
+    let copy = try await liveRecord(copyID)
+    let copyPayload = try await decrypt(copy)
+    guard let originalID = copyPayload.conflictOf else { throw VaultError.notFound }
+    let original = try await database.dbQueue.read { db in
+      try SealedRecord.fetchOne(db, key: originalID.rawData)
+    }
+    let now = Date()
+
+    var rows: [SealedRecord] = []
+    switch (resolution, original) {
+    case (.keepCopy, let original?):
+      let before = try await decrypt(original)
+      var payload = copyPayload
+      payload.conflictOf = nil
+      // The original's own history, with this change on top -- not the copy's.
+      payload.passwordHistory = before.passwordHistory
+      payload.revisionHistory = before.revisionHistory
+      var next = original
+      next.isDeleted = false
+      next.version += 1
+      next.updatedAt = await clock.tick()
+      Self.recordHistory(
+        before: before, into: &payload, version: next.version, at: now,
+        extra: "kept the conflicting copy")
+      next.sealed = try await seal(id: next.id, version: next.version, payload: payload)
+      rows.append(next)
+      rows.append(try await tombstoned(copy, payload: copyPayload, at: now))
+    case (.keepOriginal, _):
+      rows.append(try await tombstoned(copy, payload: copyPayload, at: now))
+    case (.keepBoth, _), (.keepCopy, nil):
+      var payload = copyPayload
+      payload.conflictOf = nil
+      var next = copy
+      next.version += 1
+      next.updatedAt = await clock.tick()
+      Self.recordHistory(
+        before: copyPayload, into: &payload, version: next.version, at: now,
+        extra: "kept as its own account")
+      next.sealed = try await seal(id: next.id, version: next.version, payload: payload)
+      rows.append(next)
+    }
+
+    let changed = rows
+    try await commit { db in
+      for row in changed { try row.update(db) }
+    }
+  }
+
+  /// `record` as a tombstone at its next version, as `delete` writes one -- for a resolved copy.
+  private func tombstoned(
+    _ record: SealedRecord, payload: AccountPayload, at now: Date
+  ) async throws -> SealedRecord {
+    var payload = payload
+    var tombstone = record
+    tombstone.isDeleted = true
+    tombstone.version += 1
+    tombstone.updatedAt = await clock.tick()
+    Self.recordHistory(
+      before: payload, into: &payload, version: tombstone.version, at: now,
+      extra: "conflict resolved")
+    tombstone.sealed = try await seal(id: record.id, version: tombstone.version, payload: payload)
+    return tombstone
+  }
+
   /// Purge tombstones -- with sync off, where "acked by every device" is just "deleted". With
   /// sync on, `compactSynced` is the one to call. A no-op (and no version bump) when there is
   /// nothing to purge.
