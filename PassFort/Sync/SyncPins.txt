@@ -1,0 +1,9 @@
+# SPKI pins the app checks a sync server's certificate chain against (m5-sync.md A.4, Phase 7.3):
+# SHA-256 of each CA's DER SubjectPublicKeyInfo, base64, one per line. CA keys only, never a leaf --
+# Azure renews the leaf on its own schedule. A chain that matches none of these stops sync with
+# "pinning failed"; it never falls back. Read 2026-10-24 from a Static Web Apps chain.
+#
+# Microsoft TLS RSA Root G2 -- the durable one: every Microsoft TLS G2 issuing CA chains to it.
+SwPJlmyGOywAipWl7ZJUBwRIx7IZ0oMQL2psW26OKs0=
+# Microsoft TLS G2 RSA CA OCSP 04 -- an issuing CA in use today; a renewal may move to a sibling.
+Cgcdqp4tWwaW/5zVT0SzM3JVarwR9qZzaApjgFqeVic=
