@@ -26,9 +26,10 @@ enum Pasteboard {
       .formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
   }
 
-  /// The last transient copy that has not yet been cleared, so locking can clear it at once.
-  private static var pending: (board: NSPasteboard, stamp: Int)?
-  private static var expiry: Task<Void, Never>?
+  /// Each pasteboard's last transient copy that has not yet been cleared, so locking can clear it
+  /// at once. The app only ever uses `.general`; keeping one per pasteboard means a copy to one
+  /// can never clear another (tests copy to private pasteboards, in parallel with tests that lock).
+  private static var pending: [NSPasteboard.Name: (stamp: Int, expiry: Task<Void, Never>)] = [:]
 
   /// Copy `string`. No auto-clear -- for a value the user is deliberately moving elsewhere (a
   /// recovery key being written down / printed). Still concealed from clipboard managers.
@@ -37,28 +38,27 @@ enum Pasteboard {
   }
 
   /// Copy `string`, then clear it after `seconds` (the Settings preference by default) -- or
-  /// sooner, via `clearTransient()`, when the vault locks. Never clears something the user copied
-  /// in the meantime.
+  /// sooner, via `clearTransient(on:)`, when the vault locks. Never clears something the user
+  /// copied in the meantime.
   static func copyTransient(
     _ string: String, clearAfter seconds: Double = Double(clearAfterSeconds()),
     to board: NSPasteboard = .general
   ) {
-    expiry?.cancel()
-    pending = (board, write(string, to: board))
-    expiry = Task {
+    pending[board.name]?.expiry.cancel()
+    let stamp = write(string, to: board)
+    let expiry = Task {
       try? await Task.sleep(for: .seconds(seconds))
       guard !Task.isCancelled else { return }
-      clearTransient()
+      clearTransient(on: board)
     }
+    pending[board.name] = (stamp, expiry)
   }
 
-  /// Clear the last transient copy if it is still what is on the clipboard. Called when the vault
+  /// Clear `board`'s last transient copy if it is still what is on it. Called when the vault
   /// locks: a secret should not outlive the session that revealed it.
-  static func clearTransient() {
-    expiry?.cancel()
-    expiry = nil
-    guard let (board, stamp) = pending else { return }
-    pending = nil
+  static func clearTransient(on board: NSPasteboard = .general) {
+    guard let (stamp, expiry) = pending.removeValue(forKey: board.name) else { return }
+    expiry.cancel()
     if board.changeCount == stamp { board.clearContents() }
   }
 

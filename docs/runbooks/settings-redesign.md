@@ -200,8 +200,8 @@ each passed on rerun:
 - **`QuickAccessTests.copyPutsTheChosenFieldOnTheBoardAndReportsAMissingOne`** once read an empty
   board after a copy. Likely cause: `Pasteboard` keeps one pending transient copy in static state,
   and any test calling `AppModel.lock()` in parallel runs `Pasteboard.clearTransient()`, which can
-  clear that test's board at an `await`. A fix is to give `AppModel` its own transient-clipboard
-  state (the app keeps sharing one); a change of its own.
+  clear that test's board at an `await`. **Fixed** afterwards: `Pasteboard` keeps one pending copy
+  per pasteboard, and a lock clears `.general` plus the boards that model copied to.
 
 ## Deferred
 

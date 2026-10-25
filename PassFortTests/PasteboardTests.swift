@@ -24,7 +24,7 @@ struct PasteboardTests {
   @Test func aPlainCopyIsNotAutoCleared() {
     let board = board()
     Pasteboard.copy("recovery key", to: board)
-    Pasteboard.clearTransient()
+    Pasteboard.clearTransient(on: board)
 
     #expect(board.string(forType: .string) == "recovery key")
   }
@@ -62,7 +62,7 @@ struct PasteboardTests {
   @Test func clearTransientEmptiesTheClipboardImmediately() {
     let board = board()
     Pasteboard.copyTransient("secret", clearAfter: 60, to: board)
-    Pasteboard.clearTransient()
+    Pasteboard.clearTransient(on: board)
 
     #expect(board.string(forType: .string) == nil)
   }
@@ -72,8 +72,25 @@ struct PasteboardTests {
     Pasteboard.copyTransient("secret", clearAfter: 60, to: board)
     board.clearContents()
     board.setString("something else", forType: .string)
-    Pasteboard.clearTransient()
+    Pasteboard.clearTransient(on: board)
 
     #expect(board.string(forType: .string) == "something else")
+  }
+
+  /// The flake this fixes: a lock elsewhere (any test's `AppModel.lock()` clears `.general`) used
+  /// to clear the one pending copy wherever it was, including another test's private board.
+  @Test func clearingOneBoardLeavesAnotherBoardsCopy() {
+    let mine = board()
+    let other = board()
+    Pasteboard.copyTransient("mine", clearAfter: 60, to: mine)
+    Pasteboard.copyTransient("other", clearAfter: 60, to: other)
+
+    Pasteboard.clearTransient(on: other)
+    Pasteboard.clearTransient()  // .general, as a lock does
+    #expect(mine.string(forType: .string) == "mine")
+    #expect(other.string(forType: .string) == nil)
+
+    Pasteboard.clearTransient(on: mine)
+    #expect(mine.string(forType: .string) == nil)
   }
 }

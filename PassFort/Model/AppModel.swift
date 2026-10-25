@@ -56,6 +56,9 @@ final class AppModel {
   var showingRestore = false
 
   private let service: VaultService
+  /// Pasteboards other than `.general` that `copy` wrote to (tests pass their own), so `lock`
+  /// clears those too -- and only those, never another model's.
+  private var copyBoards: [NSPasteboard] = []
   private var autoLock: AutoLock?
   /// The open vault held between `createVault` and the recovery-key confirmation
   /// (so "repo is non-nil only in .unlocked" stays true during `.showingRecoveryKey`).
@@ -167,6 +170,8 @@ final class AppModel {
     showingNewAccount = false  // nor may a half-typed account
     showingVaultImport = false
     Pasteboard.clearTransient()
+    for board in copyBoards { Pasteboard.clearTransient(on: board) }
+    copyBoards = []
     state = .locked()
   }
 
@@ -551,6 +556,7 @@ final class AppModel {
       return .io("“\(account.payload.title)” has no \(field.name) saved.")
     }
     Pasteboard.copyTransient(value, to: board)
+    if board != .general, !copyBoards.contains(board) { copyBoards.append(board) }
     return nil
   }
 
