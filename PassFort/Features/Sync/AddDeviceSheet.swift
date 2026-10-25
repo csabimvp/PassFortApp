@@ -13,9 +13,9 @@ struct AddDeviceSheet: View {
     VStack(alignment: .leading, spacing: 14) {
       Text("Add a device").font(.title3).bold()
       Text(
-        "On the other Mac, choose Join a Synced Vault (on its first screen, or in Settings ▸ "
-          + "Vault) and paste the invite link, or type the server and vault ID. It will ask for "
-          + "this vault's master password; nothing here is secret without it.")
+        "On the other Mac, choose Join a Synced Vault (on its first screen, or File ▸ Join "
+          + "Synced Vault…) and paste the invite link, or type the server and vault ID. It will ask "
+          + "for this vault's master password; nothing here is secret without it.")
         .font(.caption).foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
 

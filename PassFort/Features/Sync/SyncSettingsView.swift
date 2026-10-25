@@ -64,8 +64,8 @@ struct SyncSettingsView: View {
           + "roughly how big each is, and when they change. The enrollment secret is the one "
           + "your server was set up with; it is used once and not stored.")
       Text(
-        "Each vault syncs on its own. To sync another vault through the same server, load it "
-          + "(Settings ▸ Vault) and turn sync on there.")
+        "Each vault syncs on its own. To sync another vault through the same server, open it "
+          + "(File ▸ Open Vault…) and turn sync on there.")
     }
     .font(.caption)
     .foregroundStyle(.secondary)

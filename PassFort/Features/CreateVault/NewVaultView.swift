@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Settings ▸ Vault ▸ Start a New Vault. The current password, the new one twice, and the recovery
+/// File ▸ New Vault. The current password, the new one twice, and the recovery
 /// key choice. On success the main window shows the new vault (or its recovery key, once) and this
 /// sheet says where the old vault was kept.
 struct NewVaultView: View {
@@ -118,7 +118,7 @@ struct NewVaultView: View {
 }
 
 extension AppModel.ReplaceVaultHooks {
-  /// The app's side, for Start a New Vault and Load Vault: a mid-run backup refuses the swap, and
+  /// The app's side, for New Vault and Open Vault: a mid-run backup refuses the swap, and
   /// backups pause while the files are swapped. They resume afterwards, backing up the vault now in
   /// place.
   static func app(_ backup: BackupModel?) -> Self {

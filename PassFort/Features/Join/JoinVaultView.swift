@@ -5,8 +5,8 @@ import SwiftUI
 /// pasted invite holding both -- and that vault's master password. PassFort fetches the vault's
 /// header, unlocks it, builds this Mac's copy and downloads every account.
 ///
-/// Two places: first run, beside Create (`.firstRun`), and Settings ▸ Vault, where the open vault
-/// is set aside and kept, as Start a New Vault and Load Vault do (`.replacingVault`).
+/// Two places: first run, beside Create (`.firstRun`), and File ▸ Join Synced Vault…, where the
+/// open vault is set aside and kept, as New Vault and Open Vault do (`.replacingVault`).
 struct JoinVaultView: View {
   enum Mode {
     case firstRun
@@ -97,7 +97,7 @@ struct JoinVaultView: View {
     case .replacingVault:
       return common
         + " The open vault is set aside next to the new one and kept, never deleted, with its "
-        + "own sync settings: load it again to switch back."
+        + "own sync settings: open it again to switch back."
     }
   }
 
@@ -110,7 +110,7 @@ struct JoinVaultView: View {
         .font(.system(.caption, design: .monospaced))
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
-      Text("To switch back, load that file from Settings ▸ Vault.")
+      Text("To switch back, open that file with File ▸ Open Vault….")
         .font(.caption).foregroundStyle(.secondary)
       HStack {
         Spacer()

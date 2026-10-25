@@ -250,8 +250,7 @@ struct VaultListView: View {
       } label: {
         Label("Lock", systemImage: "lock")
       }
-      .keyboardShortcut("l", modifiers: .command)
-      .help("Lock (⌘L)")
+      .help("Lock (⌘L)")  // the shortcut belongs to File ▸ Lock
     }
   }
 

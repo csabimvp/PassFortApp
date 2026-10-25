@@ -2,16 +2,14 @@ import AppKit
 import SwiftUI
 
 /// Settings ▸ Vault: where the vault file lives, and moving it. Local folders only -- a network
-/// drive or a synced folder can corrupt an open database -- so those are for backups.
+/// drive or a synced folder can corrupt an open database -- so those are for backups. Putting
+/// another vault in this one's place is in the File menu (`VaultFileCommands`).
 struct VaultLocationSettingsView: View {
   @Environment(AppModel.self) private var model
   @Environment(VaultLocationModel.self) private var location
   @Environment(BackupModel.self) private var backup: BackupModel?
   @State private var pendingFolder: URL?
   @State private var confirmingDefault = false
-  @State private var startingNewVault = false
-  @State private var loadingVault = false
-  @State private var joiningVault = false
 
   private var canChange: Bool {
     model.state.allowsFileMoves && !location.isBusy && !location.needsRelaunch
@@ -19,60 +17,49 @@ struct VaultLocationSettingsView: View {
 
   var body: some View {
     Form {
-      Section("Location") {
-        LabeledContent("Vault file") {
-          Text(location.displayPath).textSelection(.enabled).multilineTextAlignment(.trailing)
+      Section {
+        LabeledContent {
+          Button("Show in Finder", action: showInFinder)
+        } label: {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Vault file")
+            Text(location.displayPath)
+              .font(.system(.caption, design: .monospaced))
+              .foregroundStyle(.secondary)
+              .lineLimit(1).truncationMode(.middle)
+              .textSelection(.enabled)
+              .help(location.displayPath)
+          }
         }
-        LabeledContent(
-          "Kept in", value: location.isCustom ? "A folder you chose" : "PassFort's own storage")
 
-        HStack {
-          Button("Move Vault…", action: chooseFolder)
-          Button("Use Default Location") { confirmingDefault = true }
-            .disabled(!location.isCustom)
-          if location.isBusy { ProgressView().controlSize(.small) }
+        LabeledContent {
+          HStack {
+            if location.isBusy { ProgressView().controlSize(.small) }
+            Button("Move Back to Default…") { confirmingDefault = true }
+              .disabled(!location.isCustom)
+            Button("Move…", action: chooseFolder)
+          }
+          .disabled(!canChange)
+        } label: {
+          Text(location.isCustom ? "A folder you chose" : "PassFort's own storage")
+            .foregroundStyle(.secondary)
         }
-        .disabled(!canChange)
 
         status
+      } header: {
+        Text("Location")
+      } footer: {
+        SettingsFooter(
+          "This Mac or an attached drive. Network and cloud-synced folders are refused; use Backup "
+            + "for those. A move takes effect after PassFort restarts.")
       }
 
       Section {
-        Text(
-          "The vault can live on this Mac or an attached drive. Network drives and folders synced by "
-            + "iCloud, Dropbox or similar are refused, because they can corrupt a vault that is "
-            + "open. Use the Backup tab for those. Moving takes effect after PassFort restarts.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-
-      Section("Replace vault") {
-        HStack {
-          Button("Start a New Vault…") { startingNewVault = true }
-          Button("Load Vault…") { loadingVault = true }
-          Button("Join a Synced Vault…") { joiningVault = true }
-            .disabled(!model.syncAvailable)
-        }
-        .disabled(model.state != .unlocked || location.isBusy || location.needsRelaunch)
-        Text(
-          "Start a New Vault puts an empty vault in this one's place; Load Vault puts one from a "
-            + "file there; Join a Synced Vault downloads one another device syncs. Either way the "
-            + "current vault is kept beside it, never deleted, with its own sync settings. Unlock "
-            + "the vault first.")
-          .font(.caption)
+        Label("To start, open or join another vault, use the File menu.", systemImage: "info.circle")
           .foregroundStyle(.secondary)
       }
     }
     .settingsTab()
-    .sheet(isPresented: $startingNewVault) {
-      NewVaultView().environment(model).environment(backup)
-    }
-    .sheet(isPresented: $loadingVault) {
-      LoadVaultView().environment(model).environment(backup).environment(location)
-    }
-    .sheet(isPresented: $joiningVault) {
-      JoinVaultView(mode: .replacingVault).environment(model).environment(backup)
-    }
     .alert(
       "Move the vault?", isPresented: Binding(get: { pendingFolder != nil }, set: { if !$0 { pendingFolder = nil } }),
       presenting: pendingFolder
@@ -95,6 +82,10 @@ struct VaultLocationSettingsView: View {
         "PassFort will lock, copy the vault back into its own storage, check the copy, and ask you "
           + "to restart. The vault in the chosen folder is kept there as a safety copy.")
     }
+  }
+
+  private func showInFinder() {
+    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: location.databasePath)])
   }
 
   // MARK: - Status

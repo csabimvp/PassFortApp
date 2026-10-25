@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// The one way a Settings tab says it needs the vault open: this row at the top, with the tab's
@@ -23,21 +22,8 @@ struct LockedSettingsNotice: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         Spacer()
-        Button("Unlock…", action: showMainWindow)
+        Button("Unlock…") { MainWindow.bringForward(openWindow) }
       }
-    }
-  }
-
-  /// The vault window if one is open, a new one if not.
-  private func showMainWindow() {
-    NSApp.activate()
-    let main = NSApp.windows.first {
-      $0.identifier?.rawValue.hasPrefix(PassFortApp.mainWindowID) == true
-    }
-    if let main {
-      main.makeKeyAndOrderFront(nil)
-    } else {
-      openWindow(id: PassFortApp.mainWindowID)
     }
   }
 }

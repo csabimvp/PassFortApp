@@ -40,6 +40,19 @@ final class AppModel {
   /// Whether the import-from-another-vault sheet is up (Tools menu, or the empty vault's button).
   var showingVaultImport = false
 
+  /// The File-menu sheets that put another vault in this one's place.
+  enum VaultSheet: String, Identifiable {
+    case newVault, openVault, joinVault
+    var id: String { rawValue }
+  }
+  /// Which of them is up. The vault window's root presents it, not the vault list, so the swap
+  /// switching the screen underneath (to the Unlock spinner, then a recovery key) doesn't close it.
+  /// Deliberately left alone by `lock()`: the swap locks the vault itself, mid-flow.
+  var vaultSheet: VaultSheet?
+  /// File ▸ Restore from Backup…, or the Unlock / Create screens' link: opens the backup picker
+  /// (`RestoreBackupFlow`, on the vault window's root).
+  var showingRestore = false
+
   private let service: VaultService
   private var autoLock: AutoLock?
   /// The open vault held between `createVault` and the recovery-key confirmation
@@ -227,7 +240,7 @@ final class AppModel {
     var end: () -> Void
   }
 
-  /// Settings ▸ Vault ▸ Start a New Vault: check the current password, set the open vault's files
+  /// File ▸ New Vault: check the current password, set the open vault's files
   /// aside (kept, never deleted), and create an empty vault in their place -- then show its
   /// recovery key once, or go straight to `.unlocked`, as on first run. Both Argon2id passes run
   /// before anything is touched.
@@ -264,7 +277,7 @@ final class AppModel {
     }
   }
 
-  /// Settings ▸ Vault ▸ Load Vault: make the vault in `file` the live one. The file is copied, and
+  /// File ▸ Open Vault: make the vault in `file` the live one. The file is copied, and
   /// the copy unlocked with `password` -- which also verifies its manifest -- before anything is
   /// swapped; then the open vault's files are set aside (kept, never deleted) and the copy takes
   /// their place. `file` itself is not changed.
@@ -391,7 +404,7 @@ final class AppModel {
     }
   }
 
-  /// Settings ▸ Vault ▸ Join a Synced Vault: as `joinVault`, in place of the open vault, whose
+  /// File ▸ Join Synced Vault: as `joinVault`, in place of the open vault, whose
   /// files are set aside and kept -- they come back if the join fails. Each vault keeps its own
   /// sync settings in its file, so loading the old one again later resumes its sync.
   ///

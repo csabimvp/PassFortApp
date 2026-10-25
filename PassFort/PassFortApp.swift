@@ -34,6 +34,8 @@ struct PassFortApp: App {
           RootView()
         }
       }
+        // Inside the environment below: the flow reads the models from it.
+        .modifier(RestoreBackupFlow())
         .environment(model)
         .environment(backup)
         .environment(location)
@@ -47,10 +49,22 @@ struct PassFortApp: App {
         .sheet(isPresented: $model.showingGenerator) {
           PasswordGeneratorView().tint(Palette.primary)
         }
+        .sheet(item: $model.vaultSheet) { sheet in
+          Group {
+            switch sheet {
+            case .newVault: NewVaultView()
+            case .openVault: LoadVaultView()
+            case .joinVault: JoinVaultView(mode: .replacingVault)
+            }
+          }
+          .environment(model).environment(backup).environment(location)
+          .tint(Palette.primary)
+        }
         .modifier(AdoptOpenWindow(controller: quickAccess))
     }
     .defaultSize(width: 1240, height: 720)
     .commands {
+      VaultFileCommands(model: model, location: location)
       AccountCommands()
       CommandMenu("Tools") {
         Button("Generate Password…") { model.showingGenerator = true }

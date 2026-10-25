@@ -2,8 +2,9 @@ import AppKit
 import Foundation
 import SwiftUI
 
-/// Settings ▸ Vault ▸ Load Vault. Choose a vault file and type its password; on success the main
-/// window shows the loaded vault, unlocked, and this sheet says where the previous vault was kept.
+/// File ▸ Open Vault (the code's name for it is "load": `AppModel.loadVault`, the `pre-load`
+/// label). Choose a vault file and type its password; on success the main window shows that vault,
+/// unlocked, and this sheet says where the previous vault was kept.
 struct LoadVaultView: View {
   @Environment(AppModel.self) private var model
   @Environment(BackupModel.self) private var backup: BackupModel?
@@ -36,11 +37,11 @@ struct LoadVaultView: View {
 
   private var form: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Load a vault").font(.title3).bold()
+      Text("Open a vault").font(.title3).bold()
 
       Text(
         "PassFort replaces this vault with the one you choose: from another Mac, the command line, "
-          + "or one set aside by Start a New Vault. The current vault is set aside next to it and "
+          + "or one set aside by New Vault. The current vault is set aside next to it and "
           + "kept, never deleted. The file you choose is copied, not moved."
       )
       .font(.caption).foregroundStyle(.secondary)
@@ -66,7 +67,7 @@ struct LoadVaultView: View {
         if working { ProgressView().controlSize(.small) }
         Spacer()
         Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-        Button("Load Vault", action: submit)
+        Button("Open Vault", action: submit)
           .keyboardShortcut(.defaultAction)
           .disabled(working || !canSubmit)
       }
@@ -76,14 +77,14 @@ struct LoadVaultView: View {
 
   private func done(_ keptAt: String) -> some View {
     VStack(alignment: .leading, spacing: 12) {
-      Label("The vault is loaded and unlocked.", systemImage: "checkmark.circle")
+      Label("The vault is open and unlocked.", systemImage: "checkmark.circle")
         .font(.headline).foregroundStyle(Palette.success)
       Text("The previous vault was kept at:").font(.callout)
       Text((keptAt as NSString).abbreviatingWithTildeInPath)
         .font(.system(.caption, design: .monospaced))
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
-      Text("To switch back, load that file the same way.")
+      Text("To switch back, open that file the same way.")
         .font(.caption).foregroundStyle(.secondary)
 
       HStack {
@@ -105,7 +106,7 @@ struct LoadVaultView: View {
       panel.directoryURL = URL(fileURLWithPath: location.databasePath).deletingLastPathComponent()
     }
     panel.prompt = "Choose Vault"
-    panel.message = "Choose the PassFort vault to load."
+    panel.message = "Choose the PassFort vault to open."
     guard panel.runModal() == .OK, let url = panel.url else { return }
     file = url
     error = nil

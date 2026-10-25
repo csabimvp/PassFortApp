@@ -2,20 +2,45 @@ import AppKit
 import PassFortVault
 import SwiftUI
 
-/// "Restore from Backup…" -- the same button on the Unlock screen, the Create screen (a new Mac
-/// with no vault yet) and Settings ▸ Backup. It owns its `RestoreModel`; the file work and the
-/// ordering rules live there. Callers style it (`.buttonStyle(.link)` etc.).
+/// "Restore from Backup…" as a link -- on the Unlock screen and the Create screen (a new Mac with
+/// no vault yet). It only asks: the picker and the alerts are `RestoreBackupFlow`, on the vault
+/// window's root, which File ▸ Restore from Backup… opens too. Callers style it
+/// (`.buttonStyle(.link)` etc.).
 struct RestoreBackupButton: View {
+  @Environment(AppModel.self) private var model
+  /// Optional so previews that only inject `AppModel` keep working.
+  @Environment(VaultLocationModel.self) private var location: VaultLocationModel?
+
+  var body: some View {
+    Button("Restore from Backup…") { model.showingRestore = true }
+      .disabled(!RestoreBackupFlow.isAllowed(model, location))
+  }
+}
+
+/// The restore itself: the backup picker, the confirmation and the result, opened by
+/// `AppModel.showingRestore`. It owns its `RestoreModel`; the file work and the ordering rules live
+/// there. Attached once, to the vault window's root.
+struct RestoreBackupFlow: ViewModifier {
   @Environment(AppModel.self) private var model
   /// Optional so previews that only inject `AppModel` keep working.
   @Environment(BackupModel.self) private var backup: BackupModel?
   @Environment(VaultLocationModel.self) private var location: VaultLocationModel?
   @State private var restore = RestoreModel()
 
-  var body: some View {
-    Button("Restore from Backup…", action: pick)
-      .disabled(restore.isBusy || !restoreAllowed)
+  /// Not while a vault is being created or unlocked (the files are in use), nor while the vault's
+  /// location is unusable or waiting for a relaunch.
+  static func isAllowed(_ model: AppModel, _ location: VaultLocationModel?) -> Bool {
+    model.state.allowsFileMoves && location?.isUsable != false && location?.needsRelaunch != true
+  }
+
+  func body(content: Content) -> some View {
+    content
       .onAppear { if let location { restore.databasePath = location.databasePath } }
+      .onChange(of: model.showingRestore) {
+        guard model.showingRestore else { return }
+        model.showingRestore = false
+        if !restore.isBusy, Self.isAllowed(model, location) { pick() }
+      }
       .alert(
         "Restore this backup?", isPresented: confirmingBinding, presenting: candidate
       ) { candidate in
@@ -37,11 +62,6 @@ struct RestoreBackupButton: View {
   }
 
   // MARK: - Picking
-
-  /// Not while a vault is being created or unlocked: the files are in use.
-  private var restoreAllowed: Bool {
-    model.state.allowsFileMoves && location?.isUsable != false && location?.needsRelaunch != true
-  }
 
   private func pick() {
     let panel = NSOpenPanel()

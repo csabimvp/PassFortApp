@@ -71,8 +71,9 @@ password.
 
 - **Backups.** In Settings, choose a backup folder (a NAS share works well) and how many backups
   to keep. Backups are encrypted like the vault and verified after each write.
-- **Moving to another Mac.** Copy a backup over and use Restore from Backup on the new Mac. The
-  vault it replaces is kept as a safety copy, never deleted.
+- **Moving to another Mac.** Copy a backup over and use Restore from Backup on the new Mac (the
+  link on the first screen, or the File menu). The vault it replaces is kept as a safety copy,
+  never deleted. The File menu also starts, opens or joins another vault in place of this one.
 - **Leaving.** `passfort-cli export` writes a whole vault as plaintext JSON after you type a
   confirmation phrase. Delete the file once you've imported it elsewhere.
 
