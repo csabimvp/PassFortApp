@@ -90,6 +90,9 @@ final class BackupModel {
 
   private(set) var status: Status
   private(set) var folderName: String?
+  /// How many backups of the last backed-up vault the folder holds, for the Backup tab. `nil` until
+  /// counted, with no folder or no backup yet, or when the folder can't be read.
+  private(set) var backupCount: Int?
 
   private let databasePath: String
   private let destination: any BackupDestination
@@ -150,6 +153,17 @@ final class BackupModel {
   func removeFolder() {
     bookmarks.save(nil)
     folderName = nil
+    backupCount = nil
+  }
+
+  /// Count the last backed-up vault's backups in the folder (`backupCount`). Called after each run
+  /// and when the Backup tab appears; a folder that can't be read leaves the count unknown.
+  func refreshCount() async {
+    guard destination.isConfigured, let vaultID = lastBackup?.vaultID else {
+      backupCount = nil
+      return
+    }
+    backupCount = try? await destination.list(vaultID: vaultID).count
   }
 
   // MARK: - Running
@@ -191,6 +205,7 @@ final class BackupModel {
         status = previous
       case .backedUp(let result):
         record(result)
+        await refreshCount()
       }
     } catch {
       fail(error)

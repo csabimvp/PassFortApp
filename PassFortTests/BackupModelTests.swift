@@ -17,6 +17,7 @@ struct BackupModelTests {
     private var _failure: AppError?
     private var _stored: [String] = []
     private var _pruneKeeps: [Int] = []
+    private var _listed: [UUID] = []
 
     var configured: Bool {
       get { lock.withLock { _configured } }
@@ -28,6 +29,7 @@ struct BackupModelTests {
     }
     var stored: [String] { lock.withLock { _stored } }
     var pruneKeeps: [Int] { lock.withLock { _pruneKeeps } }
+    var listed: [UUID] { lock.withLock { _listed } }
 
     var isConfigured: Bool { configured }
     var displayName: String { "Fake NAS" }
@@ -43,7 +45,11 @@ struct BackupModelTests {
       return name
     }
 
-    @concurrent func list(vaultID: UUID) async throws -> [String] { stored }
+    @concurrent func list(vaultID: UUID) async throws -> [String] {
+      if let failure { throw failure }
+      lock.withLock { _listed.append(vaultID) }
+      return stored
+    }
 
     @concurrent func prune(vaultID: UUID, keep: Int) async throws -> [String] {
       lock.withLock { _pruneKeeps.append(keep) }
@@ -120,6 +126,30 @@ struct BackupModelTests {
     }
     #expect(version > 0)
     #expect(f.destination.pruneKeeps == [BackupModel.defaultKeep])
+  }
+
+  @Test func backupCountListsTheLastVaultsBackups() async throws {
+    let f = try await makeFixture()
+    defer { f.cleanUp() }
+
+    await f.model.refreshCount()
+    #expect(f.model.backupCount == nil, "no backup yet, so no vault to count")
+
+    await f.model.backUpNow()
+    let id = try #require(VaultBackup.inspect(URL(fileURLWithPath: f.path))?.vaultID)
+    #expect(f.model.backupCount == 1)
+    #expect(f.destination.listed.last == id)
+
+    let relaunched = f.relaunched()
+    await relaunched.refreshCount()
+    #expect(relaunched.backupCount == 1)
+
+    f.destination.failure = .io("the share went away")
+    await relaunched.refreshCount()
+    #expect(relaunched.backupCount == nil)
+
+    f.model.removeFolder()
+    #expect(f.model.backupCount == nil)
   }
 
   @Test func backUpNowAlwaysWritesEvenWhenNothingChanged() async throws {
