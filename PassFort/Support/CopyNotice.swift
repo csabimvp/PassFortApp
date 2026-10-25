@@ -2,10 +2,9 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// The vault window's "… copied" toast, under the account list. One per app, in the environment of
-/// the vault window, so every copy there confirms the same way: the list's icons and the Account
-/// menu (`VaultListView`) and the detail column's copy buttons (`CopyButton`). Windows without it
-/// (Settings, sheets) get `CopyButton`'s inline checkmark only.
+/// A "… copied" toast. The vault window has one, shown under the account list, so every copy there
+/// confirms the same way: the list's icons and the Account menu (`VaultListView`) and the detail
+/// column's copy buttons (`CopyButton`). Settings and its sheets host their own (`copyToast()`).
 @MainActor @Observable
 final class CopyNotice {
   /// The confirmation on screen, or `nil`. Never holds the copied value itself.
@@ -95,5 +94,37 @@ struct CopyButton: View {
       AccessibilityNotification.Announcement(message).post()
     }
     copied = true
+  }
+}
+
+/// A window or sheet with no list footer to put the toast in (Settings, Add a Device): its own
+/// `CopyNotice`, shown as the same capsule floating over the bottom edge. Its `CopyButton`s use it
+/// instead of any notice further out, so a sheet's toast isn't hidden behind the sheet.
+private struct CopyToastHost: ViewModifier {
+  /// Distance from the bottom edge: a sheet with a button row lifts the toast above it.
+  let bottomInset: CGFloat
+  @State private var notice = CopyNotice()
+
+  func body(content: Content) -> some View {
+    content
+      .environment(notice)
+      .overlay(alignment: .bottom) {
+        if let message = notice.message {
+          Toast(text: message)
+            .background(.regularMaterial, in: Capsule())  // legible over the form's rows
+            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+            .padding(.bottom, bottomInset)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+      }
+      .animation(.snappy(duration: 0.25), value: notice.message)
+  }
+}
+
+extension View {
+  /// Confirm copies made in this window or sheet with a floating toast (`CopyToastHost`).
+  /// `bottomInset` lifts it clear of a sheet's button row.
+  func copyToast(bottomInset: CGFloat = 14) -> some View {
+    modifier(CopyToastHost(bottomInset: bottomInset))
   }
 }

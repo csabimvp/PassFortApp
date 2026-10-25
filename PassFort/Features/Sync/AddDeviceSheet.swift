@@ -43,6 +43,7 @@ struct AddDeviceSheet: View {
     }
     .padding(24)
     .frame(width: 560)
+    .copyToast(bottomInset: 60)  // above the Done row
   }
 
   private func field(_ label: String, _ value: String) -> some View {

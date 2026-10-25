@@ -114,6 +114,7 @@ struct PassFortApp: App {
           .tint(Palette.primary)
           .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
       }
+      .copyToast()
     }
   }
 }
