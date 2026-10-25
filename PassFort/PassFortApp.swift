@@ -86,6 +86,9 @@ struct PassFortApp: App {
         BackupSettingsView().environment(model).environment(backup).environment(location)
           .tint(Palette.primary)
           .tabItem { Label("Backup", systemImage: "externaldrive") }
+        SyncSettingsView().environment(model)
+          .tint(Palette.primary)
+          .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
       }
     }
   }
