@@ -870,6 +870,13 @@ public actor VaultRepository {
     public let openCount: UInt64
   }
 
+  /// The vault's commit counter (`vault_version`, §5.5): it moves with every committed row
+  /// change, local or synced, and not with sync bookkeeping. A caller compares two readings to
+  /// learn whether any record changed in between.
+  public func vaultVersion() async throws -> UInt64 {
+    try await database.dbQueue.read { db in try VaultMeta.readVaultVersion(db) }
+  }
+
   public func cryptoStats() async -> CryptoStats {
     let s = await session.cryptoStats()
     return CryptoStats(sealCount: s.sealCount, openCount: s.openCount)

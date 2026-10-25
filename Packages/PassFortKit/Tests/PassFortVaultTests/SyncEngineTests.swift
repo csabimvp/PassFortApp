@@ -374,6 +374,27 @@ import Testing
     #expect(!conflicted.fullResync)
   }
 
+  @Test func theVaultVersionMovesWithRecordsNotWithEchoes() async throws {
+    let world = try SyncWorld()
+    defer { world.cleanUp() }
+    let (a, vaultID) = try await world.enableA()
+    _ = try await a.repo.create(AccountPayload(title: "X"))
+    try await a.engine.run()
+    let b = try await world.join("B", vaultID)
+    try await b.engine.run()
+
+    // A pulls its own push back: bookkeeping only.
+    let before = try await a.repo.vaultVersion()
+    #expect(try await a.engine.run().pulled == 1, "the echo")
+    #expect(try await a.repo.vaultVersion() == before)
+
+    // A record from another device moves it.
+    _ = try await b.repo.create(AccountPayload(title: "From B"))
+    try await b.engine.run()
+    try await a.engine.run()
+    #expect(try await a.repo.vaultVersion() > before)
+  }
+
   @Test func syncStateTracksTheCursorTheQueueAndTheLastRun() async throws {
     let world = try SyncWorld()
     defer { world.cleanUp() }
