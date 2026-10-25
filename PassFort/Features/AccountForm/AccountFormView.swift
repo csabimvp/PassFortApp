@@ -19,6 +19,8 @@ struct AccountFormView: View {
   @Environment(\.dismiss) private var dismiss
 
   let mode: Mode
+  /// The payload the form opened with, to tell whether Cancel would throw anything away.
+  private let original: AccountPayload
   @State private var draft: AccountPayload
   @State private var shown: Set<OptionalField>
   @State private var urlsText: String
@@ -35,6 +37,7 @@ struct AccountFormView: View {
   @State private var saving = false
   @State private var error: String?
   @State private var confirmingDelete = false
+  @State private var confirmingDiscard = false
 
   init(mode: Mode) {
     self.mode = mode
@@ -43,6 +46,7 @@ struct AccountFormView: View {
     case .create: payload = AccountPayload(title: "")
     case .edit(let account): payload = account.payload
     }
+    original = payload
     _draft = State(initialValue: payload)
     _shown = State(initialValue: OptionalField.shown(in: payload))
     _urlsText = State(initialValue: payload.urls.map(\.absoluteString).joined(separator: "\n"))
@@ -133,7 +137,8 @@ struct AccountFormView: View {
           Button("Delete", role: .destructive) { confirmingDelete = true }
         }
         Spacer()
-        Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+        Button("Cancel") { if hasChanges { confirmingDiscard = true } else { dismiss() } }
+          .keyboardShortcut(.cancelAction)
         Button(isEditing ? "Save" : "Add Account") { Task { await save() } }
           .keyboardShortcut(.defaultAction)
           .disabled(saving || draft.title.isEmpty)
@@ -141,6 +146,7 @@ struct AccountFormView: View {
       .padding()
     }
     .frame(width: 500, height: 620)
+    .interactiveDismissDisabled(hasChanges)
     .disabled(saving)
     .overlay { if saving { ProgressView() } }
     .confirmationDialog(
@@ -149,6 +155,17 @@ struct AccountFormView: View {
       Button("Delete", role: .destructive) { Task { await delete() } }
     } message: {
       Text("It moves to Recently Deleted, where you can restore it until you empty it.")
+    }
+    .confirmationDialog(
+      isEditing ? "Discard your changes?" : "Discard this account?",
+      isPresented: $confirmingDiscard, titleVisibility: .visible
+    ) {
+      Button(isEditing ? "Discard Changes" : "Discard Account", role: .destructive) { dismiss() }
+      Button("Keep Editing", role: .cancel) {}
+    } message: {
+      Text(
+        isEditing
+          ? "Your edits to “\(original.title)” aren't saved." : "Nothing you typed is saved.")
     }
     .fileImporter(isPresented: $importingQR, allowedContentTypes: [.image]) { result in
       readQR(result)
@@ -273,27 +290,49 @@ struct AccountFormView: View {
     }
   }
 
+  /// The payload as the form stands -- what Save writes -- or why it can't be one yet.
+  private func edited() -> Result<AccountPayload, FormProblem> {
+    var payload = draft
+    payload.urls = Self.parseURLs(urlsText)
+    payload.tags = Self.parseTags(tagsText)
+    payload.recoveryCodes = Self.parseLines(recoveryCodesText)
+    payload.securityQuestions = questions.compactMap(\.model)
+    payload.customFields = CustomFieldsEditor.cleaned(payload.customFields)
+    payload.expiresAt = shown.contains(.expiry) ? expiry : nil
+    switch parsedTOTP {
+    case .success(let config):
+      // Unchanged text keeps the stored config byte-for-byte (no spurious "totp" revision).
+      if totpText != payload.totp?.otpauthURI { payload.totp = config }
+    case .failure(let failure):
+      return .failure(FormProblem(message: "One-time code: " + Self.describe(failure)))
+    }
+    return .success(payload)
+  }
+
+  /// Whether Cancel would throw something away. A one-time code that doesn't parse counts: it
+  /// was typed.
+  private var hasChanges: Bool {
+    guard case .success(let payload) = edited() else { return true }
+    return payload != original
+  }
+
+  private struct FormProblem: Error {
+    let message: String
+  }
+
   private func save() async {
     saving = true
     defer { saving = false }
     error = nil
 
-    draft.urls = Self.parseURLs(urlsText)
-    draft.tags = Self.parseTags(tagsText)
-    draft.recoveryCodes = Self.parseLines(recoveryCodesText)
-    draft.securityQuestions = questions.compactMap(\.model)
-    draft.customFields = CustomFieldsEditor.cleaned(draft.customFields)
-    draft.expiresAt = shown.contains(.expiry) ? expiry : nil
-    switch parsedTOTP {
-    case .success(let config):
-      // Unchanged text keeps the stored config byte-for-byte (no spurious "totp" revision).
-      if totpText != draft.totp?.otpauthURI { draft.totp = config }
-    case .failure(let failure):
-      error = "One-time code: " + Self.describe(failure)
+    let payload: AccountPayload
+    switch edited() {
+    case .success(let built): payload = built
+    case .failure(let problem):
+      error = problem.message
       return
     }
 
-    let payload = draft
     let failure: AppError?
     switch mode {
     case .create:
