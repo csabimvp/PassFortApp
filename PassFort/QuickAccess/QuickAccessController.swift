@@ -12,6 +12,8 @@ final class QuickAccessController {
   static let windowID = "quick-access"
   /// `UserDefaults` key for the Settings toggle — a preference, not a secret.
   static let enabledKey = "quickAccessHotKeyEnabled"
+  /// `UserDefaults` key for Settings ▸ General ▸ Show in menu bar (on by default).
+  static let menuBarKey = "showsMenuBarExtra"
   /// Shown in Settings and the Tools menu.
   static let shortcutDescription = "⌃⌥Space"
 

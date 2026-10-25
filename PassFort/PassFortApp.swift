@@ -6,6 +6,7 @@ struct PassFortApp: App {
   @State private var model: AppModel
   @State private var backup: BackupModel
   @State private var quickAccess = QuickAccessController()
+  @AppStorage(QuickAccessController.menuBarKey) private var showsMenuBarExtra = true
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
@@ -68,7 +69,7 @@ struct PassFortApp: App {
     .windowStyle(.hiddenTitleBar)
     .defaultPosition(.center)
 
-    MenuBarExtra("PassFort", systemImage: "key.fill") {
+    MenuBarExtra("PassFort", systemImage: "key.fill", isInserted: $showsMenuBarExtra) {
       QuickAccessView()
         .environment(model)
         .tint(Palette.primary)

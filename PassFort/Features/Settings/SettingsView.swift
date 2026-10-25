@@ -8,6 +8,7 @@ struct SettingsView: View {
   /// Optional so previews that only inject `AppModel` keep working.
   @Environment(QuickAccessController.self) private var quickAccess: QuickAccessController?
   @AppStorage(QuickAccessController.enabledKey) private var quickAccessEnabled = true
+  @AppStorage(QuickAccessController.menuBarKey) private var showsMenuBarExtra = true
   @AppStorage("autoLockSeconds") private var autoLockSeconds = 300
   @AppStorage(Pasteboard.clearAfterKey) private var clearAfterSeconds = Pasteboard.defaultClearAfter
   @State private var cryptoStats: VaultRepository.CryptoStats?
@@ -40,8 +41,14 @@ struct SettingsView: View {
         )
         .onChange(of: quickAccessEnabled) { quickAccess?.applySetting() }
         if quickAccessEnabled, quickAccess?.hotKeyAvailable == false {
-          Text("Another app is using this shortcut.").font(.caption).foregroundStyle(Palette.warning)
+          let elsewhere = showsMenuBarExtra ? "the menu bar and the Tools menu" : "the Tools menu"
+          Text(
+            "Another app is using \(QuickAccessController.shortcutDescription). Quick Access is "
+              + "still in \(elsewhere).")
+            .font(.caption).foregroundStyle(Palette.warning)
+            .fixedSize(horizontal: false, vertical: true)
         }
+        Toggle("Show in menu bar", isOn: $showsMenuBarExtra)
 
         Button("Lock now") { model.lock() }
           .disabled(!unlocked)
