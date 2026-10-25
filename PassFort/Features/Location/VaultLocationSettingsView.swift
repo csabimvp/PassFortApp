@@ -11,6 +11,7 @@ struct VaultLocationSettingsView: View {
   @State private var confirmingDefault = false
   @State private var startingNewVault = false
   @State private var loadingVault = false
+  @State private var joiningVault = false
 
   private var canChange: Bool {
     model.state.allowsFileMoves && !location.isBusy && !location.needsRelaunch
@@ -49,11 +50,14 @@ struct VaultLocationSettingsView: View {
         HStack {
           Button("Start a New Vault…") { startingNewVault = true }
           Button("Load Vault…") { loadingVault = true }
+          Button("Join a Synced Vault…") { joiningVault = true }
+            .disabled(!model.syncAvailable)
         }
         .disabled(model.state != .unlocked || location.isBusy || location.needsRelaunch)
         Text(
           "Start a New Vault puts an empty vault in this one's place; Load Vault puts one from a "
-            + "file there. Either way the current vault is kept beside it, never deleted. Unlock "
+            + "file there; Join a Synced Vault downloads one another device syncs. Either way the "
+            + "current vault is kept beside it, never deleted, with its own sync settings. Unlock "
             + "the vault first.")
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -67,6 +71,9 @@ struct VaultLocationSettingsView: View {
     }
     .sheet(isPresented: $loadingVault) {
       LoadVaultView().environment(model).environment(backup).environment(location)
+    }
+    .sheet(isPresented: $joiningVault) {
+      JoinVaultView(mode: .replacingVault).environment(model).environment(backup)
     }
     .alert(
       "Move the vault?", isPresented: Binding(get: { pendingFolder != nil }, set: { if !$0 { pendingFolder = nil } }),

@@ -10,6 +10,7 @@ struct CreateVaultView: View {
   @State private var withRecovery = true
   @State private var working = false
   @State private var error: AppError?
+  @State private var joining = false
 
   private var passwordsMatch: Bool { !password.isEmpty && password == confirm }
 
@@ -47,11 +48,18 @@ struct CreateVaultView: View {
       HStack {
         Text("Setting up a new Mac?").font(.caption).foregroundStyle(.secondary)
         RestoreBackupButton().buttonStyle(.link).font(.caption)
+        Text("or").font(.caption).foregroundStyle(.secondary)
+        Button("Join a Synced Vault…") { joining = true }
+          .buttonStyle(.link).font(.caption)
+          .disabled(!model.syncAvailable)
       }
     }
     .padding(32)
     .frame(width: 400)
     .disabled(working)
+    .sheet(isPresented: $joining) {
+      JoinVaultView(mode: .firstRun).environment(model)
+    }
   }
 
   private func create() {

@@ -18,3 +18,26 @@ struct SyncEndpointTests {
     #expect(SyncEndpoint.parse(text) == nil)
   }
 }
+
+/// The join invite a QR code carries.
+struct SyncInviteTests {
+  @Test func anInviteRoundTripsThroughItsURL() throws {
+    let invite = SyncInvite(
+      endpoint: try #require(URL(string: "https://site.azurestaticapps.net/api/v1")),
+      vaultID: UUID())
+    #expect(invite.url.scheme == "passfort")
+    #expect(SyncInvite.parse(invite.url.absoluteString) == invite)
+    #expect(SyncInvite.parse("  \(invite.url.absoluteString)\n") == invite)
+  }
+
+  @Test(arguments: [
+    "https://site.azurestaticapps.net/api/v1",
+    "passfort://join?endpoint=https://site/api/v1",
+    "passfort://join?vault=6f1c1f9e-2a7d-4e5b-9c3a-1b2c3d4e5f60",
+    "passfort://join?endpoint=ftp://site&vault=6f1c1f9e-2a7d-4e5b-9c3a-1b2c3d4e5f60",
+    "passfort://open?endpoint=https://site/api/v1&vault=6f1c1f9e-2a7d-4e5b-9c3a-1b2c3d4e5f60",
+  ])
+  func incompleteOrForeignLinksAreNotInvites(text: String) {
+    #expect(SyncInvite.parse(text) == nil)
+  }
+}
