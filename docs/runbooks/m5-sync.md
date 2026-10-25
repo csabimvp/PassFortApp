@@ -1421,6 +1421,46 @@ on one, join on the other; an edit appears on the other within a minute while bo
 offline edit on both surfaces a badged copy on both, resolvable from either; airplane mode shows
 "Offline", not an error; locking mid-sync leaves a vault that unlocks and verifies.
 
+**Built (2026-10-25); the checkpoint is pending.** Everything in 13.1–13.3, each view its own
+commit. `swift test` green (262 + 16), `xcodebuild test` green (the 13.2 cases plus join, devices,
+join-in-place, the A.8 banner, and a lock-during-a-run regression), lint clean. The two-Mac checkpoint
+needs the deployed endpoint and its enrollment secret, so it is the maintainer's to run: Settings ▸
+Sync on one Mac, Join a Synced Vault on the other (or `passfort-cli sync join` as the second device).
+Where it differs from the text above:
+
+- **Several vaults, one server.** The server already keeps one partition per vault, so nothing
+  server-side changed. Sync lives in each vault's file (`sync_config`), not on the Mac: Settings ▸
+  Sync turns it on for the open vault, and Settings ▸ Vault gains **Join a Synced Vault…** beside
+  Start a New Vault and Load Vault (`AppModel.joinVaultInPlace`). The open vault is set aside and
+  kept, as those two do, with its sync settings, and loading it again resumes its sync. A failed
+  join puts it back.
+- **`SyncController` exists for every unlocked vault**, with sync on or off (`status == .off`), so
+  Settings can turn it on; 13.2 said "when `sync_config` exists". No wake trigger: the app locks on
+  sleep, and unlock already triggers a run.
+- **Settings ▸ Sync is a tab**, beside General / Vault / Backup, not a section after Security.
+- **Pins ship in the bundle** (`PassFort/Sync/SyncPins.txt`: the Microsoft TLS RSA Root G2 and
+  today's G2 issuing CA, hashes only) rather than an `Info.plist` key, which would have needed a
+  hand-edited project file. A chain matching neither stops sync with `pinningFailed`; updating
+  the pins means updating the app, as A.11 says.
+- **The network entitlement is in `PassFort.entitlements`** (`com.apple.security.network.client`),
+  not the build setting -- same effect, and no `project.pbxproj` edit; the signed app carries it.
+- **Conflicts:** `VaultRepository.resolveConflict(copy:_:)` (`keepCopy` / `keepOriginal` /
+  `keepBoth`) settles a copy in one commit. Keeping a copy whose original was deleted and already
+  purged makes the copy an ordinary account. The banner says "Accept the Delete" when the other
+  device deleted the account.
+- **The join invite** is `passfort://join?endpoint=…&vault=…` (`SyncInvite`): pasted into the join
+  sheet it fills both fields, and the Add a Device QR code carries it for M7. No secret in it.
+- **The `AppModelTests` cases** run against `MemorySyncServer` in `PassFortTests/`, a lean fake on
+  the public API: the package's `FakeSyncServer` is `@testable`-only, and sharing it would need a
+  new package product linked through the Xcode project. Every DTO gained a public init for it.
+- **Not built:** A.9's one-click "Re-upload this Mac's vault". `SyncEngine.enable` only creates a
+  vault under a new id, so the problem sheet points at turning sync off and on (other devices then
+  join again). Also not built: renaming this Mac (`DeviceIdentity` has no save yet).
+- **Found while building:** a lock with a run in flight released the vault late, on whatever task
+  dropped it last, and an unlock straight after could fail with `database is locked`; restore and
+  move had the same window. `SyncController.stop()` now waits for its tasks and releases the vault
+  on the main actor, and every path that opens or moves the vault waits for it.
+
 ---
 
 ## Phase 14 — Tests, CI, and the doc sweep
