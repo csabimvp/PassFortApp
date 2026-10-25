@@ -11,6 +11,7 @@ struct ConflictBanner: View {
 
   @State private var working = false
   @State private var error: String?
+  @State private var comparing = false
 
   private var originalID: UUID? { copy.payload.conflictOf }
 
@@ -50,10 +51,14 @@ struct ConflictBanner: View {
         Button("Keep Both") { resolve(.keepBoth) }
           .help("This copy becomes an account of its own.")
         Spacer()
+        Button("Compare…") { comparing = true }
       }
       .disabled(working)
     }
     .padding(.vertical, 4)
+    .sheet(isPresented: $comparing) {
+      ConflictCompareView(copy: copy).environment(model)
+    }
   }
 
   private var explanation: String {
