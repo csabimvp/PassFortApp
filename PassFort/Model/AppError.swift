@@ -33,6 +33,8 @@ enum AppError: Error, Equatable {
   /// Something else is using the vault's files right now (a backup mid-run). The value is the full
   /// sentence to show.
   case notNow(String)
+  /// Sync couldn't do what was asked (`SyncError.message`). The value is the full sentence to show.
+  case sync(String)
   /// Anything else — I/O, an unexpected status.
   case io(String)
 
@@ -56,7 +58,7 @@ enum AppError: Error, Equatable {
     case .rolledBack(let fileVersion, let lastSeen):
       return "This vault is v\(fileVersion); this Mac last saw v\(lastSeen). It looks rolled back."
     case .locationNotAllowed(let reason), .importRefused(let reason), .loadRefused(let reason),
-      .notNow(let reason):
+      .notNow(let reason), .sync(let reason):
       return reason
     case .notABackup:
       return "That file isn't a PassFort vault backup."

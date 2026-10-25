@@ -12,12 +12,14 @@ import PassFortVault
 nonisolated struct VaultService {
   /// This install's device (`m5-sync.md` A.5): `Application Support/PassFort/device.json` in
   /// the container, created on first launch and kept outside the vault file, so a copied or
-  /// restored vault never clones it. It stamps every write's HLC. If the file can't be read or
-  /// written, this run stamps with a fresh id that isn't kept -- harmless for local writes; sync
-  /// (Phase 13) needs the stored one.
-  static let deviceID: UUID =
-    (try? DeviceIdentity.loadOrCreate(at: DeviceIdentity.defaultURL, name: DeviceIdentity.hostName))?
-    .id ?? UUID()
+  /// restored vault never clones it. It stamps every write's HLC and names this Mac to the sync
+  /// server. `nil` if the file can't be read or written: local writes then stamp with a fresh id
+  /// that isn't kept, which is harmless, and sync refuses to start -- a server would see a new
+  /// device on every launch.
+  static let storedDevice: DeviceIdentity? = try? DeviceIdentity.loadOrCreate(
+    at: DeviceIdentity.defaultURL, name: DeviceIdentity.hostName)
+
+  static let deviceID: UUID = storedDevice?.id ?? UUID()
 
   /// Sandboxed, so this resolves inside the app's container
   /// (`~/Library/Containers/…/Application Support/PassFort/vault.sqlite`), not the
@@ -77,6 +79,16 @@ nonisolated struct VaultService {
     } catch {
       throw Self.map(error)
     }
+  }
+
+  /// Build this path's vault from a synced one (`Vault.join`): the server's header, unlocked with
+  /// `password`, and sync configured. The first sync run downloads the records.
+  func join(
+    api: any SyncAPI, endpoint: URL, vaultID: UUID, password: Data, deviceID: UUID
+  ) async throws -> VaultRepository {
+    try await Vault.join(
+      databasePath: databasePath, password: password, api: api, endpoint: endpoint,
+      vaultID: vaultID, deviceID: deviceID, highWater: highWater)
   }
 
   /// The GUI's `verify --accept-restore`: clear the anti-rollback mark so the next

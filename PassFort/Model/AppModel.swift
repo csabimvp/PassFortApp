@@ -48,10 +48,31 @@ final class AppModel {
   /// an open session behind.
   private(set) var stagedRepo: VaultRepository?
 
-  init(databasePath: String = VaultDatabase.defaultPath, highWaterURL: URL? = nil) {
+  /// Sync for the open vault (`m5-sync.md` A.11): non-nil exactly while `repo` is, whether sync
+  /// is on or off, so Settings can turn it on. Stopped and dropped by `lock()`.
+  private(set) var sync: SyncController?
+  /// Another device changed the master password or recovery key, and this unlock's password
+  /// opened only the old header (A.8). Kept across a lock, so the Unlock screen can say so.
+  private(set) var headerChangedElsewhere = false
+
+  private let syncAPI: SyncController.MakeAPI
+  /// This Mac to the sync server; `nil` (the device file can't be read or written) leaves sync
+  /// unavailable rather than registering a new device on every launch.
+  private let device: DeviceIdentity?
+
+  init(
+    databasePath: String = VaultDatabase.defaultPath, highWaterURL: URL? = nil,
+    syncAPI: @escaping SyncController.MakeAPI = SyncTransport.api,
+    device: DeviceIdentity? = VaultService.storedDevice
+  ) {
     self.service = VaultService(databasePath: databasePath, highWaterURL: highWaterURL)
+    self.syncAPI = syncAPI
+    self.device = device
     self.state = service.exists() ? .locked() : .needsVault
   }
+
+  /// Whether this Mac can sync at all -- it has a stored device identity.
+  var syncAvailable: Bool { device != nil }
 
   // MARK: - Transitions
 
@@ -114,6 +135,8 @@ final class AppModel {
   func lock() {
     autoLock?.invalidate()
     autoLock = nil
+    sync?.cancel()
+    sync = nil
     repo = nil
     stagedRepo = nil
     summaries = []
@@ -151,6 +174,7 @@ final class AppModel {
   func rotateRecoveryKey() async {
     guard case .unlocked = state, let repo else { return }
     guard let key = try? await repo.rotateRecoveryKey() else { return }
+    sync?.localChange()  // the new header goes to the server (A.8)
     stagedRepo = repo
     state = .showingRecoveryKey(key)
   }
@@ -160,9 +184,10 @@ final class AppModel {
   func changePassword(current: Data, new: Data, issueRecoveryKey: Bool) async -> AppError? {
     guard case .unlocked = state, let repo else { return .io("The vault is locked.") }
     do {
-      if let key = try await repo.changePassword(
+      let key = try await repo.changePassword(
         current: current, new: new, issueRecoveryKey: issueRecoveryKey)
-      {
+      sync?.localChange()  // the new header goes to the server (A.8)
+      if let key {
         stagedRepo = repo
         state = .showingRecoveryKey(key)
       }
@@ -279,6 +304,7 @@ final class AppModel {
     if let reason = hooks.begin() { return .failure(.notNow(reason)) }
     defer { hooks.end() }
 
+    await sync?.stop()  // a sync run in flight holds the vault open
     weak let released = repo
     lock()
     // A spinner on the Unlock screen, and no unlock attempt while the files move.
@@ -331,6 +357,74 @@ final class AppModel {
   /// `nil` while locked.
   func cryptoStats() async -> VaultRepository.CryptoStats? {
     await repo?.cryptoStats()
+  }
+
+  // MARK: - Sync
+
+  /// First run (`.needsVault`): join a vault another device put on the sync server (A.11
+  /// `join`) -- fetch its header, unlock it with `password`, build this Mac's vault on it, and
+  /// let the first sync download every record. Returns why not, or `nil` on success.
+  @discardableResult
+  func joinVault(endpoint: URL, vaultID: UUID, password: Data) async -> AppError? {
+    guard case .needsVault = state else { return nil }
+    do {
+      try await adoptUnlocked(try await join(endpoint: endpoint, vaultID: vaultID, password: password))
+      return nil
+    } catch {
+      return Self.joinFailure(error)
+    }
+  }
+
+  /// Settings ▸ Vault ▸ Join a Synced Vault: as `joinVault`, in place of the open vault, whose
+  /// files are set aside and kept -- they come back if the join fails. Each vault keeps its own
+  /// sync settings in its file, so loading the old one again later resumes its sync.
+  ///
+  /// - Returns: the path the old vault was kept at, or why nothing changed.
+  func joinVaultInPlace(
+    endpoint: URL, vaultID: UUID, password: Data, _ hooks: ReplaceVaultHooks? = nil
+  ) async -> Result<String, AppError> {
+    do {
+      _ = try syncAPI(endpoint)  // refuse an insecure endpoint before anything moves
+    } catch {
+      return .failure(Self.joinFailure(error))
+    }
+    let result = await replaceVault(label: "pre-join", hooks) {
+      do {
+        return (try await join(endpoint: endpoint, vaultID: vaultID, password: password), nil)
+      } catch {
+        throw Self.joinFailure(error)
+      }
+    }
+    return result
+  }
+
+  private func join(endpoint: URL, vaultID: UUID, password: Data) async throws -> VaultRepository {
+    guard let device else {
+      throw AppError.sync("PassFort can't store this Mac's device identity, so it can't sync.")
+    }
+    return try await service.join(
+      api: try syncAPI(endpoint), endpoint: endpoint, vaultID: vaultID, password: password,
+      deviceID: device.id)
+  }
+
+  private static func joinFailure(_ error: Error) -> AppError {
+    switch error {
+    case let error as AppError: error
+    case let error as SyncError: .sync(error.message)
+    default: VaultService.map(error)  // a wrong password or a forged header: `.wrongPassword`
+    }
+  }
+
+  /// Settle a conflict copy: keep it, keep the original, or keep both (A.11).
+  func resolveConflict(
+    copy id: UUID, _ resolution: VaultRepository.ConflictResolution
+  ) async -> AppError? {
+    await write { try await $0.resolveConflict(copy: id, resolution) }
+  }
+
+  /// The live conflict copies, newest first -- the sidebar's Conflicts list.
+  var conflictSummaries: [AccountSummary] {
+    summaries.filter { $0.isConflict && !$0.isDeleted }.sorted { $0.lastUpdated > $1.lastUpdated }
   }
 
   // MARK: - Account reads
@@ -472,6 +566,7 @@ final class AppModel {
       try await body(repo)
       writeCounter &+= 1
       await refreshSummaries()
+      sync?.localChange()
       return nil
     } catch VaultError.staleWrite {
       return .io("This account changed elsewhere. Reopen it and try again.")
@@ -483,10 +578,33 @@ final class AppModel {
   // MARK: - Internal
 
   private func adoptUnlocked(_ repo: VaultRepository) async throws {
+    let isNewSession = self.repo !== repo || sync == nil
     self.repo = repo
     self.summaries = try await repo.summaries()
     self.autoLock?.invalidate()
     self.autoLock = AutoLock(timeout: .seconds(autoLockSeconds)) { [weak self] in self?.lock() }
     self.state = .unlocked
+    // Back from showing a rotated recovery key, the open vault -- and its sync -- carry on.
+    guard isNewSession else { return }
+    headerChangedElsewhere = (try? await repo.headerChangedElsewhere()) ?? false
+    sync?.cancel()
+    sync = device.map { device in
+      SyncController(
+        repository: repo, device: DeviceDTO(device, platform: .macos), makeAPI: syncAPI
+      ) { [weak self] pulled in
+        await self?.syncDidRun(pulled: pulled)
+      }
+    }
+    await sync?.start()
+  }
+
+  /// After a sync run: rebuild the index if records came in, and pick up a header change another
+  /// device made (A.8). A changed index bumps `writeCounter`, so an open detail view re-decrypts.
+  private func syncDidRun(pulled: Bool) async {
+    guard let repo else { return }
+    headerChangedElsewhere = (try? await repo.headerChangedElsewhere()) ?? headerChangedElsewhere
+    guard pulled, let fresh = try? await repo.summaries(), fresh != summaries else { return }
+    summaries = fresh
+    writeCounter &+= 1
   }
 }
