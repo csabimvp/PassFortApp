@@ -97,6 +97,25 @@ struct AppModelSyncTests {
     #expect(a.writeCounter != before, "an open detail view re-decrypts")
   }
 
+  @Test func devicesAreListedAndAnotherCanBeRemoved() async throws {
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let (a, vaultID) = try await enabledA()
+    let b = model("B")
+    _ = await b.joinVault(endpoint: Self.endpoint, vaultID: vaultID, password: password)
+    await b.sync?.syncNow()
+
+    let sync = try #require(a.sync)
+    try await sync.refreshDevices()
+    #expect(Set(sync.devices.map(\.name)) == ["A", "B"])
+    #expect(sync.devices.allSatisfy { $0.platform == .macos })
+
+    let other = try #require(sync.devices.first { $0.id != sync.device.id })
+    try await sync.removeDevice(other.id)
+    #expect(sync.devices.map(\.name) == ["A"])
+    try await sync.refreshDevices()
+    #expect(sync.devices.map(\.name) == ["A"])
+  }
+
   // MARK: - Conflicts
 
   @Test func conflictCopyAppearsInSummaries() async throws {

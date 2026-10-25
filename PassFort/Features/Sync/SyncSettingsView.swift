@@ -122,6 +122,8 @@ struct SyncSettingsView: View {
         value: state.enabledAt.formatted(date: .abbreviated, time: .shortened))
     }
 
+    DevicesList(sync: sync)
+
     Section {
       failure
       HStack {
