@@ -36,8 +36,9 @@ final class SyncController {
   /// on whichever task happens to drop it last, while the next unlock opens the file.
   private var repository: VaultRepository?
   private let makeAPI: MakeAPI
-  /// Called after a run that may have changed the records, so the model can rebuild its index.
-  private let didRun: @MainActor (_ pulled: Bool) async -> Void
+  /// Called after every run; `changed` when it committed record changes (the vault version
+  /// moved), so the model rebuilds its index only then.
+  private let didRun: @MainActor (_ changed: Bool) async -> Void
 
   private var engine: SyncEngine?
   private var runTask: Task<Void, Never>?
@@ -58,7 +59,7 @@ final class SyncController {
 
   init(
     repository: VaultRepository, device: DeviceDTO, makeAPI: @escaping MakeAPI,
-    didRun: @escaping @MainActor (_ pulled: Bool) async -> Void
+    didRun: @escaping @MainActor (_ changed: Bool) async -> Void
   ) {
     self.repository = repository
     self.device = device
@@ -194,10 +195,11 @@ final class SyncController {
       return
     }
 
-    var pulled = true  // after a failure, pages may have landed before it
+    // Pages may land before a run fails, and a pull of echoes changes nothing: the vault version
+    // says which.
+    let before = try? await repository?.vaultVersion()
     do {
-      let report = try await engine.run()
-      pulled = report.pulled > 0
+      try await engine.run()
       backoff = 0
       holdOffUntil = nil
     } catch let error as SyncError {
@@ -207,7 +209,8 @@ final class SyncController {
     }
     guard !stopped else { return }
     await refreshState()
-    await didRun(pulled)
+    let after = try? await repository?.vaultVersion()
+    await didRun(before == nil || after != before)
   }
 
   /// What a failed run means for the next automatic one.
@@ -340,60 +343,5 @@ nonisolated enum SyncTransport {
 
   static let api: SyncController.MakeAPI = { endpoint in
     try HTTPSyncAPI(endpoint: endpoint, pins: pins)
-  }
-}
-
-// MARK: - Problems
-
-extension SyncError {
-  /// A problem the next automatic run won't fix: sync pauses until the user acts (A.11).
-  var pausesSync: Bool {
-    switch self {
-    case .unauthorized, .forbidden, .notFound, .serverRollback, .tamperedRecord, .pinningFailed,
-      .insecureEndpoint, .noPins, .redirectRefused, .invalidResponse, .badRequest, .tooLarge:
-      true
-    case .offline, .rateLimited, .server, .conflicts, .resyncRequired, .vaultExists,
-      .headerConflict, .headerChangedElsewhere, .notEnabled:
-      false
-    }
-  }
-
-  /// One plain sentence for the footer, a sheet or an alert. Never carries a body or a key.
-  var message: String {
-    switch self {
-    case .insecureEndpoint:
-      "PassFort only syncs over https. Plain http is allowed for localhost only."
-    case .noPins:
-      "This copy of PassFort has no certificate pins, so it can't check the server."
-    case .offline: "The sync server can't be reached."
-    case .pinningFailed:
-      "The server's certificate doesn't match the pins this copy of PassFort trusts. Sync is "
-        + "paused. Update PassFort; never bypass the check."
-    case .redirectRefused: "The server answered with a redirect, which PassFort refuses."
-    case .invalidResponse: "The server's answer doesn't match what PassFort expects."
-    case .badRequest: "The server refused a request as malformed."
-    case .unauthorized:
-      "The server doesn't accept this vault's key. It may have been recreated. Turn sync off and "
-        + "on again."
-    case .forbidden: "That enrollment secret is wrong."
-    case .notFound: "The server has no such vault. Check the vault id, or whether it was deleted."
-    case .vaultExists: "This vault already syncs."
-    case .conflicts: "Other devices kept changing the same accounts. PassFort will try again."
-    case .headerConflict, .headerChangedElsewhere:
-      "The master password or recovery key was changed on another device. Unlock with the new "
-        + "password to finish updating this Mac."
-    case .resyncRequired: "The server needs a full resync. PassFort will do one."
-    case .tooLarge: "An account is too large to sync. Shorten its notes or history."
-    case .rateLimited(let after):
-      "The server asked PassFort to wait \(Int(after.rounded(.up))) seconds."
-    case .server(let status, _): "The sync server had an error (\(status)). PassFort will retry."
-    case .notEnabled: "Sync is off for this vault."
-    case .serverRollback:
-      "The server has less than this Mac already received: it was rolled back or replaced. Sync "
-        + "is paused, and nothing was changed here."
-    case .tamperedRecord:
-      "An account from the server failed its integrity check, so nothing from that batch was "
-        + "applied. If this happens again, treat the server as compromised."
-    }
   }
 }

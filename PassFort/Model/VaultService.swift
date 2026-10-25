@@ -26,14 +26,19 @@ nonisolated struct VaultService {
   /// path the CLI uses. They converge in M5 (sync).
   let databasePath: String
 
+  /// The device every write here is stamped with -- the one sync names to the server, which
+  /// `SyncEngine` requires to be the same.
+  let deviceID: UUID
+
   /// Where the anti-rollback mark lives. `nil` is the default, the `<db>.hw` sidecar beside the
   /// vault; a vault in a user-chosen folder keeps its mark in the app's own storage instead
   /// (`VaultLocation.customHighWaterURL`).
   let highWaterURL: URL?
 
-  init(databasePath: String, highWaterURL: URL? = nil) {
+  init(databasePath: String, highWaterURL: URL? = nil, deviceID: UUID = Self.deviceID) {
     self.databasePath = databasePath
     self.highWaterURL = highWaterURL
+    self.deviceID = deviceID
   }
 
   private var highWater: HighWaterMark? { highWaterURL.map(HighWaterMark.init(url:)) }
@@ -57,12 +62,12 @@ nonisolated struct VaultService {
     do {
       if recovery {
         let (repo, key) = try await Vault.createWithRecovery(
-          databasePath: databasePath, password: password, params: params, deviceID: Self.deviceID,
+          databasePath: databasePath, password: password, params: params, deviceID: deviceID,
           highWater: highWater)
         return (repo, key)
       }
       let repo = try await Vault.create(
-        databasePath: databasePath, password: password, params: params, deviceID: Self.deviceID,
+        databasePath: databasePath, password: password, params: params, deviceID: deviceID,
         highWater: highWater)
       return (repo, nil)
     } catch {
@@ -74,7 +79,7 @@ nonisolated struct VaultService {
   func unlock(password: Data) async throws -> VaultRepository {
     do {
       return try await Vault.unlock(
-        databasePath: databasePath, password: password, deviceID: Self.deviceID,
+        databasePath: databasePath, password: password, deviceID: deviceID,
         highWater: highWater)
     } catch {
       throw Self.map(error)
@@ -84,7 +89,7 @@ nonisolated struct VaultService {
   /// Build this path's vault from a synced one (`Vault.join`): the server's header, unlocked with
   /// `password`, and sync configured. The first sync run downloads the records.
   func join(
-    api: any SyncAPI, endpoint: URL, vaultID: UUID, password: Data, deviceID: UUID
+    api: any SyncAPI, endpoint: URL, vaultID: UUID, password: Data
   ) async throws -> VaultRepository {
     try await Vault.join(
       databasePath: databasePath, password: password, api: api, endpoint: endpoint,
@@ -177,7 +182,7 @@ nonisolated struct VaultService {
     do {
       _ = try await Vault.unlock(
         databasePath: staged.path(percentEncoded: false), password: password,
-        deviceID: Self.deviceID, highWater: scratchMark)
+        deviceID: deviceID, highWater: scratchMark)
     } catch {
       throw Self.map(error)
     }

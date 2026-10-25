@@ -146,13 +146,3 @@ struct SyncStatusDisplay: Equatable {
     }
   }
 }
-
-extension SyncError {
-  /// The next automatic run may well succeed: nothing to do but wait.
-  var retriesByItself: Bool {
-    switch self {
-    case .server, .rateLimited, .conflicts, .resyncRequired, .offline: true
-    default: false
-    }
-  }
-}

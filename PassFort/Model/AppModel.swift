@@ -69,7 +69,9 @@ final class AppModel {
     syncAPI: @escaping SyncController.MakeAPI = SyncTransport.api,
     device: DeviceIdentity? = VaultService.storedDevice
   ) {
-    self.service = VaultService(databasePath: databasePath, highWaterURL: highWaterURL)
+    self.service = VaultService(
+      databasePath: databasePath, highWaterURL: highWaterURL,
+      deviceID: device?.id ?? VaultService.deviceID)
     self.syncAPI = syncAPI
     self.device = device
     self.state = service.exists() ? .locked() : .needsVault
@@ -141,10 +143,7 @@ final class AppModel {
   func lock() {
     autoLock?.invalidate()
     autoLock = nil
-    if let sync {
-      sync.cancel()
-      retiringSync = Task { await sync.stop() }
-    }
+    retire(sync)
     sync = nil
     repo = nil
     stagedRepo = nil
@@ -167,6 +166,7 @@ final class AppModel {
   /// Create if there still is none.
   func reloadAfterRestore() {
     lock()
+    headerChangedElsewhere = false  // the restored file may be another vault altogether
     state = service.exists() ? .locked() : .needsVault
   }
 
@@ -320,10 +320,8 @@ final class AppModel {
     if let reason = hooks.begin() { return .failure(.notNow(reason)) }
     defer { hooks.end() }
 
-    await sync?.stop()  // a sync run in flight holds the vault open
     weak let released = repo
-    lock()
-    await retireSync()
+    await lockAndRelease()  // a sync run in flight holds the vault open
     // A spinner on the Unlock screen, and no unlock attempt while the files move.
     state = .unlocking
     await Task.yield()  // let the released vault's connection close before its files move
@@ -386,7 +384,9 @@ final class AppModel {
     guard case .needsVault = state else { return nil }
     await retireSync()
     do {
-      try await adoptUnlocked(try await join(endpoint: endpoint, vaultID: vaultID, password: password))
+      let api = try joinAPI(endpoint)
+      try await adoptUnlocked(
+        try await join(api, endpoint: endpoint, vaultID: vaultID, password: password))
       return nil
     } catch {
       return Self.joinFailure(error)
@@ -401,28 +401,33 @@ final class AppModel {
   func joinVaultInPlace(
     endpoint: URL, vaultID: UUID, password: Data, _ hooks: ReplaceVaultHooks? = nil
   ) async -> Result<String, AppError> {
+    let api: any SyncAPI
     do {
-      _ = try syncAPI(endpoint)  // refuse an insecure endpoint before anything moves
+      api = try joinAPI(endpoint)  // refused before anything moves
     } catch {
       return .failure(Self.joinFailure(error))
     }
-    let result = await replaceVault(label: "pre-join", hooks) {
+    return await replaceVault(label: "pre-join", hooks) {
       do {
-        return (try await join(endpoint: endpoint, vaultID: vaultID, password: password), nil)
+        return (try await join(api, endpoint: endpoint, vaultID: vaultID, password: password), nil)
       } catch {
         throw Self.joinFailure(error)
       }
     }
-    return result
   }
 
-  private func join(endpoint: URL, vaultID: UUID, password: Data) async throws -> VaultRepository {
-    guard let device else {
+  /// The client to join through: refuses an insecure endpoint, or a Mac without a device identity.
+  private func joinAPI(_ endpoint: URL) throws -> any SyncAPI {
+    guard device != nil else {
       throw AppError.sync("PassFort can't store this Mac's device identity, so it can't sync.")
     }
-    return try await service.join(
-      api: try syncAPI(endpoint), endpoint: endpoint, vaultID: vaultID, password: password,
-      deviceID: device.id)
+    return try syncAPI(endpoint)
+  }
+
+  private func join(
+    _ api: any SyncAPI, endpoint: URL, vaultID: UUID, password: Data
+  ) async throws -> VaultRepository {
+    try await service.join(api: api, endpoint: endpoint, vaultID: vaultID, password: password)
   }
 
   private static func joinFailure(_ error: Error) -> AppError {
@@ -438,11 +443,6 @@ final class AppModel {
     copy id: UUID, _ resolution: VaultRepository.ConflictResolution
   ) async -> AppError? {
     await write { try await $0.resolveConflict(copy: id, resolution) }
-  }
-
-  /// The live conflict copies, newest first -- the sidebar's Conflicts list.
-  var conflictSummaries: [AccountSummary] {
-    summaries.filter { $0.isConflict && !$0.isDeleted }.sorted { $0.lastUpdated > $1.lastUpdated }
   }
 
   // MARK: - Account reads
@@ -605,15 +605,27 @@ final class AppModel {
     // Back from showing a rotated recovery key, the open vault -- and its sync -- carry on.
     guard isNewSession else { return }
     headerChangedElsewhere = (try? await repo.headerChangedElsewhere()) ?? false
-    sync?.cancel()
+    retire(sync)
     sync = device.map { device in
       SyncController(
         repository: repo, device: DeviceDTO(device, platform: .macos), makeAPI: syncAPI
-      ) { [weak self] pulled in
-        await self?.syncDidRun(pulled: pulled)
+      ) { [weak self] changed in
+        await self?.syncDidRun(changed: changed)
       }
     }
     await sync?.start()
+  }
+
+  /// Stop `sync` now, and let it finish letting go of its vault in the background --
+  /// `retireSync` waits for that.
+  private func retire(_ sync: SyncController?) {
+    guard let sync else { return }
+    sync.cancel()
+    let previous = retiringSync
+    retiringSync = Task {
+      await previous?.value
+      await sync.stop()
+    }
   }
 
   /// Wait until the previous vault's sync has let go of it.
@@ -622,12 +634,12 @@ final class AppModel {
     retiringSync = nil
   }
 
-  /// After a sync run: rebuild the index if records came in, and pick up a header change another
+  /// After a sync run: rebuild the index if records changed, and pick up a header change another
   /// device made (A.8). A changed index bumps `writeCounter`, so an open detail view re-decrypts.
-  private func syncDidRun(pulled: Bool) async {
+  private func syncDidRun(changed: Bool) async {
     guard let repo else { return }
     headerChangedElsewhere = (try? await repo.headerChangedElsewhere()) ?? headerChangedElsewhere
-    guard pulled, let fresh = try? await repo.summaries(), fresh != summaries else { return }
+    guard changed, let fresh = try? await repo.summaries(), fresh != summaries else { return }
     summaries = fresh
     writeCounter &+= 1
   }

@@ -116,6 +116,38 @@ struct AppModelSyncTests {
     #expect(sync.devices.map(\.name) == ["A"])
   }
 
+  @Test func writesAreStampedWithTheDeviceSyncNames() async throws {
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let (a, _) = try await enabledA()
+    _ = await a.createAccount(AccountPayload(title: "Stamped"))
+    let id = try #require(a.summaries.first?.id)
+    let account = try #require(try await a.repo?.account(id: id))
+    #expect(account.updatedAt.deviceID == a.sync?.device.id)
+  }
+
+  @Test func onlyRunsThatChangeRecordsRebuildTheIndex() async throws {
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let (a, vaultID) = try await enabledA()
+    _ = await a.createAccount(AccountPayload(title: "Mine"))
+    await a.sync?.syncNow()  // pushes
+    let counter = a.writeCounter
+    await a.sync?.syncNow()  // pulls the echo
+    #expect(a.writeCounter == counter, "an echo changes nothing")
+
+    await server.setOnRequest { _ in throw SyncError.offline }
+    await a.sync?.syncNow()
+    #expect(a.writeCounter == counter, "nor does a run that never reached the server")
+
+    await server.setOnRequest(nil)
+    let b = model("B")
+    _ = await b.joinVault(endpoint: Self.endpoint, vaultID: vaultID, password: password)
+    _ = await b.createAccount(AccountPayload(title: "Theirs"))
+    await b.sync?.syncNow()
+    await a.sync?.syncNow()
+    #expect(a.writeCounter != counter)
+    #expect(Set(a.summaries.map(\.title)) == ["Mine", "Theirs"])
+  }
+
   @Test func turningSyncOffWaitsOutARunAndDeletesTheServerCopy() async throws {
     defer { try? FileManager.default.removeItem(at: dir) }
     let (a, vaultID) = try await enabledA()
@@ -183,14 +215,15 @@ struct AppModelSyncTests {
 
     for model in [a, b] {
       #expect(model.summaries.count == 2)
-      #expect(model.conflictSummaries.count == 1)
+      #expect(accountRows(from: model.summaries, in: .conflicts, query: "").count == 1)
     }
 
-    let copy = try #require(a.conflictSummaries.first)
+    let copy = try #require(accountRows(from: a.summaries, in: .conflicts, query: "").first)
     #expect(await a.resolveConflict(copy: copy.id, .keepBoth) == nil)
     for model in [a, b] { await model.sync?.syncNow() }
-    #expect(a.conflictSummaries.isEmpty)
-    #expect(b.conflictSummaries.isEmpty)
+    for model in [a, b] {
+      #expect(accountRows(from: model.summaries, in: .conflicts, query: "").isEmpty)
+    }
   }
 
   // MARK: - A password changed on another Mac (A.8)
