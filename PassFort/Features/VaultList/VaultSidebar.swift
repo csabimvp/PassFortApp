@@ -44,6 +44,7 @@ struct VaultSidebar: View {
     .listStyle(.sidebar)
     .safeAreaInset(edge: .bottom, spacing: 0) {
       HStack {
+        SyncStatusFooter()
         Spacer()
         SettingsLink {
           Label("Settings", systemImage: "gearshape").labelStyle(.iconOnly)
