@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import PassFortVault
 import SwiftUI
 
 /// The `.locked` / `.unlocking` screen: a `SecureField` (with a Caps Lock warning), an Unlock
@@ -33,6 +34,15 @@ struct UnlockView: View {
         }
       }
       .frame(maxWidth: 280)
+
+      // A.8: another device changed the password; this Mac adopts it at an unlock that uses it.
+      if model.headerChangedElsewhere {
+        Label(SyncError.headerChangedElsewhere.message, systemImage: "info.circle")
+          .font(.callout)
+          .foregroundStyle(Palette.warning)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: 320)
+      }
 
       if case .locked(let error?) = model.state {
         errorBanner(error)

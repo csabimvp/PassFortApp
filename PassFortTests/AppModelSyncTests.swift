@@ -150,6 +150,34 @@ struct AppModelSyncTests {
     #expect(b.conflictSummaries.isEmpty)
   }
 
+  // MARK: - A password changed on another Mac (A.8)
+
+  @Test func aPasswordChangedElsewhereIsAdoptedAtTheUnlockThatUsesIt() async throws {
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let (a, vaultID) = try await enabledA()
+    let b = model("B")
+    _ = await b.joinVault(endpoint: Self.endpoint, vaultID: vaultID, password: password)
+    await b.sync?.syncNow()
+
+    let newPassword = Data("battery staple".utf8)
+    #expect(
+      await a.changePassword(current: password, new: newPassword, issueRecoveryKey: false) == nil)
+    await a.sync?.syncNow()
+    await b.sync?.syncNow()
+    #expect(b.headerChangedElsewhere, "B has the new header waiting")
+
+    b.lock()
+    await b.unlock(password: password)
+    #expect(b.state == .unlocked, "the old password still opens B's own header")
+    #expect(b.headerChangedElsewhere, "so the Unlock screen keeps saying so")
+
+    b.lock()
+    #expect(b.headerChangedElsewhere)
+    await b.unlock(password: newPassword)
+    #expect(b.state == .unlocked)
+    #expect(!b.headerChangedElsewhere, "the new header is adopted")
+  }
+
   // MARK: - Failures and locking
 
   @Test func syncErrorDoesNotLockOrDropTheSession() async throws {
