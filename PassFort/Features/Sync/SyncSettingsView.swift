@@ -127,11 +127,8 @@ struct SyncSettingsView: View {
           Text(state.vaultID.uuidString.lowercased())
             .font(.system(.caption, design: .monospaced))
             .textSelection(.enabled)
-          IconButton("Copy vault ID", systemImage: "doc.on.doc") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(
-              state.vaultID.uuidString.lowercased(), forType: .string)
-          }
+          CopyButton(
+            label: "Vault ID", value: state.vaultID.uuidString.lowercased(), kind: .plain)
           Spacer()
         }
       }

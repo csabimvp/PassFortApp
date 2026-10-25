@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A secret shown as dots until revealed, with a copy that clears itself (`copyTransient`) and no
+/// A secret shown as dots until revealed, with a copy that clears itself (`CopyButton`) and no
 /// text selection, so the only way out is the self-clearing copy. Every secret in the detail view
 /// goes through this, so none of them is on screen by default. The reveal is per row and dies
 /// with the row — the owning view gives the rows a fresh identity per account, so switching
@@ -33,9 +33,7 @@ struct ConcealedRow: View {
           revealed ? "Hide \(label.lowercased())" : "Reveal \(label.lowercased())",
           systemImage: revealed ? "eye.slash" : "eye"
         ) { revealed.toggle() }
-        IconButton("Copy \(label.lowercased())", systemImage: "doc.on.doc") {
-          Pasteboard.copyTransient(value)
-        }
+        CopyButton(label: label, value: value, kind: .secret)
       }
     }
   }

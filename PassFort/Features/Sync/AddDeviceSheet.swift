@@ -53,10 +53,7 @@ struct AddDeviceSheet: View {
           .font(.system(.caption, design: .monospaced))
           .textSelection(.enabled)
           .fixedSize(horizontal: false, vertical: true)
-        IconButton("Copy \(label.lowercased())", systemImage: "doc.on.doc") {
-          NSPasteboard.general.clearContents()
-          NSPasteboard.general.setString(value, forType: .string)
-        }
+        CopyButton(label: label, value: value, kind: .plain)
       }
     }
   }

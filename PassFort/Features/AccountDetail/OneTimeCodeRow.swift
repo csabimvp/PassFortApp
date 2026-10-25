@@ -22,9 +22,7 @@ struct OneTimeCodeRow: View {
             .foregroundStyle(remaining <= 5 ? Palette.danger : Color.secondary)
             .accessibilityHidden(true)
           Spacer()
-          IconButton("Copy one-time code", systemImage: "doc.on.doc") {
-            Pasteboard.copyTransient(code)
-          }
+          CopyButton(label: "One-time code", value: code, kind: .secret)
         }
       }
     }

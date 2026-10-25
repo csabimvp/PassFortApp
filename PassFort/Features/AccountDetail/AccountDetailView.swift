@@ -269,9 +269,7 @@ struct AccountDetailView: View {
       LabeledContent(label) {
         HStack(spacing: 6) {
           Text(value).textSelection(.enabled)
-          IconButton("Copy \(label.lowercased())", systemImage: "doc.on.doc") {
-            Pasteboard.copy(value)
-          }
+          CopyButton(label: label, value: value, kind: .value)
         }
       }
     }

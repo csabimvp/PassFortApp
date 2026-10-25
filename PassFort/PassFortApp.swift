@@ -10,6 +10,7 @@ struct PassFortApp: App {
   @State private var model: AppModel
   @State private var backup: BackupModel
   @State private var quickAccess = QuickAccessController()
+  @State private var copyNotice = CopyNotice()
   @AppStorage(QuickAccessController.menuBarKey) private var showsMenuBarExtra = true
   @Environment(\.scenePhase) private var scenePhase
 
@@ -37,6 +38,7 @@ struct PassFortApp: App {
         // Inside the environment below: the flow reads the models from it.
         .modifier(RestoreBackupFlow())
         .environment(model)
+        .environment(copyNotice)
         .environment(backup)
         .environment(location)
         .tint(Palette.primary)

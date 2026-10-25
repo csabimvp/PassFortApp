@@ -17,8 +17,9 @@ struct VaultListView: View {
   @State private var deleteError: String?
   @State private var togglingFavorite = false
   @State private var copyError: String?
-  /// The confirmation under the list after a copy ("Password copied…"), cleared after a moment.
-  @State private var copied: String?
+  /// The "… copied" toast under the list, shared with the detail column's copy buttons. Optional
+  /// so previews that only inject `AppModel` keep working.
+  @Environment(CopyNotice.self) private var copyNotice: CopyNotice?
   /// The last audit; re-run after every write. `nil` until the first run finishes.
   @State private var findings: [AuditFinding]?
   @FocusState private var searchFocused: Bool
@@ -169,8 +170,8 @@ struct VaultListView: View {
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       Group {
-        if let copied {
-          Toast(text: copied)
+        if let message = copyNotice?.message {
+          Toast(text: message)
         } else {
           Text(
             "\(AccountCommands.copyPasswordHint) password   "
@@ -290,12 +291,9 @@ struct VaultListView: View {
       copyError = failure.message
       return
     }
-    let message =
+    copyNotice?.show(
       "\(field.name.prefix(1).uppercased())\(field.name.dropFirst()) of "
-      + "“\(summary.title)” copied — clears in \(Pasteboard.clearAfterDescription)"
-    copied = message
-    try? await Task.sleep(for: .seconds(2))
-    if copied == message { copied = nil }
+        + "“\(summary.title)” copied — clears in \(Pasteboard.clearAfterDescription)")
   }
 }
 
