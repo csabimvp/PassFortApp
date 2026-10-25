@@ -6,6 +6,7 @@ The app's visual design: the colour tokens the build uses, and the mockups they 
 |---|---|---|
 | `tokens.json` | Every app colour, light and dark: brand, success / warning / danger / favorite, and the five category families | Yes, through `scripts/gen_palette.swift`, `scripts/make_icon.swift` and `scripts/make_readme_art.swift` |
 | `mockups/` | The design canvas the palette was worked out on (2026-10-22). Gitignored, local only | No, reference only |
+| `settings-review.md` | UI/UX review of the Settings window, with a proposed layout (2026-10-25) | No, reference only |
 
 ## Changing a colour
 
