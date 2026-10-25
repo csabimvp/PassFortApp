@@ -17,9 +17,7 @@ struct SyncSettingsView: View {
   var body: some View {
     Form {
       if model.state != .unlocked {
-        Section("Sync") {
-          Text("Unlock the vault to see or change how it syncs.").foregroundStyle(.secondary)
-        }
+        LockedSettingsNotice(message: "Unlock it to see or change how this vault syncs.")
       } else if !model.syncAvailable {
         Section("Sync") {
           Text(
@@ -36,9 +34,7 @@ struct SyncSettingsView: View {
         }
       }
     }
-    .formStyle(.grouped)
-    .frame(width: 460)
-    .padding()
+    .settingsTab()
     .sheet(item: $invite) { invite in
       AddDeviceSheet(invite: invite)
     }

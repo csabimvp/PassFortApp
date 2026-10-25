@@ -63,9 +63,7 @@ struct VaultLocationSettingsView: View {
           .foregroundStyle(.secondary)
       }
     }
-    .formStyle(.grouped)
-    .frame(width: 440)
-    .padding()
+    .settingsTab()
     .sheet(isPresented: $startingNewVault) {
       NewVaultView().environment(model).environment(backup)
     }

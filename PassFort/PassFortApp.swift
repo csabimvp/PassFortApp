@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct PassFortApp: App {
+  /// The vault window's scene id; its windows' identifiers start with it, which is how Settings
+  /// finds one to bring forward (`LockedSettingsNotice`).
+  static let mainWindowID = "main"
+
   @State private var location: VaultLocationModel
   @State private var model: AppModel
   @State private var backup: BackupModel
@@ -20,7 +24,7 @@ struct PassFortApp: App {
   }
 
   var body: some Scene {
-    WindowGroup {
+    WindowGroup(id: Self.mainWindowID) {
       Group {
         if location.needsRelaunch {
           RelaunchRequiredView()
@@ -81,6 +85,9 @@ struct PassFortApp: App {
       TabView {
         SettingsView().environment(model).environment(quickAccess).tint(Palette.primary)
           .tabItem { Label("General", systemImage: "gearshape") }
+        SecuritySettingsView().environment(model)
+          .tint(Palette.primary)
+          .tabItem { Label("Security", systemImage: "lock.shield") }
         VaultLocationSettingsView().environment(model).environment(location).environment(backup)
           .tint(Palette.primary)
           .tabItem { Label("Vault", systemImage: "lock.doc") }

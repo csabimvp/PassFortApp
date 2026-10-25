@@ -61,9 +61,7 @@ struct BackupSettingsView: View {
           .foregroundStyle(.secondary)
       }
     }
-    .formStyle(.grouped)
-    .frame(width: 440)
-    .padding()
+    .settingsTab()
   }
 
   // MARK: - Status

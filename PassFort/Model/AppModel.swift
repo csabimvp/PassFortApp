@@ -372,12 +372,6 @@ final class AppModel {
     summaries = (try? await repo.summaries()) ?? summaries
   }
 
-  /// Crypto op counts since unlock, for the Settings "under the hood" panel.
-  /// `nil` while locked.
-  func cryptoStats() async -> VaultRepository.CryptoStats? {
-    await repo?.cryptoStats()
-  }
-
   // MARK: - Sync
 
   /// First run (`.needsVault`): join a vault another device put on the sync server (A.11
