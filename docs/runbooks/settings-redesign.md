@@ -1,6 +1,7 @@
 # Settings redesign
 
-**Status:** in progress (2026-10-25), on the `settings-redesign` branch.
+**Status:** Phases 0–8 built (2026-10-25) on the `settings-redesign` branch, one commit per phase;
+the by-hand checks below are the maintainer's, then merge.
 **Source:** the review in `UI/settings-review.md` and its mockups (`UI/mockups/Settings.dc.html`,
 `SettingsStates.dc.html`; local only). The review's problem numbers (1–6) are cited below.
 **Scope:** app target only (`PassFort/`, `PassFortTests/`). No vault-format change, no schema change,
@@ -169,6 +170,34 @@ plan's row in the runbooks index becomes done, and `UI/settings-review.md` notes
 3. Let auto-lock fire while a key is on screen: the sheet closes.
 4. File ▸ Restore from Backup… while locked and while unlocked.
 5. Turn Show in menu bar off and on; change Clear copied secrets after and copy a password.
+6. Close every PassFort window, then choose File ▸ New Vault…: a vault window opens with the sheet.
+
+## Outcome
+
+Built as planned, with these differences, each checked against an offscreen render of every tab:
+
+- The Quick Access row is a toggle, "Keyboard shortcut (⌃⌥Space)", not the mockup's recorder
+  (deferred, below).
+- The recovery-key row has no "Set" status (deferred, below); its footer says Rotate replaces the
+  key or adds one.
+- The Sync status keeps `SyncStatusDisplay`'s symbols (the sidebar footer's), not the mockup's
+  green check, and "Turn Off Sync…" is a plain button: macOS colours destructive buttons only in
+  menus and dialogs, and its confirmation dialog is destructive.
+- The Unlock and Create screens keep their Restore from Backup link; it opens the same flow as the
+  File menu.
+- File-menu commands bring the vault window forward first, opening one if none is open, so the
+  "no window open" case below is handled rather than deferred.
+
+Two intermittent test failures turned up during the checkpoints. Neither comes from this work, and
+each passed on rerun:
+
+- **The test host exited mid-run** ("The test runner exited with code 0 before finishing"), failing
+  whichever tests were running (twice, both `startNewVault` tests).
+- **`QuickAccessTests.copyPutsTheChosenFieldOnTheBoardAndReportsAMissingOne`** once read an empty
+  board after a copy. Likely cause: `Pasteboard` keeps one pending transient copy in static state,
+  and any test calling `AppModel.lock()` in parallel runs `Pasteboard.clearTransient()`, which can
+  clear that test's board at an `await`. A fix is to give `AppModel` its own transient-clipboard
+  state (the app keeps sharing one); a change of its own.
 
 ## Deferred
 
@@ -176,5 +205,3 @@ plan's row in the runbooks index becomes done, and `UI/settings-review.md` notes
 - **Recovery-key status ("Set").** Knowing whether the vault has a recovery slot means reading
   `slot_count`, and §5.3 has C++ alone decode the header: it needs a new `pf_header_*` seam function
   with seam fuzz and tests. Its own change, later.
-- **File menu with no window open.** The commands set model flags that the main window presents; with
-  every window closed nothing appears until a window reopens.

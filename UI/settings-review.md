@@ -2,7 +2,11 @@
 
 2026-10-25. A design review of the ⌘, window as built at `71b0335`: the General, Vault, Backup
 and Sync tabs (`PassFortApp.swift` `Settings { TabView { … } }`) and the sheets they open. It is a
-list of findings and a proposed layout. Nothing here is built yet.
+list of findings and a proposed layout.
+
+**Built 2026-10-25** on the `settings-redesign` branch, following
+`docs/runbooks/settings-redesign.md`. That runbook's Outcome section lists where the build differs
+from this proposal; the shortcut recorder and the recovery-key status are deferred.
 
 Mockups of the proposal are on the design canvas in `UI/mockups/` (local only, gitignored):
 `Settings.dc.html` (the proposed tabs, light and dark) and `SettingsStates.dc.html` (today's General
