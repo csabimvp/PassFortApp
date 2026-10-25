@@ -154,7 +154,8 @@ final class SyncController {
       runAgain = false
       await runOnce()
     } while runAgain && !Task.isCancelled && !stopped
-    runTask = nil
+    // A cancelled run was already let go of; a newer one may be in `runTask` by now.
+    if !Task.isCancelled { runTask = nil }
   }
 
   private func startTriggers() {
@@ -268,8 +269,7 @@ final class SyncController {
   @discardableResult
   func enable(endpoint: URL, enrollSecret: String) async throws -> UUID {
     guard state == nil else { throw SyncError.vaultExists }
-    guard let repository else { throw SyncError.notEnabled }
-    stopped = false
+    guard let repository, !stopped else { throw SyncError.notEnabled }
     let engine = SyncEngine(
       api: try makeAPI(endpoint), repository: repository, device: device)
     let vaultID = try await engine.enable(endpoint: endpoint, enrollSecret: enrollSecret)
@@ -286,11 +286,20 @@ final class SyncController {
   ///
   /// - Throws: the `SyncError` of the delete; sync then stays on.
   func disable(deleteServerCopy: Bool) async throws {
+    guard !stopped else { return }
+    // No run may be under way, or start, while the server copy goes and the config is cleared.
+    stopped = true
     let running = runTask
-    runTask?.cancel()
+    runTask = nil
+    running?.cancel()
     await running?.value
-    if deleteServerCopy { try await currentEngine().deleteServerCopy() }
-    try await repository?.disableSync()
+    do {
+      if deleteServerCopy { try await currentEngine().deleteServerCopy() }
+      try await repository?.disableSync()
+    } catch {
+      stopped = false  // still on: the triggers carry on
+      throw error
+    }
     cancelTasks()
     stopped = false
     isPaused = false

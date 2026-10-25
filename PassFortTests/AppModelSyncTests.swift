@@ -116,6 +116,49 @@ struct AppModelSyncTests {
     #expect(sync.devices.map(\.name) == ["A"])
   }
 
+  @Test func turningSyncOffWaitsOutARunAndDeletesTheServerCopy() async throws {
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let (a, vaultID) = try await enabledA()
+    let sync = try #require(a.sync)
+
+    let entered = AsyncStream.makeStream(of: Void.self)
+    await server.setOnRequest { call in
+      guard call == .pull else { return }
+      entered.continuation.yield()
+      try await Task.sleep(for: .seconds(30))
+    }
+    let run = Task { await sync.syncNow() }
+    var iterator = entered.stream.makeAsyncIterator()
+    _ = await iterator.next()
+    await server.setOnRequest(nil)
+
+    try await sync.disable(deleteServerCopy: true)
+    await run.value
+    #expect(await server.vaultIDs.isEmpty)
+    #expect(sync.state == nil)
+    #expect(sync.status == .off)
+    _ = await a.createAccount(AccountPayload(title: "After"))  // no trigger may revive it
+    #expect(sync.state == nil)
+    #expect(await server.vaultIDs.isEmpty, "\(vaultID) stays gone")
+  }
+
+  @Test func aFailedServerDeleteLeavesSyncOn() async throws {
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let (a, vaultID) = try await enabledA()
+    let sync = try #require(a.sync)
+
+    await server.setOnRequest { call in
+      if call == .deleteVault { throw SyncError.offline }
+    }
+    await #expect(throws: SyncError.offline) { try await sync.disable(deleteServerCopy: true) }
+    #expect(sync.state?.vaultID == vaultID)
+
+    await server.setOnRequest(nil)
+    _ = await a.createAccount(AccountPayload(title: "Still syncing"))
+    await sync.syncNow()
+    #expect(await server.recordCount(vaultID) == 1)
+  }
+
   // MARK: - Conflicts
 
   @Test func conflictCopyAppearsInSummaries() async throws {
