@@ -299,12 +299,6 @@ struct VaultListView: View {
   }
 }
 
-/// A paused sync's problem, as a sheet item.
-private struct PresentedProblem: Identifiable {
-  let problem: SyncError
-  var id: String { String(describing: problem) }
-}
-
 /// The edit form for an account picked from a context menu or ⌘E: decrypts it once, then hands
 /// over to the same `AccountFormView` the detail column uses.
 private struct EditAccountSheet: View {

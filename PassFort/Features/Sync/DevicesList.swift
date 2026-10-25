@@ -2,10 +2,12 @@ import PassFortVault
 import SwiftUI
 
 /// Settings ▸ Sync ▸ Devices (`m5-sync.md` A.11): every device syncing this vault, as the server
-/// lists them, newest first, with this Mac marked. Removing one stops it holding back the
-/// server's clean-up of deleted accounts.
+/// lists them, newest first, with this Mac marked, and Add a Device… in the header. Removing one
+/// stops it holding back the server's clean-up of deleted accounts.
 struct DevicesList: View {
   let sync: SyncController
+  /// Add a Device…: the caller shows the invite.
+  let addDevice: () -> Void
 
   @State private var loading = false
   @State private var error: String?
@@ -33,7 +35,11 @@ struct DevicesList: View {
           Task { await refresh() }
         }
         .disabled(loading)
+        Button("Add a Device…", action: addDevice).controlSize(.small)
       }
+    } footer: {
+      SettingsFooter(
+        "Removing a device stops it holding back the server's clean-up of deleted accounts.")
     }
     .task { await refresh() }
     .confirmationDialog(

@@ -3,7 +3,8 @@ import PassFortVault
 import SwiftUI
 
 /// Settings ▸ Sync (`m5-sync.md` A.11): turn sync on for the open vault, or -- when it is on --
-/// its status, the server, the vault id other devices join with, and turning it off. Sync
+/// its status and Sync Now, the devices and adding one, the server and the vault id, and turning
+/// it off. Sync
 /// belongs to a vault, not to the Mac: each vault carries its own settings in its file.
 struct SyncSettingsView: View {
   @Environment(AppModel.self) private var model
@@ -13,6 +14,8 @@ struct SyncSettingsView: View {
   @State private var error: String?
   @State private var confirmingOff = false
   @State private var invite: SyncInvite?
+  /// The problem that paused sync, reopened from the status row's Details….
+  @State private var problem: PresentedProblem?
 
   var body: some View {
     Form {
@@ -38,37 +41,37 @@ struct SyncSettingsView: View {
     .sheet(item: $invite) { invite in
       AddDeviceSheet(invite: invite)
     }
+    .sheet(item: $problem) { presented in
+      SyncProblemSheet(problem: presented.problem) {
+        Task { await model.sync?.syncNow() }
+      }
+    }
   }
 
   // MARK: - Off
 
   @ViewBuilder
   private func disabled(_ sync: SyncController) -> some View {
-    Section("Sync") {
-      TextField(
-        "Server", text: $endpointText,
-        prompt: Text("https://….azurestaticapps.net/api/v1"))
+    Section {
+      TextField("Server", text: $endpointText, prompt: Text("https://your-server/api/v1"))
       SecureField("Enrollment secret", text: $enrollSecret)
       failure
       HStack {
         if working { ProgressView().controlSize(.small) }
         Spacer()
         Button("Turn On Sync") { Task { await enable(sync) } }
+          .buttonStyle(.borderedProminent)
           .disabled(working || SyncEndpoint.parse(endpointText) == nil || enrollSecret.isEmpty)
       }
+    } header: {
+      Text("Turn on sync")
+    } footer: {
+      SettingsFooter(
+        "The server keeps this vault sealed: it never sees a password, a key or what an account "
+          + "holds, only how many accounts there are, roughly how big, and when they change. The "
+          + "enrollment secret is used once and not stored. Each vault syncs on its own: to sync "
+          + "another, open it (File ▸ Open Vault…) and turn sync on there.")
     }
-    Section {
-      Text(
-        "The server keeps a copy of this vault with every account sealed: it never sees a "
-          + "password, a key or what an account holds. It can see how many accounts there are, "
-          + "roughly how big each is, and when they change. The enrollment secret is the one "
-          + "your server was set up with; it is used once and not stored.")
-      Text(
-        "Each vault syncs on its own. To sync another vault through the same server, open it "
-          + "(File ▸ Open Vault…) and turn sync on there.")
-    }
-    .font(.caption)
-    .foregroundStyle(.secondary)
   }
 
   // MARK: - On
@@ -76,35 +79,50 @@ struct SyncSettingsView: View {
   @ViewBuilder
   private func enabled(_ sync: SyncController, _ state: VaultRepository.SyncState) -> some View {
     let display = SyncStatusDisplay(sync.status, paused: sync.isPaused)
-    Section("Sync") {
-      LabeledContent("Status") {
+    Section("Status") {
+      LabeledContent {
         HStack {
-          Image(systemName: display.symbol).foregroundStyle(display.tint)
-          TimelineView(.periodic(from: .now, by: 30)) { context in
-            Text(display.title(now: context.date))
+          if case .problem(let problem) = sync.status, sync.isPaused {
+            Button("Details…") { self.problem = PresentedProblem(problem: problem) }
           }
+          Button("Sync Now") { Task { await sync.syncNow() } }
+            .disabled(display.isSyncing)
+        }
+      } label: {
+        Label {
+          VStack(alignment: .leading, spacing: 2) {
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+              Text(sync.isPaused ? "Sync paused" : display.title(now: context.date))
+            }
+            if let detail = display.detail {
+              Text(sync.isPaused ? detail + " Sync Now tries again." : detail)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+          }
+        } icon: {
+          Image(systemName: display.symbol).foregroundStyle(display.tint)
         }
       }
-      if let detail = display.detail {
-        Text(detail).font(.caption).foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
       if state.dirtyCount > 0 {
-        LabeledContent("To upload", value: "\(state.dirtyCount)")
-      }
-      HStack {
-        Spacer()
-        Button("Sync Now") { Task { await sync.syncNow() } }
-          .disabled(display.isSyncing)
+        LabeledContent("Waiting to upload", value: "\(state.dirtyCount)")
       }
     }
 
-    Section("This vault") {
-      LabeledContent("Server") {
-        Text(state.endpoint.absoluteString).textSelection(.enabled)
-          .multilineTextAlignment(.trailing)
+    DevicesList(sync: sync) {
+      invite = SyncInvite(endpoint: state.endpoint, vaultID: state.vaultID)
+    }
+
+    Section("Server") {
+      LabeledContent("Address") {
+        Text(state.endpoint.absoluteString)
+          .font(.system(.body, design: .monospaced))
+          .textSelection(.enabled)
+          .lineLimit(1).truncationMode(.middle)
       }
-      LabeledContent("Vault ID") {
+      LabeledContent(
+        "Sync on since", value: state.enabledAt.formatted(date: .abbreviated, time: .shortened))
+      DisclosureGroup("Vault ID") {
         HStack(spacing: 4) {
           Text(state.vaultID.uuidString.lowercased())
             .font(.system(.caption, design: .monospaced))
@@ -114,29 +132,21 @@ struct SyncSettingsView: View {
             NSPasteboard.general.setString(
               state.vaultID.uuidString.lowercased(), forType: .string)
           }
+          Spacer()
         }
       }
-      LabeledContent("This Mac", value: sync.device.name)
-      HStack {
-        Spacer()
-        Button("Add a Device…") {
-          invite = SyncInvite(endpoint: state.endpoint, vaultID: state.vaultID)
-        }
-      }
-      LabeledContent(
-        "Sync on since",
-        value: state.enabledAt.formatted(date: .abbreviated, time: .shortened))
     }
-
-    DevicesList(sync: sync)
 
     Section {
       failure
-      HStack {
-        if working { ProgressView().controlSize(.small) }
-        Spacer()
-        Button("Turn Off Sync…") { confirmingOff = true }
-          .disabled(working)
+      LabeledContent {
+        HStack {
+          if working { ProgressView().controlSize(.small) }
+          Button("Turn Off Sync…", role: .destructive) { confirmingOff = true }
+            .disabled(working)
+        }
+      } label: {
+        Text("Every device keeps its own copy.").foregroundStyle(.secondary)
       }
     }
     .confirmationDialog(

@@ -79,3 +79,9 @@ struct SyncProblemSheet: View {
     }
   }
 }
+
+/// A paused sync's problem, as a sheet item (the vault window, and Settings ▸ Sync's Details…).
+struct PresentedProblem: Identifiable {
+  let problem: SyncError
+  var id: String { String(describing: problem) }
+}
