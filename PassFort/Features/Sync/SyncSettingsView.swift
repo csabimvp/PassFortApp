@@ -12,6 +12,7 @@ struct SyncSettingsView: View {
   @State private var working = false
   @State private var error: String?
   @State private var confirmingOff = false
+  @State private var invite: SyncInvite?
 
   var body: some View {
     Form {
@@ -38,6 +39,9 @@ struct SyncSettingsView: View {
     .formStyle(.grouped)
     .frame(width: 460)
     .padding()
+    .sheet(item: $invite) { invite in
+      AddDeviceSheet(invite: invite)
+    }
   }
 
   // MARK: - Off
@@ -117,6 +121,12 @@ struct SyncSettingsView: View {
         }
       }
       LabeledContent("This Mac", value: sync.device.name)
+      HStack {
+        Spacer()
+        Button("Add a Device…") {
+          invite = SyncInvite(endpoint: state.endpoint, vaultID: state.vaultID)
+        }
+      }
       LabeledContent(
         "Sync on since",
         value: state.enabledAt.formatted(date: .abbreviated, time: .shortened))

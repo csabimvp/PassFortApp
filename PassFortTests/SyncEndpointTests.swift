@@ -1,3 +1,4 @@
+import CoreImage
 import Foundation
 import Testing
 
@@ -39,5 +40,17 @@ struct SyncInviteTests {
   ])
   func incompleteOrForeignLinksAreNotInvites(text: String) {
     #expect(SyncInvite.parse(text) == nil)
+  }
+}
+
+/// The Add a Device QR code reads back as the invite it was made from.
+struct InviteQRCodeTests {
+  @Test func theQRCodeDecodesToTheInvite() throws {
+    let invite = SyncInvite(
+      endpoint: try #require(URL(string: "https://site.azurestaticapps.net/api/v1")),
+      vaultID: UUID())
+    let image = try #require(QRCodeImage.make(invite.url.absoluteString))
+    let messages = QRCodeReader.messages(in: CIImage(cgImage: image))
+    #expect(messages.compactMap(SyncInvite.parse) == [invite])
   }
 }

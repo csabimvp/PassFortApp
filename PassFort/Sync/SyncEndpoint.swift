@@ -20,9 +20,11 @@ nonisolated enum SyncEndpoint {
 /// secret: the master password is still needed to open what the server holds. Shared as text or
 /// a QR code (`AddDeviceSheet`) in the form `passfort://join?endpoint=<url>&vault=<uuid>`, which
 /// the iPhone client (M7) reads too.
-nonisolated struct SyncInvite: Equatable {
+nonisolated struct SyncInvite: Equatable, Identifiable {
   var endpoint: URL
   var vaultID: UUID
+
+  var id: UUID { vaultID }
 
   static let scheme = "passfort"
 
