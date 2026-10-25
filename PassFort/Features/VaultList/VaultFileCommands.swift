@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The File menu's vault items: the operations that put another vault in this one's place, Restore
-/// from Backup, and Lock. They used to sit in Settings; as commands they read like a document app's
+/// The File menu's vault items: New Account… ⌘N in place of SwiftUI's New Window (one vault, one
+/// window -- and ⌘N was claimed twice), the operations that put another vault in this one's place,
+/// Restore from Backup, and Lock. They used to sit in Settings; as commands they read like a document app's
 /// New / Open, and Lock's ⌘L shows in a menu. Each sheet opens on the vault window, brought forward
 /// first so it doesn't open behind Settings.
 struct VaultFileCommands: Commands {
@@ -19,6 +20,14 @@ struct VaultFileCommands: Commands {
   private var canReplace: Bool { Self.canReplace(model, location) }
 
   var body: some Commands {
+    CommandGroup(replacing: .newItem) {
+      Button("New Account…") {
+        MainWindow.bringForward(openWindow)
+        model.showingNewAccount = true
+      }
+      .keyboardShortcut("n", modifiers: .command)
+      .disabled(model.state != .unlocked)
+    }
     CommandGroup(after: .newItem) {
       Divider()
       Button("New Vault…") { show(.newVault) }

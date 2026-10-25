@@ -720,6 +720,21 @@ struct AppModelTests {
     #expect(model.showingImport == false)
   }
 
+  /// File ▸ New Account… opens the form through the model now, so a lock must close it: a
+  /// half-typed account must not reappear after the next unlock.
+  @Test func lockClosesTheNewAccountForm() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "pw")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("pw".utf8))
+    model.showingNewAccount = true
+    model.lock()
+    #expect(model.showingNewAccount == false)
+  }
+
   @Test func vaultImportPlansFromAnotherVaultAndLockClosesTheSheet() async throws {
     let dir = try tempDir()
     defer { try? FileManager.default.removeItem(at: dir) }

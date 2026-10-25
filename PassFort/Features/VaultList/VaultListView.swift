@@ -11,7 +11,6 @@ struct VaultListView: View {
   @State private var sidebar: SidebarItem = .all
   @State private var selection: UUID?
   @State private var query = ""
-  @State private var showingAdd = false
   @State private var editing: AccountSummary?
   @State private var deleting: AccountSummary?
   @State private var deleteError: String?
@@ -78,7 +77,10 @@ struct VaultListView: View {
     .task(id: model.writeCounter) {
       if case .success(let result) = await model.audit() { findings = result }
     }
-    .sheet(isPresented: $showingAdd) {
+    .sheet(
+      isPresented: Binding(
+        get: { model.showingNewAccount }, set: { model.showingNewAccount = $0 })
+    ) {
       AccountFormView(mode: .create)
     }
     .sheet(item: $editing) { summary in
@@ -230,12 +232,11 @@ struct VaultListView: View {
     }
     ToolbarItem(placement: .primaryAction) {
       Button {
-        showingAdd = true
+        model.showingNewAccount = true
       } label: {
         Label("Add account", systemImage: "plus")
       }
-      .keyboardShortcut("n", modifiers: .command)
-      .help("Add account (⌘N)")
+      .help("Add account (⌘N)")  // the shortcut belongs to File ▸ New Account…
     }
     ToolbarItem(placement: .primaryAction) {
       Button {

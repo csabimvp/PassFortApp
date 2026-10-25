@@ -35,6 +35,8 @@ final class AppModel {
   /// Whether the password generator sheet is up. Lives here so the Tools menu entry and the
   /// toolbar button open the same sheet; the generator needs no vault, so it works while locked.
   var showingGenerator = false
+  /// Whether the new-account form is up (File ▸ New Account… ⌘N, or the toolbar's +).
+  var showingNewAccount = false
   /// Whether the import sheet is up (Tools menu, or the empty vault's button).
   var showingImport = false
   /// Whether the import-from-another-vault sheet is up (Tools menu, or the empty vault's button).
@@ -162,6 +164,7 @@ final class AppModel {
     stagedRepo = nil
     summaries = []
     showingImport = false  // an import plan is plaintext; it must not reappear after unlock
+    showingNewAccount = false  // nor may a half-typed account
     showingVaultImport = false
     Pasteboard.clearTransient()
     state = .locked()
