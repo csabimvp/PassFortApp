@@ -3,8 +3,8 @@ import PassFortVault
 import SwiftUI
 
 /// Search, copy, get out of the way. Return copies the selected account's password, ⇧Return its
-/// username, ⌥Return its one-time code; the window then closes and PassFort steps back so the app
-/// you came from is frontmost, ready to paste. Copies are transient (concealed, cleared after
+/// username, ⌥Return its one-time code; the window confirms it for a moment, then closes and
+/// PassFort steps back so the app you came from is frontmost, ready to paste. Copies are transient (concealed, cleared after
 /// the Settings delay or on lock).
 ///
 /// It *deactivates* rather than hides: hiding would trip lock-on-background, and locking clears
@@ -16,6 +16,8 @@ struct QuickAccessView: View {
   @State private var query = ""
   @State private var selection: AccountSummary.ID?
   @State private var message: String?
+  /// The confirmation shown for a moment after a copy, before the window steps back.
+  @State private var copied: String?
   @State private var password = ""
   @FocusState private var focused: Bool
 
@@ -76,8 +78,12 @@ struct QuickAccessView: View {
         }
       }
 
-      Text("↩ password   ⇧↩ username   ⌥↩ one-time code   esc close")
-        .font(.caption2).foregroundStyle(.tertiary)
+      if let copied {
+        Toast(text: copied).frame(maxWidth: .infinity)
+      } else {
+        Text("↩ password   ⇧↩ username   ⌥↩ one-time code   esc close")
+          .font(.caption2).foregroundStyle(.tertiary)
+      }
     }
     .onAppear { selection = matches.first?.id }
   }
@@ -94,16 +100,28 @@ struct QuickAccessView: View {
     return .handled
   }
 
+  /// Copy, confirm for a moment -- long enough to see it worked, short enough not to wait on --
+  /// then step back to the app you came from.
   private func copy(_ field: AppModel.CopyField) async {
-    guard let id = currentID else { return }
+    guard copied == nil, let id = currentID else { return }  // a second Return mid-confirmation
     if let failure = await model.copy(field, from: id) {
       message = failure.message
       return
     }
-    query = ""
     message = nil
+    let title = model.summaries.first { $0.id == id }?.title ?? ""
+    let confirmation =
+      "\(field.name.prefix(1).uppercased())\(field.name.dropFirst()) of “\(title)” copied — "
+      + "clears in \(Pasteboard.clearAfterDescription)"
+    copied = confirmation
+    AccessibilityNotification.Announcement(confirmation).post()
+    try? await Task.sleep(for: Self.confirmationDelay)
+    copied = nil
+    query = ""
     close()
   }
+
+  static let confirmationDelay: Duration = .milliseconds(450)
 
   private func close() {
     dismissWindow(id: QuickAccessController.windowID)
