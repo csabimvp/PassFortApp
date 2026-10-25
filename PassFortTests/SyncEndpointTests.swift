@@ -1,5 +1,6 @@
 import CoreImage
 import Foundation
+import PassFortVault
 import Testing
 
 @testable import PassFort
@@ -12,6 +13,17 @@ struct SyncEndpointTests {
         == URL(string: "https://site.azurestaticapps.net/api/v1"))
     #expect(
       SyncEndpoint.parse("http://localhost:7071/api/v1") == URL(string: "http://localhost:7071/api/v1"))
+  }
+
+  @Test(arguments: ["https://site.azurestaticapps.net", " https://site.azurestaticapps.net/ \n"])
+  func aBareHostGainsTheApiRoot(text: String) {
+    #expect(SyncEndpoint.parse(text) == URL(string: "https://site.azurestaticapps.net/api/v1"))
+  }
+
+  @Test func aWrongPathIsExplainedNotRetried() {
+    let message = SyncError.server(status: 405, retryAfter: nil).message
+    #expect(message.contains("/api/v1"))
+    #expect(!message.contains("retry"))
   }
 
   @Test(arguments: ["", "site.azurestaticapps.net/api/v1", "ftp://host/api", "https://", "not a url"])

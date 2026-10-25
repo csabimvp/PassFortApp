@@ -50,6 +50,8 @@ extension SyncError {
         + "password to finish updating this Mac."
     case .resyncRequired: "The server needs a full resync. PassFort will do one."
     case .tooLarge: "An account is too large to sync. Shorten its notes or history."
+    case .server(status: 405, _):
+      "That address isn't a PassFort sync server's API. It should end in /\(SyncEndpoint.apiRoot)."
     case .rateLimited(let after):
       "The server asked PassFort to wait \(Int(after.rounded(.up))) seconds."
     case .server(let status, _): "The sync server had an error (\(status)). PassFort will retry."

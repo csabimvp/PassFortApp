@@ -5,15 +5,19 @@ import Foundation
 /// loopback -- is `HTTPSyncAPI`'s decision, made before anything is sent.
 nonisolated enum SyncEndpoint {
   /// The URL in `text`, trimmed, with no trailing slash; `nil` unless it is an absolute http(s)
-  /// URL with a host.
+  /// URL with a host. A bare host gains `apiRoot`: the site's own root serves the static page,
+  /// which answers every API request with a 405.
   static func parse(_ text: String) -> URL? {
     var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     while trimmed.hasSuffix("/") { trimmed.removeLast() }
     guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
       scheme == "https" || scheme == "http", url.host() != nil
     else { return nil }
-    return url
+    return url.path().isEmpty ? url.appending(path: apiRoot) : url
   }
+
+  /// Where the API lives on a PassFort server (`SyncAPI/openapi.yaml`).
+  static let apiRoot = "api/v1"
 
   /// The server this Mac last turned sync on with or joined through, to fill in next time -- an
   /// address, not a secret.
