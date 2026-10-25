@@ -8,6 +8,8 @@ import SwiftUI
 struct AccountDetailView: View {
   @Environment(AppModel.self) private var model
   let accountID: UUID
+  /// Moves the vault window's selection -- to the account a resolved conflict copy left behind.
+  var select: (UUID?) -> Void = { _ in }
 
   @State private var load: AppModel.AccountLoad?
   @State private var revealHistory = false
@@ -57,6 +59,12 @@ struct AccountDetailView: View {
   private func content(_ account: Account) -> some View {
     let payload = account.payload
     Form {
+      if payload.conflictOf != nil {
+        Section {
+          ConflictBanner(copy: account, select: select)
+        }
+      }
+
       Section {
         copyableRow("Username", payload.username)
         if let password = payload.password, !password.isEmpty {

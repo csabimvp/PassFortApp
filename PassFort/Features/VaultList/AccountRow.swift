@@ -21,6 +21,12 @@ struct AccountRow: View {
       VStack(alignment: .leading, spacing: 2) {
         HStack(spacing: 4) {
           Text(row.title).fontWeight(.medium).lineLimit(1)
+          if row.isConflict {
+            Image(systemName: "arrow.triangle.branch").font(.caption2)
+              .foregroundStyle(prominence == .increased ? Color.white : Palette.warning)
+              .accessibilityLabel("Conflicting copy")
+              .help("A copy kept by a sync conflict")
+          }
           if row.favorite {
             // White on a selected row, like the rest of its text.
             Image(systemName: "star.fill").font(.caption2)

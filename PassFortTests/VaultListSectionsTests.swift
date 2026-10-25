@@ -70,3 +70,19 @@ struct VaultListSectionsTests {
     #expect(!SidebarItem.deleted.isAccountList)
   }
 }
+
+/// The sidebar's Conflicts list (`m5-sync.md` A.11).
+struct ConflictSectionTests {
+  @Test func conflictsListsOnlyLiveCopies() {
+    let original = AccountSummary(id: UUID(), title: "Email", lastUpdated: .now)
+    let copy = AccountSummary(id: UUID(), title: "Email", isConflict: true, lastUpdated: .now)
+    let resolved = AccountSummary(
+      id: UUID(), title: "Old", isConflict: true, isDeleted: true, lastUpdated: .now)
+    let vault = [original, copy, resolved]
+
+    #expect(accountRows(from: vault, in: .conflicts, query: "").map(\.id) == [copy.id])
+    #expect(count(of: .conflicts, in: vault) == 1)
+    #expect(SidebarItem.conflicts.isAccountList)
+    #expect(accountRows(from: vault, in: .all, query: "").count == 2, "copies stay in All too")
+  }
+}

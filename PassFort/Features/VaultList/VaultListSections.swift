@@ -8,6 +8,8 @@ enum SidebarItem: Hashable {
   case favorites
   case category(AccountCategory)
   case tag(String)
+  /// Conflict copies a sync made (`m5-sync.md` A.7), listed so none goes unnoticed.
+  case conflicts
   case health
   case deleted
 
@@ -17,6 +19,7 @@ enum SidebarItem: Hashable {
     case .favorites: "Favorites"
     case .category(let category): category.displayName
     case .tag(let tag): tag
+    case .conflicts: "Conflicts"
     case .health: "Password Health"
     case .deleted: "Recently Deleted"
     }
@@ -25,7 +28,7 @@ enum SidebarItem: Hashable {
   /// `true` for the slices of live accounts -- the lists with copy buttons.
   var isAccountList: Bool {
     switch self {
-    case .all, .favorites, .category, .tag: true
+    case .all, .favorites, .category, .tag, .conflicts: true
     case .health, .deleted: false
     }
   }
@@ -52,6 +55,7 @@ func accountRows(
   case .favorites: inSlice = { $0.favorite }
   case .category(let category): inSlice = { $0.category == category }
   case .tag(let tag): inSlice = { $0.tags.contains(tag) }
+  case .conflicts: inSlice = { $0.isConflict }
   case .health, .deleted: return []
   }
   return summaries.filter { !$0.isDeleted && inSlice($0) && matches($0, query: query) }

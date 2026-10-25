@@ -64,7 +64,7 @@ struct VaultListView: View {
     } detail: {
       Group {
         if let id = selection {
-          AccountDetailView(accountID: id)
+          AccountDetailView(accountID: id) { selection = $0 }
         } else {
           ContentUnavailableView("Select an account", systemImage: "key")
         }
@@ -128,7 +128,7 @@ struct VaultListView: View {
       HealthColumn(findings: findings, query: query, selection: $selection)
     case .deleted:
       DeletedColumn(query: query, selection: $selection)
-    case .all, .favorites, .category, .tag:
+    case .all, .favorites, .category, .tag, .conflicts:
       accountList
     }
   }

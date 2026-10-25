@@ -36,6 +36,15 @@ struct VaultSidebar: View {
         }
       }
 
+      let conflicts = count(of: .conflicts, in: model.summaries)
+      if conflicts > 0 {
+        Section("Sync") {
+          row(
+            .conflicts, symbol: "arrow.triangle.branch", color: Palette.warning, count: conflicts,
+            alert: true)
+        }
+      }
+
       Section {
         row(.health, symbol: "stethoscope", color: Palette.danger, count: healthCount, alert: true)
         row(.deleted, symbol: "trash", color: .secondary, count: model.deletedSummaries.count)
