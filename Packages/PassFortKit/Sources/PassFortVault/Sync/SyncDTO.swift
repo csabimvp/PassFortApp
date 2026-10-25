@@ -8,6 +8,9 @@ import Foundation
 // Encoding follows the contract: `Data` as standard padded base64 (the `JSONEncoder` default),
 // UUIDs lower-case (the `JSONEncoder` default is upper-case, which the server refuses), dates
 // RFC 3339. Use `SyncCoding` -- not a bare `JSONEncoder` / `JSONDecoder`.
+//
+// Every type has a public memberwise init, responses included, so a `SyncAPI` can be implemented
+// outside this module -- the app's tests serve one from memory.
 
 // MARK: - Coding
 
@@ -82,6 +85,16 @@ public struct DeviceInfoDTO: Codable, Sendable, Equatable {
   public var platform: DevicePlatform
   public var lastSeq: UInt64
   public var lastSeenAt: Date
+
+  public init(
+    id: UUID, name: String, platform: DevicePlatform, lastSeq: UInt64, lastSeenAt: Date
+  ) {
+    self.id = id
+    self.name = name
+    self.platform = platform
+    self.lastSeq = lastSeq
+    self.lastSeenAt = lastSeenAt
+  }
 }
 
 /// `Hlc`.
@@ -118,6 +131,19 @@ public struct RecordDTO: Codable, Sendable, Equatable {
   public var seq: UInt64
   /// The device that pushed this version -- from its token, not from anything it sent.
   public var writer: UUID
+
+  public init(
+    id: UUID, version: UInt64, hlc: HLCDTO, sealed: Data, isDeleted: Bool, seq: UInt64,
+    writer: UUID
+  ) {
+    self.id = id
+    self.version = version
+    self.hlc = hlc
+    self.sealed = sealed
+    self.isDeleted = isDeleted
+    self.seq = seq
+    self.writer = writer
+  }
 }
 
 /// `Push`: one element of a push batch.
@@ -224,6 +250,11 @@ public struct PushRequest: Codable, Sendable, Equatable {
 public struct CreateVaultResponse: Codable, Sendable, Equatable {
   public var seq: UInt64
   public var headerVersion: UInt64
+
+  public init(seq: UInt64, headerVersion: UInt64) {
+    self.seq = seq
+    self.headerVersion = headerVersion
+  }
 }
 
 /// `OpenSessionResponse`.
@@ -235,12 +266,27 @@ public struct SessionResponse: Codable, Sendable, Equatable {
   public var seq: UInt64
   public var headerVersion: UInt64
   public var purgedThroughSeq: UInt64
+
+  public init(
+    token: String, expiresAt: Date, seq: UInt64, headerVersion: UInt64, purgedThroughSeq: UInt64
+  ) {
+    self.token = token
+    self.expiresAt = expiresAt
+    self.seq = seq
+    self.headerVersion = headerVersion
+    self.purgedThroughSeq = purgedThroughSeq
+  }
 }
 
 /// `HeaderResponse` -- `GET /vaults/{id}/header`.
 public struct HeaderResponse: Codable, Sendable, Equatable {
   public var header: Data
   public var headerVersion: UInt64
+
+  public init(header: Data, headerVersion: UInt64) {
+    self.header = header
+    self.headerVersion = headerVersion
+  }
 }
 
 /// `PutHeaderResponse`.
@@ -263,6 +309,17 @@ public struct ChangesResponse: Codable, Sendable, Equatable {
   public var hasMore: Bool
   public var headerVersion: UInt64
   public var purgedThroughSeq: UInt64
+
+  public init(
+    records: [RecordDTO], seq: UInt64, hasMore: Bool, headerVersion: UInt64,
+    purgedThroughSeq: UInt64
+  ) {
+    self.records = records
+    self.seq = seq
+    self.hasMore = hasMore
+    self.headerVersion = headerVersion
+    self.purgedThroughSeq = purgedThroughSeq
+  }
 }
 
 /// One record a push stored.
@@ -271,6 +328,12 @@ public struct AppliedDTO: Codable, Sendable, Equatable {
   public var version: UInt64
   public var seq: UInt64
 
+  public init(id: UUID, version: UInt64, seq: UInt64) {
+    self.id = id
+    self.version = version
+    self.seq = seq
+  }
+
   public var pushed: PushedRecord { PushedRecord(id: id, version: version, seq: seq) }
 }
 
@@ -278,6 +341,11 @@ public struct AppliedDTO: Codable, Sendable, Equatable {
 public struct PushResponse: Codable, Sendable, Equatable {
   public var applied: [AppliedDTO]
   public var seq: UInt64
+
+  public init(applied: [AppliedDTO], seq: UInt64) {
+    self.applied = applied
+    self.seq = seq
+  }
 }
 
 /// One stale record in a refused push. `serverVersion` 0 = the server doesn't have it.
