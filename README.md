@@ -11,8 +11,8 @@ A local-first password manager for macOS. Your vault is one encrypted file on yo
 app works without an account or a network connection.
 
 Status: personal project, in active development. There is no packaged release yet, so you build
-and install the app from source. Sync between devices is being built (milestone M5) and isn't in the
-app yet.
+and install the app from source. Sync between devices works, but it needs a PassFort sync server,
+and the one the maintainer runs isn't public.
 
 ## Features
 
@@ -28,6 +28,8 @@ app yet.
 - Import from a Password Safe plain-text export or from another PassFort vault. Plaintext export
   from the CLI.
 - A recovery key for a forgotten master password, and Recently Deleted for removed accounts.
+- Optional end-to-end encrypted sync between devices. Each device keeps a complete vault and works
+  offline, and edits made on two devices at once are kept as a conflict copy, never dropped.
 - `passfort-cli`, a command-line client for the same vault format.
 
 ## Requirements
@@ -74,6 +76,10 @@ password.
 - **Moving to another Mac.** Copy a backup over and use Restore from Backup on the new Mac (the
   link on the first screen, or the File menu). The vault it replaces is kept as a safety copy,
   never deleted. The File menu also starts, opens or joins another vault in place of this one.
+- **Sync.** In Settings ▸ Sync, enter the server address (`https://<site>/api/v1`) and its
+  enrollment secret to put the open vault on the server. On another Mac, choose Join a Synced
+  Vault (on the first screen, or the File menu) and paste the invite from Add a Device…. Then
+  unlock with the same master password. The CLI does the same with `passfort-cli sync`.
 - **Leaving.** `passfort-cli export` writes a whole vault as plaintext JSON after you type a
   confirmation phrase. Delete the file once you've imported it elsewhere.
 
@@ -92,8 +98,11 @@ Every command is listed in [`docs/development.md`](docs/development.md#the-cli).
 
 Everything in the vault is encrypted, including titles, usernames and URLs. The key comes from your
 master password through Argon2id, and each record is sealed with XChaCha20-Poly1305. A manifest MAC
-detects records that were deleted or swapped and a vault file that was rolled back. Sync, when it
-arrives, is end-to-end encrypted and treats the server as hostile.
+detects records that were deleted or swapped and a vault file that was rolled back. Sync is
+end-to-end encrypted and treats the server as hostile. The server stores only sealed records and a
+hash of a key it can't use, and the app pins the server's certificate authority. A hostile server
+can still withhold or delay changes from your other devices. It can't read, alter or roll them
+back unnoticed.
 
 PassFort has not been independently audited. The threat model, including what it does not defend
 against, is in [`docs/architecture.md` §3](docs/architecture.md#3-threat-model). To report a
