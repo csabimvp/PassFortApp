@@ -7,7 +7,7 @@ import SwiftUI
 /// belongs to a vault, not to the Mac: each vault carries its own settings in its file.
 struct SyncSettingsView: View {
   @Environment(AppModel.self) private var model
-  @State private var endpointText = ""
+  @State private var endpointText = SyncEndpoint.lastUsed?.absoluteString ?? ""
   @State private var enrollSecret = ""
   @State private var working = false
   @State private var error: String?
@@ -175,6 +175,7 @@ struct SyncSettingsView: View {
     defer { working = false }
     do {
       try await sync.enable(endpoint: endpoint, enrollSecret: enrollSecret)
+      SyncEndpoint.lastUsed = endpoint
       enrollSecret = ""
     } catch let failure as SyncError {
       error = failure.message

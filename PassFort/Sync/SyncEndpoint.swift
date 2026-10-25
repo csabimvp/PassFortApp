@@ -14,6 +14,15 @@ nonisolated enum SyncEndpoint {
     else { return nil }
     return url
   }
+
+  /// The server this Mac last turned sync on with or joined through, to fill in next time -- an
+  /// address, not a secret.
+  static var lastUsed: URL? {
+    get { UserDefaults.standard.url(forKey: lastUsedKey) }
+    set { UserDefaults.standard.set(newValue, forKey: lastUsedKey) }
+  }
+
+  private static let lastUsedKey = "lastSyncEndpoint"
 }
 
 /// What another device needs to join a synced vault -- the server and the vault id, and nothing

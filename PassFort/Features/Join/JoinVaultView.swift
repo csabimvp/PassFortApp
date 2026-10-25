@@ -19,7 +19,7 @@ struct JoinVaultView: View {
   @Environment(BackupModel.self) private var backup: BackupModel?
   @Environment(\.dismiss) private var dismiss
 
-  @State private var endpointText = ""
+  @State private var endpointText = SyncEndpoint.lastUsed?.absoluteString ?? ""
   @State private var vaultText = ""
   @State private var password = ""
   @State private var working = false
@@ -130,13 +130,17 @@ struct JoinVaultView: View {
       switch mode {
       case .firstRun:
         error = await model.joinVault(endpoint: endpoint, vaultID: vaultID, password: bytes)
-        if error == nil { password = "" }
+        if error == nil {
+          password = ""
+          SyncEndpoint.lastUsed = endpoint
+        }
       case .replacingVault:
         switch await model.joinVaultInPlace(
           endpoint: endpoint, vaultID: vaultID, password: bytes, .app(backup))
         {
         case .success(let path):
           password = ""
+          SyncEndpoint.lastUsed = endpoint
           keptAt = path
         case .failure(let failure):
           error = failure
