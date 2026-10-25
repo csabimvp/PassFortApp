@@ -183,16 +183,27 @@ struct Toast: View {
   let text: String
   var systemImage = "checkmark.circle"
   var color = Palette.success
+  /// A button at the end, e.g. Undo.
+  var actionTitle: String?
+  var onAction: () -> Void = {}
 
   var body: some View {
-    Label(text, systemImage: systemImage)
-      .font(.caption.weight(.medium))
-      .foregroundStyle(color)
-      .lineLimit(1)
-      .padding(.horizontal, 12)
-      .padding(.vertical, 5)
-      .background(color.opacity(0.14), in: Capsule())
-      .accessibilityAddTraits(.updatesFrequently)
+    HStack(spacing: 10) {
+      Label(text, systemImage: systemImage)
+        .foregroundStyle(color)
+        .lineLimit(1)
+      if let actionTitle {
+        Button(actionTitle, action: onAction)
+          .buttonStyle(.borderless)
+          .foregroundStyle(Palette.primary)
+          .fontWeight(.semibold)
+      }
+    }
+    .font(.caption.weight(.medium))
+    .padding(.horizontal, 12)
+    .padding(.vertical, 5)
+    .background(color.opacity(0.14), in: Capsule())
+    .accessibilityAddTraits(.updatesFrequently)
   }
 }
 

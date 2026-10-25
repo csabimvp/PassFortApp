@@ -34,7 +34,8 @@ struct AccountCommands: Commands {
         Divider()
         Button("Edit…") { actions?.edit() }
           .keyboardShortcut("e", modifiers: .command)
-        Button("Delete…") { actions?.delete() }
+        Button("Delete") { actions?.delete() }
+          .keyboardShortcut(.delete, modifiers: .command)
       }
       // Every item needs a selection.
       .disabled(actions == nil)

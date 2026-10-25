@@ -10,7 +10,7 @@ struct PassFortApp: App {
   @State private var model: AppModel
   @State private var backup: BackupModel
   @State private var quickAccess = QuickAccessController()
-  @State private var copyNotice = CopyNotice()
+  @State private var toasts = ToastCenter()
   @AppStorage(QuickAccessController.menuBarKey) private var showsMenuBarExtra = true
   @Environment(\.scenePhase) private var scenePhase
 
@@ -38,7 +38,7 @@ struct PassFortApp: App {
         // Inside the environment below: the flow reads the models from it.
         .modifier(RestoreBackupFlow())
         .environment(model)
-        .environment(copyNotice)
+        .environment(toasts)
         .environment(backup)
         .environment(location)
         .tint(Palette.primary)
@@ -114,7 +114,7 @@ struct PassFortApp: App {
           .tint(Palette.primary)
           .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
       }
-      .copyToast()
+      .toastHost()
     }
   }
 }

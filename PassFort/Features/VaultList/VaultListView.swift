@@ -12,13 +12,13 @@ struct VaultListView: View {
   @State private var selection: UUID?
   @State private var query = ""
   @State private var editing: AccountSummary?
-  @State private var deleting: AccountSummary?
-  @State private var deleteError: String?
+  /// A delete, or its Undo, that failed: the alert's title and text.
+  @State private var deleteFailure: (title: String, message: String)?
   @State private var togglingFavorite = false
   @State private var copyError: String?
   /// The "… copied" toast under the list, shared with the detail column's copy buttons. Optional
   /// so previews that only inject `AppModel` keep working.
-  @Environment(CopyNotice.self) private var copyNotice: CopyNotice?
+  @Environment(ToastCenter.self) private var toasts: ToastCenter?
   /// The last audit; re-run after every write. `nil` until the first run finishes.
   @State private var findings: [AuditFinding]?
   @FocusState private var searchFocused: Bool
@@ -95,15 +95,6 @@ struct VaultListView: View {
     ) {
       VaultImportView()
     }
-    .confirmationDialog(
-      "Delete “\(deleting?.title ?? "")”?",
-      isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-      titleVisibility: .visible, presenting: deleting
-    ) { summary in
-      Button("Delete", role: .destructive) { Task { await delete(summary) } }
-    } message: { _ in
-      Text("It moves to Recently Deleted, where you can restore it until you empty it.")
-    }
     .sheet(
       item: Binding(
         get: { model.sync?.problemToShow.map(PresentedProblem.init) },
@@ -122,12 +113,12 @@ struct VaultListView: View {
       Text(copyError ?? "")
     }
     .alert(
-      "Couldn't delete the account",
-      isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
+      deleteFailure?.title ?? "",
+      isPresented: Binding(get: { deleteFailure != nil }, set: { if !$0 { deleteFailure = nil } })
     ) {
-      Button("OK") { deleteError = nil }
+      Button("OK") { deleteFailure = nil }
     } message: {
-      Text(deleteError ?? "")
+      Text(deleteFailure?.message ?? "")
     }
   }
 
@@ -155,7 +146,7 @@ struct VaultListView: View {
         .contextMenu { contextMenu(for: row) }
       }
     }
-    .onDeleteCommand { if let selectedSummary { deleting = selectedSummary } }
+    .onDeleteCommand { if let selectedSummary { Task { await delete(selectedSummary) } } }
     .overlay {
       if model.summaries.allSatisfy(\.isDeleted) {
         ContentUnavailableView {
@@ -172,8 +163,8 @@ struct VaultListView: View {
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       Group {
-        if let message = copyNotice?.message {
-          Toast(text: message)
+        if let toasts, let notice = toasts.notice {
+          Toast(notice) { toasts.performAction() }
         } else {
           Text(
             "\(AccountCommands.copyPasswordHint) password   "
@@ -203,7 +194,7 @@ struct VaultListView: View {
     }
     Divider()
     Button("Edit…") { editing = row }
-    Button("Delete…", role: .destructive) { deleting = row }
+    Button("Delete", role: .destructive) { Task { await delete(row) } }
   }
 
   /// Above the detail column, trailing, in the mockup's order: the selected account's star and
@@ -262,7 +253,7 @@ struct VaultListView: View {
     AccountActions(
       copy: { field in Task { await copy(field, of: row) } },
       edit: { editing = row },
-      delete: { deleting = row })
+      delete: { Task { await delete(row) } })
   }
 
   /// Flip the favorite flag: decrypt the one account, write it back with the flag toggled.
@@ -276,11 +267,22 @@ struct VaultListView: View {
     _ = await model.updateAccount(id: summary.id, to: payload)
   }
 
+  /// No confirmation: a deleted account goes to Recently Deleted, and the toast offers Undo.
+  /// Confirming is kept for what can't be undone (emptying Recently Deleted).
   private func delete(_ summary: AccountSummary) async {
     if let failure = await model.deleteAccount(id: summary.id) {
-      deleteError = failure.message
-    } else if selection == summary.id {
-      selection = nil
+      deleteFailure = ("Couldn't delete the account", failure.message)
+      return
+    }
+    if selection == summary.id { selection = nil }
+    toasts?.showDeleted(summary.title) { Task { await undoDelete(summary) } }
+  }
+
+  private func undoDelete(_ summary: AccountSummary) async {
+    if let failure = await model.restoreAccount(id: summary.id) {
+      deleteFailure = ("Couldn't bring “\(summary.title)” back", failure.message)
+    } else {
+      selection = summary.id
     }
   }
 
@@ -292,7 +294,7 @@ struct VaultListView: View {
       copyError = failure.message
       return
     }
-    copyNotice?.show(
+    toasts?.show(
       "\(field.name.prefix(1).uppercased())\(field.name.dropFirst()) of "
         + "“\(summary.title)” copied — clears in \(Pasteboard.clearAfterDescription)")
   }

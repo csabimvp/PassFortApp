@@ -2,32 +2,74 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// A "… copied" toast. The vault window has one, shown under the account list, so every copy there
-/// confirms the same way: the list's icons and the Account menu (`VaultListView`) and the detail
-/// column's copy buttons (`CopyButton`). Settings and its sheets host their own (`copyToast()`).
+/// The short confirmations after an action: "… copied", or "… moved to Recently Deleted" with
+/// Undo. The vault window has one, shown under the account list, so everything done there confirms
+/// the same way: the list's icons and the Account menu (`VaultListView`), the detail column's copy
+/// buttons (`CopyButton`), and the edit form's Delete. Settings and its sheets host their own
+/// (`toastHost()`).
 @MainActor @Observable
-final class CopyNotice {
-  /// The confirmation on screen, or `nil`. Never holds the copied value itself.
-  private(set) var message: String?
+final class ToastCenter {
+  /// A button on the toast, e.g. Undo.
+  struct Action {
+    let title: String
+    let perform: @MainActor () -> Void
+  }
+
+  /// What the toast shows. Never holds a copied value itself.
+  struct Notice {
+    let message: String
+    var systemImage = "checkmark.circle"
+    var color: Color = Palette.success
+    var action: Action?
+  }
+
+  /// The toast on screen, or `nil`.
+  private(set) var notice: Notice?
+  var message: String? { notice?.message }
 
   @ObservationIgnored private let duration: Duration
+  @ObservationIgnored private let actionDuration: Duration
   @ObservationIgnored private var clearing: Task<Void, Never>?
 
-  init(duration: Duration = .seconds(2)) {
+  /// A toast with a button stays longer (`actionDuration`), long enough to reach for it.
+  init(duration: Duration = .seconds(2), actionDuration: Duration = .seconds(6)) {
     self.duration = duration
+    self.actionDuration = actionDuration
   }
 
   /// Show `message` for a moment, and tell VoiceOver; a newer one replaces it and restarts the
   /// clock.
-  func show(_ message: String) {
-    self.message = message
+  func show(
+    _ message: String, systemImage: String = "checkmark.circle", color: Color = Palette.success,
+    action: Action? = nil
+  ) {
+    notice = Notice(message: message, systemImage: systemImage, color: color, action: action)
     AccessibilityNotification.Announcement(message).post()
     clearing?.cancel()
-    clearing = Task { [duration] in
+    clearing = Task { [duration = action == nil ? duration : actionDuration] in
       try? await Task.sleep(for: duration)
       guard !Task.isCancelled else { return }
-      self.message = nil
+      self.notice = nil
     }
+  }
+
+  /// The toast's button was pressed: take the toast down, then run the action -- once.
+  func performAction() {
+    guard let action = notice?.action else { return }
+    dismiss()
+    action.perform()
+  }
+
+  func dismiss() {
+    clearing?.cancel()
+    notice = nil
+  }
+
+  /// "“GitHub” moved to Recently Deleted", with Undo.
+  func showDeleted(_ title: String, undo: @escaping @MainActor () -> Void) {
+    show(
+      "“\(title)” moved to Recently Deleted", systemImage: "trash", color: .secondary,
+      action: Action(title: "Undo", perform: undo))
   }
 
   /// "Password copied — clears in 20 sec" for a secret, "Username copied" otherwise.
@@ -59,7 +101,7 @@ struct CopyButton: View {
   var kind: CopyKind = .secret
 
   /// Optional: present in the vault window only.
-  @Environment(CopyNotice.self) private var notice: CopyNotice?
+  @Environment(ToastCenter.self) private var notice: ToastCenter?
   @State private var copied = false
 
   var body: some View {
@@ -87,7 +129,7 @@ struct CopyButton: View {
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(value, forType: .string)
     }
-    let message = CopyNotice.message(copying: label, kind)
+    let message = ToastCenter.message(copying: label, kind)
     if let notice {
       notice.show(message)
     } else {
@@ -98,19 +140,19 @@ struct CopyButton: View {
 }
 
 /// A window or sheet with no list footer to put the toast in (Settings, Add a Device): its own
-/// `CopyNotice`, shown as the same capsule floating over the bottom edge. Its `CopyButton`s use it
+/// `ToastCenter`, shown as the same capsule floating over the bottom edge. Its `CopyButton`s use it
 /// instead of any notice further out, so a sheet's toast isn't hidden behind the sheet.
-private struct CopyToastHost: ViewModifier {
+private struct ToastHost: ViewModifier {
   /// Distance from the bottom edge: a sheet with a button row lifts the toast above it.
   let bottomInset: CGFloat
-  @State private var notice = CopyNotice()
+  @State private var notice = ToastCenter()
 
   func body(content: Content) -> some View {
     content
       .environment(notice)
       .overlay(alignment: .bottom) {
-        if let message = notice.message {
-          Toast(text: message)
+        if let current = notice.notice {
+          Toast(current) { notice.performAction() }
             .background(.regularMaterial, in: Capsule())  // legible over the form's rows
             .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
             .padding(.bottom, bottomInset)
@@ -122,9 +164,18 @@ private struct CopyToastHost: ViewModifier {
 }
 
 extension View {
-  /// Confirm copies made in this window or sheet with a floating toast (`CopyToastHost`).
+  /// Confirm copies made in this window or sheet with a floating toast (`ToastHost`).
   /// `bottomInset` lifts it clear of a sheet's button row.
-  func copyToast(bottomInset: CGFloat = 14) -> some View {
-    modifier(CopyToastHost(bottomInset: bottomInset))
+  func toastHost(bottomInset: CGFloat = 14) -> some View {
+    modifier(ToastHost(bottomInset: bottomInset))
+  }
+}
+
+extension Toast {
+  /// The toast for a `ToastCenter.Notice`; `perform` runs its button, if it has one.
+  init(_ notice: ToastCenter.Notice, perform: @escaping () -> Void) {
+    self.init(
+      text: notice.message, systemImage: notice.systemImage, color: notice.color,
+      actionTitle: notice.action?.title, onAction: perform)
   }
 }

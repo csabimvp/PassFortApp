@@ -17,6 +17,8 @@ struct AccountFormView: View {
 
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
+  /// The vault window's toast, for Delete's Undo. Optional so previews keep working.
+  @Environment(ToastCenter.self) private var toasts: ToastCenter?
 
   let mode: Mode
   /// The payload the form opened with, to tell whether Cancel would throw anything away.
@@ -36,7 +38,6 @@ struct AccountFormView: View {
   @State private var expiry: Date
   @State private var saving = false
   @State private var error: String?
-  @State private var confirmingDelete = false
   @State private var confirmingDiscard = false
 
   init(mode: Mode) {
@@ -134,7 +135,7 @@ struct AccountFormView: View {
       Divider()
       HStack {
         if isEditing {
-          Button("Delete", role: .destructive) { confirmingDelete = true }
+          Button("Delete", role: .destructive) { Task { await delete() } }
         }
         Spacer()
         Button("Cancel") { if hasChanges { confirmingDiscard = true } else { dismiss() } }
@@ -149,13 +150,6 @@ struct AccountFormView: View {
     .interactiveDismissDisabled(hasChanges)
     .disabled(saving)
     .overlay { if saving { ProgressView() } }
-    .confirmationDialog(
-      "Delete this account?", isPresented: $confirmingDelete, titleVisibility: .visible
-    ) {
-      Button("Delete", role: .destructive) { Task { await delete() } }
-    } message: {
-      Text("It moves to Recently Deleted, where you can restore it until you empty it.")
-    }
     .confirmationDialog(
       isEditing ? "Discard your changes?" : "Discard this account?",
       isPresented: $confirmingDiscard, titleVisibility: .visible
@@ -348,14 +342,20 @@ struct AccountFormView: View {
     }
   }
 
+  /// No confirmation, as in the list: the account goes to Recently Deleted and the vault window's
+  /// toast offers Undo. Unsaved edits go with it.
   private func delete() async {
     guard case .edit(let account) = mode else { return }
     saving = true
     defer { saving = false }
     if let failure = await model.deleteAccount(id: account.id) {
       error = failure.message
-    } else {
-      dismiss()
+      return
+    }
+    dismiss()
+    let model = self.model
+    toasts?.showDeleted(original.title) {
+      Task { _ = await model.restoreAccount(id: account.id) }
     }
   }
 
