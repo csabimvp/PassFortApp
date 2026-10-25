@@ -237,7 +237,8 @@ struct AppModelSyncTests {
 
     let newPassword = Data("battery staple".utf8)
     #expect(
-      await a.changePassword(current: password, new: newPassword, issueRecoveryKey: false) == nil)
+      await a.changePassword(current: password, new: newPassword, issueRecoveryKey: false)
+        == .success(nil))
     await a.sync?.syncNow()
     await b.sync?.syncNow()
     #expect(b.headerChangedElsewhere, "B has the new header waiting")

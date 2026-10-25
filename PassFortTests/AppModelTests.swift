@@ -140,7 +140,9 @@ struct AppModelTests {
 
   // MARK: - Password change
 
-  @Test func changePasswordWithANewRecoveryKeyShowsItThenUnlocks() async throws {
+  /// The key comes back to the caller (the Settings sheet shows it); the main window stays on the
+  /// vault rather than switching to `.showingRecoveryKey` behind the Settings window.
+  @Test func changePasswordWithANewRecoveryKeyReturnsItAndStaysUnlocked() async throws {
     let dir = try tempDir()
     defer { try? FileManager.default.removeItem(at: dir) }
     let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
@@ -148,15 +150,14 @@ struct AppModelTests {
 
     let model = AppModel(databasePath: path)
     await model.unlock(password: Data("old".utf8))
-    let error = await model.changePassword(
+    let result = await model.changePassword(
       current: Data("old".utf8), new: Data("new".utf8), issueRecoveryKey: true)
-    #expect(error == nil)
-    guard case .showingRecoveryKey = model.state else {
-      Issue.record("expected .showingRecoveryKey, got \(model.state)")
-      return
-    }
-    await model.confirmRecoveryKeyShown()
+    let key = try #require(try result.get())
     #expect(model.state == .unlocked)
+    #expect(model.stagedRepo == nil)
+
+    let repo = try #require(model.repo)
+    _ = try VaultSession.openWithRecovery(header: try await repo.header(), recoveryKey: key.raw)
 
     model.lock()
     await model.unlock(password: Data("old".utf8))
@@ -173,10 +174,48 @@ struct AppModelTests {
 
     let model = AppModel(databasePath: path)
     await model.unlock(password: Data("old".utf8))
-    let error = await model.changePassword(
+    let result = await model.changePassword(
       current: Data("nope".utf8), new: Data("new".utf8), issueRecoveryKey: false)
-    #expect(error == .wrongPassword)
+    #expect(result == .failure(.wrongPassword))
     #expect(model.state == .unlocked)
+  }
+
+  // MARK: - Recovery-key rotation
+
+  /// Rotation used to drop a failure (`try?`) and switch the main window to the key; now the key
+  /// comes back to the Settings sheet, the vault stays open, and the old key stops working.
+  @Test func rotateRecoveryKeyReturnsTheKeyAndStaysUnlocked() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    await model.unlock(password: Data("old".utf8))
+    let first = try await model.rotateRecoveryKey().get()
+    let second = try await model.rotateRecoveryKey().get()
+    #expect(model.state == .unlocked)
+    #expect(model.stagedRepo == nil)
+
+    let header = try await #require(model.repo).header()
+    _ = try VaultSession.openWithRecovery(header: header, recoveryKey: second.raw)
+    #expect(throws: PassFortError.authFailed) {
+      _ = try VaultSession.openWithRecovery(header: header, recoveryKey: first.raw)
+    }
+  }
+
+  @Test func rotateRecoveryKeyWhileLockedFails() async throws {
+    let dir = try tempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let path = dir.appending(path: "v.sqlite").path(percentEncoded: false)
+    try await makeVault(at: path, password: "old")
+
+    let model = AppModel(databasePath: path)
+    guard case .failure = await model.rotateRecoveryKey() else {
+      Issue.record("expected a failure while locked")
+      return
+    }
+    #expect(model.state == .locked())
   }
 
   // MARK: - Start a new vault

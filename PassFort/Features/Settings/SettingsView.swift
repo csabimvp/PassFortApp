@@ -40,10 +40,7 @@ struct SettingsView: View {
         Button("Change master password…") { changingPassword = true }
           .disabled(!unlocked)
 
-        Button("Rotate recovery key…") {
-          Task { await model.rotateRecoveryKey() }
-        }
-        .disabled(!unlocked)
+        LabeledContent("Recovery key") { RotateRecoveryKeyButton() }
       }
 
       if unlocked {

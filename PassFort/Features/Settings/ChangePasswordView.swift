@@ -1,9 +1,10 @@
 import Foundation
+import PassFortVault
 import SwiftUI
 
-/// Settings ▸ General ▸ Change master password. Current password, the new one twice, and whether
+/// Settings ▸ Security ▸ Change master password. Current password, the new one twice, and whether
 /// to issue a fresh recovery key — the existing one stops working regardless (the re-wrap changes
-/// the header salt its tag covers). On success with a new key, the main window shows it once.
+/// the header salt its tag covers). With a new key, this sheet shows it once in place of the form.
 struct ChangePasswordView: View {
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
@@ -14,10 +15,26 @@ struct ChangePasswordView: View {
   @State private var issueRecoveryKey = true
   @State private var working = false
   @State private var error: AppError?
+  /// The key the change issued, shown once; dropped with the sheet.
+  @State private var newKey: RecoveryKey?
 
   private var canSubmit: Bool { !current.isEmpty && !new.isEmpty && new == confirm }
 
   var body: some View {
+    Group {
+      if let newKey {
+        RecoveryKeyPanel(key: newKey, replacesPrevious: true) { dismiss() }
+      } else {
+        form
+      }
+    }
+    .padding(24)
+    .frame(width: 420)
+    // A key must not stay on screen once the vault locks; neither should a half-filled form.
+    .onChange(of: model.state) { if model.state != .unlocked { dismiss() } }
+  }
+
+  private var form: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Change master password").font(.title3).bold()
 
@@ -51,8 +68,6 @@ struct ChangePasswordView: View {
       }
     }
     .textFieldStyle(.roundedBorder)
-    .padding(24)
-    .frame(width: 380)
     .disabled(working)
   }
 
@@ -62,14 +77,17 @@ struct ChangePasswordView: View {
     let currentBytes = Data(current.utf8)
     let newBytes = Data(new.utf8)
     Task {
-      error = await model.changePassword(
+      let result = await model.changePassword(
         current: currentBytes, new: newBytes, issueRecoveryKey: issueRecoveryKey)
       working = false
-      if error == nil {
+      switch result {
+      case .success(let key):
         current = ""
         new = ""
         confirm = ""
-        dismiss()
+        if let key { newKey = key } else { dismiss() }
+      case .failure(let failure):
+        error = failure
       }
     }
   }

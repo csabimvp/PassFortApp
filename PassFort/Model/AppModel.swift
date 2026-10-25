@@ -186,30 +186,34 @@ final class AppModel {
     autoLock = AutoLock(timeout: .seconds(autoLockSeconds)) { [weak self] in self?.lock() }
   }
 
-  /// Rotate the recovery key (§5.6) — show it once, then back to `.unlocked`.
-  func rotateRecoveryKey() async {
-    guard case .unlocked = state, let repo else { return }
-    guard let key = try? await repo.rotateRecoveryKey() else { return }
-    sync?.localChange()  // the new header goes to the server (A.8)
-    stagedRepo = repo
-    state = .showingRecoveryKey(key)
+  /// Rotate the recovery key (§5.6). The vault stays open and `state` stays `.unlocked`: the
+  /// caller shows the returned key once, on the window that asked for it. The previous key stops
+  /// working as soon as this succeeds.
+  func rotateRecoveryKey() async -> Result<RecoveryKey, AppError> {
+    guard case .unlocked = state, let repo else { return .failure(.io("The vault is locked.")) }
+    do {
+      let key = try await repo.rotateRecoveryKey()
+      sync?.localChange()  // the new header goes to the server (A.8)
+      return .success(key)
+    } catch {
+      return .failure(VaultService.map(error))
+    }
   }
 
-  /// Change the master password. On success with `issueRecoveryKey`, shows the new recovery key
-  /// once (the old one stopped working either way). Returns the failure, or `nil`.
-  func changePassword(current: Data, new: Data, issueRecoveryKey: Bool) async -> AppError? {
-    guard case .unlocked = state, let repo else { return .io("The vault is locked.") }
+  /// Change the master password. With `issueRecoveryKey`, returns the new recovery key for the
+  /// caller to show once (the old one stopped working either way); otherwise `nil`. The vault stays
+  /// open and `state` stays `.unlocked`.
+  func changePassword(
+    current: Data, new: Data, issueRecoveryKey: Bool
+  ) async -> Result<RecoveryKey?, AppError> {
+    guard case .unlocked = state, let repo else { return .failure(.io("The vault is locked.")) }
     do {
       let key = try await repo.changePassword(
         current: current, new: new, issueRecoveryKey: issueRecoveryKey)
       sync?.localChange()  // the new header goes to the server (A.8)
-      if let key {
-        stagedRepo = repo
-        state = .showingRecoveryKey(key)
-      }
-      return nil
+      return .success(key)
     } catch {
-      return VaultService.map(error)
+      return .failure(VaultService.map(error))
     }
   }
 
@@ -602,7 +606,7 @@ final class AppModel {
     self.autoLock?.invalidate()
     self.autoLock = AutoLock(timeout: .seconds(autoLockSeconds)) { [weak self] in self?.lock() }
     self.state = .unlocked
-    // Back from showing a rotated recovery key, the open vault -- and its sync -- carry on.
+    // Re-adopting the vault that is already open keeps its sync running.
     guard isNewSession else { return }
     headerChangedElsewhere = (try? await repo.headerChangedElsewhere()) ?? false
     retire(sync)
