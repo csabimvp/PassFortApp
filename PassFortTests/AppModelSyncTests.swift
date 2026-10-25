@@ -211,6 +211,30 @@ struct AppModelSyncTests {
     #expect(a.sync?.state?.dirtyCount == 0)
   }
 
+  @Test func unlockingRightAfterALockMidRunOpensTheVault() async throws {
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let (a, _) = try await enabledA()
+    a.lock()
+
+    let entered = AsyncStream.makeStream(of: Void.self)
+    await server.setOnRequest { call in
+      guard call == .pull else { return }
+      entered.continuation.yield()
+      try await Task.sleep(for: .seconds(30))
+    }
+    await a.unlock(password: password)
+    var iterator = entered.stream.makeAsyncIterator()
+    _ = await iterator.next()
+    await server.setOnRequest(nil)
+
+    // No waiting in between: the unlock must wait for the cancelled run to close the vault.
+    for _ in 0..<5 {
+      a.lock()
+      await a.unlock(password: password)
+      #expect(a.state == .unlocked)
+    }
+  }
+
   // MARK: - More than one vault
 
   @Test func joiningInPlaceSetsTheOpenVaultAsideAndKeepsItsSync() async throws {

@@ -55,6 +55,10 @@ final class AppModel {
   /// opened only the old header (A.8). Kept across a lock, so the Unlock screen can say so.
   private(set) var headerChangedElsewhere = false
 
+  /// The last vault's sync, letting go of it after a lock. Every path that opens a vault waits
+  /// for it first, so the old connection is closed before the file is opened again.
+  private var retiringSync: Task<Void, Never>?
+
   private let syncAPI: SyncController.MakeAPI
   /// This Mac to the sync server; `nil` (the device file can't be read or written) leaves sync
   /// unavailable rather than registering a new device on every launch.
@@ -79,6 +83,7 @@ final class AppModel {
   func unlock(password: Data) async {
     guard !state.isUnlocking else { return }  // the Unlock screen can double-submit
     state = .unlocking
+    await retireSync()
     do {
       try await adoptUnlocked(service.unlock(password: password))
     } catch let error as AppError {
@@ -100,6 +105,7 @@ final class AppModel {
   @discardableResult
   func createVault(password: Data, recovery: Bool) async -> AppError? {
     guard case .needsVault = state else { return nil }
+    await retireSync()
     do {
       let service = self.service
       let params = try await Task.detached(priority: .userInitiated) {
@@ -135,7 +141,10 @@ final class AppModel {
   func lock() {
     autoLock?.invalidate()
     autoLock = nil
-    sync?.cancel()
+    if let sync {
+      sync.cancel()
+      retiringSync = Task { await sync.stop() }
+    }
     sync = nil
     repo = nil
     stagedRepo = nil
@@ -144,6 +153,13 @@ final class AppModel {
     showingVaultImport = false
     Pasteboard.clearTransient()
     state = .locked()
+  }
+
+  /// `lock`, then wait until the vault's sync has let go of it too: after this nothing in the
+  /// process holds the vault's files open, so they can be moved or replaced.
+  func lockAndRelease() async {
+    lock()
+    await retireSync()
   }
 
   /// The vault files on disk were replaced behind the model's back (a restore): drop everything
@@ -307,6 +323,7 @@ final class AppModel {
     await sync?.stop()  // a sync run in flight holds the vault open
     weak let released = repo
     lock()
+    await retireSync()
     // A spinner on the Unlock screen, and no unlock attempt while the files move.
     state = .unlocking
     await Task.yield()  // let the released vault's connection close before its files move
@@ -367,6 +384,7 @@ final class AppModel {
   @discardableResult
   func joinVault(endpoint: URL, vaultID: UUID, password: Data) async -> AppError? {
     guard case .needsVault = state else { return nil }
+    await retireSync()
     do {
       try await adoptUnlocked(try await join(endpoint: endpoint, vaultID: vaultID, password: password))
       return nil
@@ -596,6 +614,12 @@ final class AppModel {
       }
     }
     await sync?.start()
+  }
+
+  /// Wait until the previous vault's sync has let go of it.
+  private func retireSync() async {
+    await retiringSync?.value
+    retiringSync = nil
   }
 
   /// After a sync run: rebuild the index if records came in, and pick up a header change another

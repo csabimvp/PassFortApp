@@ -32,7 +32,9 @@ final class SyncController {
   /// This Mac, as the server sees it.
   let device: DeviceDTO
 
-  private let repository: VaultRepository
+  /// Released by `stop`, so the vault closes on the main actor at a known point -- not later,
+  /// on whichever task happens to drop it last, while the next unlock opens the file.
+  private var repository: VaultRepository?
   private let makeAPI: MakeAPI
   /// Called after a run that may have changed the records, so the model can rebuild its index.
   private let didRun: @MainActor (_ pulled: Bool) async -> Void
@@ -47,6 +49,8 @@ final class SyncController {
   private var holdOffUntil: Date?
   private var backoff: TimeInterval = 0
   private var stopped = false
+  /// Tasks `cancel` cancelled, for `stop` to wait out.
+  private var finishing: [Task<Void, Never>] = []
 
   static let debounce: Duration = .seconds(2)
   static let tick: Duration = .seconds(60)
@@ -73,19 +77,23 @@ final class SyncController {
     trigger(manual: true)
   }
 
-  /// Cancel everything -- the run in flight included -- and wait for the run to let go of the
-  /// vault. Lock calls this: sync never runs while locked, and a cancelled run leaves the vault
-  /// consistent (every ingest is one commit).
+  /// Cancel everything -- the run in flight included -- wait for every task to end, and let go
+  /// of the vault. Lock ends in this: sync never runs while locked, and a cancelled run leaves
+  /// the vault consistent (every ingest is one commit). Once it returns, nothing here holds the
+  /// vault open.
   func stop() async {
-    stopped = true
-    let running = runTask
-    cancelTasks()
-    await running?.value
+    cancel()
+    let tasks = finishing
+    finishing = []
+    for task in tasks { await task.value }
+    repository = nil
   }
 
-  /// `stop` without waiting, for `AppModel.lock`, which is synchronous.
+  /// The synchronous half of `stop`, for `AppModel.lock`: every trigger and the run in flight
+  /// are cancelled now; `stop` then waits for them.
   func cancel() {
     stopped = true
+    finishing += [runTask, statusTask, debounceTask, tickTask].compactMap { $0 }
     cancelTasks()
   }
 
@@ -227,7 +235,7 @@ final class SyncController {
   /// The engine for the configured endpoint, made on first use; its status stream feeds `status`.
   private func currentEngine() throws -> SyncEngine {
     if let engine { return engine }
-    guard let state else { throw SyncError.notEnabled }
+    guard let state, let repository else { throw SyncError.notEnabled }
     let engine = SyncEngine(
       api: try makeAPI(state.endpoint), repository: repository, device: device)
     adopt(engine)
@@ -246,7 +254,7 @@ final class SyncController {
   }
 
   private func refreshState() async {
-    state = try? await repository.syncState()
+    state = try? await repository?.syncState()
     if state == nil { status = .off }
   }
 
@@ -260,6 +268,7 @@ final class SyncController {
   @discardableResult
   func enable(endpoint: URL, enrollSecret: String) async throws -> UUID {
     guard state == nil else { throw SyncError.vaultExists }
+    guard let repository else { throw SyncError.notEnabled }
     stopped = false
     let engine = SyncEngine(
       api: try makeAPI(endpoint), repository: repository, device: device)
@@ -281,7 +290,7 @@ final class SyncController {
     runTask?.cancel()
     await running?.value
     if deleteServerCopy { try await currentEngine().deleteServerCopy() }
-    try await repository.disableSync()
+    try await repository?.disableSync()
     cancelTasks()
     stopped = false
     isPaused = false

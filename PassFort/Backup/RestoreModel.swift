@@ -89,8 +89,8 @@ final class RestoreModel {
   struct Hooks {
     /// Called first. Returns a reason to refuse (e.g. a backup is mid-run), or `nil` to go ahead.
     var begin: () -> String?
-    /// Close the open vault so its files can move.
-    var releaseVault: () -> Void
+    /// Close the open vault so its files can move; returns once nothing holds it open.
+    var releaseVault: () async -> Void
     /// The files changed: re-read the disk and show the matching screen.
     var reload: () -> Void
     /// Called last, success or not.
@@ -148,7 +148,7 @@ final class RestoreModel {
     defer { hooks.end() }
 
     step = .restoring
-    hooks.releaseVault()
+    await hooks.releaseVault()
     await Task.yield()  // let the released vault's connection close before its files move
 
     do {

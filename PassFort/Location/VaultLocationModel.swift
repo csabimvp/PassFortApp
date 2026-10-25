@@ -27,8 +27,8 @@ final class VaultLocationModel {
   struct Hooks {
     /// Called first. Returns a reason to refuse (a backup is mid-run), or `nil` to go ahead.
     var begin: () -> String?
-    /// Close the open vault so its files can move.
-    var releaseVault: () -> Void
+    /// Close the open vault so its files can move; returns once nothing holds it open.
+    var releaseVault: () async -> Void
     /// Called when a move did *not* happen, so whatever `begin` paused can resume.
     var abandon: () -> Void
   }
@@ -168,7 +168,7 @@ final class VaultLocationModel {
       return
     }
     step = .working
-    hooks.releaseVault()
+    await hooks.releaseVault()
     await Task.yield()  // let the released vault's connection close before its files move
 
     let source = currentEndpoint

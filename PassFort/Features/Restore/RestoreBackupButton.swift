@@ -64,7 +64,7 @@ struct RestoreBackupButton: View {
         backup?.setPaused(true)  // no lock-time backup may read the files mid-swap
         return nil
       },
-      releaseVault: { if model.state != .needsVault { model.lock() } },
+      releaseVault: { if model.state != .needsVault { await model.lockAndRelease() } },
       reload: { model.reloadAfterRestore() },
       end: { backup?.setPaused(false) })
   }

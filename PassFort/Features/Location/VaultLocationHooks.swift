@@ -12,7 +12,7 @@ extension VaultLocationModel.Hooks {
         backup?.setPaused(true)
         return nil
       },
-      releaseVault: { if model.state != .needsVault { model.lock() } },
+      releaseVault: { if model.state != .needsVault { await model.lockAndRelease() } },
       abandon: { backup?.setPaused(false) })
   }
 }
