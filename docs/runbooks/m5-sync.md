@@ -10,14 +10,13 @@
 > tag-triggered, per-environment deploy became a manual run from `main` with `_DEV` / `_PROD`
 > repository secrets (its README, *Deploying*).
 
-**Status:** Detailed design, written ahead of the normal cadence (first sketch 2026-09-04; reworked to
-low-level detail 2026-10-21, on request). The design decisions are **ratified** — ADR-0009 and
-`architecture.md` rev 12 (2026-10-21). The Azure spike (Phase 0.1) is **half run**: the local half
-passed on 2026-10-21 (A.3 holds on Azurite, real sealed blobs round-trip), and the deploy half hasn't
-run yet. Part A is the
-design every phase builds against; the spike can still overturn it, and then the ADR gets amended and
-this runbook rewritten. Treat every "Checkpoint", command and number below as provisional until the
-spike has run.
+**Status: done (2026-10-25).** Every phase is built. The Phase 12 deploy and the Phase 13
+two-device checkpoint passed against `rg-passfort-dev`, and the Phase 14 doc sweep is
+`architecture.md` rev 16. Still to read off the portal: the Phase 12 cost page (it lagged a day) and
+Phase 0's per-request timeout and regional Table prices. None of them is on the critical path. The
+text below is the design and build record. It was first sketched 2026-09-04, reworked to low-level
+detail 2026-10-21, and ratified by ADR-0009 and `architecture.md` rev 12. Each phase's
+"Built"/"Deployed" note says where the build departed from it.
 
 **Prerequisite:** M3 done (the SwiftUI app does full CRUD; `AppModel` is the lock-state spine). M4 was
 scaled back on 2026-10-21 — **no Keychain, no Touch ID, no notarization** — and this runbook no longer
@@ -1421,7 +1420,22 @@ on one, join on the other; an edit appears on the other within a minute while bo
 offline edit on both surfaces a badged copy on both, resolvable from either; airplane mode shows
 "Offline", not an error; locking mid-sync leaves a vault that unlocks and verifies.
 
-**Built (2026-10-25); the checkpoint is pending.** Everything in 13.1–13.3, each view its own
+**Checkpoint passed (2026-10-25)**, with the Mac app and `passfort-cli` as the second device on
+`rg-passfort-dev`. The CLI joined, `sync devices` listed both, and every case above held: an edit on
+either side reached the other, offline edits on both surfaced a badged copy that resolved from
+either side, airplane mode showed "Offline", and a lock mid-run left a vault that unlocked and
+verified. Two setup traps came up, and both are fixed:
+
+- **A bare host as the server address** (no `/api/v1`) sent every request to the static page, and
+  the app showed "The sync server had an error (405). PassFort will retry." A host with no path
+  now gains `/api/v1`, and a 405 says the address should end in it (`SyncEndpoint`,
+  `SyncEndpointTests`).
+- **An outdated enrollment secret.** Re-running `bootstrap-oidc.sh` before the Phase 12 redeploy
+  had replaced it, so the saved copy was refused. `PassFortCloud`'s README now says to skip the
+  printed secret lines on a re-run, and how to read the deployed secret from the site's app
+  settings.
+
+**Built (2026-10-25).** Everything in 13.1–13.3, each view its own
 commit. `swift test` green (262 + 16), `xcodebuild test` green (the 13.2 cases plus join, devices,
 join-in-place, the A.8 banner, and a lock-during-a-run regression), lint clean. The two-Mac checkpoint
 needs the deployed endpoint and its enrollment secret, so it is the maintainer's to run: Settings ▸
@@ -1500,6 +1514,22 @@ CI: `cloud` (Phase 4) is the only new job; the Swift-side suites ride the existi
   Shell and CI); Testing gains `npm test`; Usage gains `passfort-cli sync …`.
 - `CLAUDE.md`: Commands block gains the `Cloud/` loop; Project status line moves on.
 - `docs/runbooks/README.md`: M5 → done.
+
+**Done (2026-10-25).** Every row of the coverage table exists. The `Cloud/api/test` row and the Node
+contract check run in `PassFortCloud`, and so does the `cloud` CI job, which moved there with the
+backend (rev 15). What the sweep did against the list above:
+
+- `architecture.md` → rev 16: the region, the `X-PassFort-Token` header, the manual deploy, the
+  shipped pins and their availability cost in §3.4, §13.3's Azure rows marked live, open decision
+  16 resolved (hosted runners, free for a public repository). §3.4's other sync bullets were
+  re-read and still hold.
+- ADR-0009: no amendment. The build kept its design, and the token's header was never its
+  decision. ADR-0005: unchanged, since the spike didn't overturn the backend choice.
+- `m3-vault-management.md` Phase 6 and `m7-ios.md` Phases 5 and 8: notes on what shipped.
+- `README.md`: it became a user-facing page on 2026-10-24, so the list above (Project structure,
+  `Cloud/`, Node, `npm test`) no longer fits it. Sync goes into its features, usage and security
+  instead, and the backend's commands are in `PassFortCloud`.
+- `CLAUDE.md` and `docs/runbooks/README.md`: M5 done.
 
 ---
 

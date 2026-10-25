@@ -326,6 +326,13 @@ pre-restore files exist, and unlock works after accept-restore.
 
 ## Phase 6 — Azure destination (deferred; blocked on M5)
 
+> **Unblocked (2026-10-25): M5 is done.** It's still not built, and it isn't part of M5. When it is
+> built, it reuses the `k_auth` session as it shipped (`POST /vaults/{id}/session`, a 15-minute
+> token sent as `X-PassFort-Token`). It gets its own endpoint, `PUT /v1/vaults/{id}/backups`, as a
+> contract change in `SyncAPI/openapi.yaml` first, then in `PassFortCloud`. The network
+> entitlement below is already in `PassFort.entitlements` (M5 Phase 13). Blob Storage adds a
+> resource to `main.bicep`, so check the cost brief (`architecture.md` §10.1) before adding it.
+
 **Don't build until M5 has working auth** (`m5-sync.md`, `architecture.md` §10.4). Notes so the earlier
 phases don't paint us into a corner:
 

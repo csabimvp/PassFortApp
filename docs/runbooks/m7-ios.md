@@ -298,6 +298,17 @@ The phone has **no "create vault"** flow. First run is *join*:
 
 M5's `JoinVaultView` on the Mac is the template for this screen and its progress steps.
 
+**As M5 shipped (2026-10-25), checked against this phase:** the order above is what
+`VaultJoin.join` does. The header is fetched, it must unwrap, and only then does `k_auth` exist,
+so step 4's property holds by construction. The Mac's **Add a Device…** sheet (Settings ▸ Sync)
+already exists. Its QR code carries `passfort://join?endpoint=<api root>&vault=<uuid>`
+(`SyncInvite`), with nothing secret in it, so the phone only needs a scanner. `SyncInvite` and
+`SyncEndpoint`, which parses the address and adds `/api/v1` to a bare host, live in the Mac app
+target (`PassFort/Sync/`). Move them into `PassFortAppCore` in Phase 2 rather than copying them.
+The Mac starts a join from its first screen or File ▸ Join Synced Vault…, which sets the open
+vault aside rather than replacing it. The phone has no vault to set aside, so it needs only the
+first-run path.
+
 Recovery stays on the Mac: if the master password is forgotten, the recovery key (§5.6) is used there,
 and the phone re-joins afterwards.
 
@@ -380,7 +391,8 @@ push on the next foreground sync.
 seconds after you open the app. Truly live updates would need push notifications, which need the paid
 program (§14.19).
 
-**Transport:** M5's `PinnedTransport` (SPKI pinning, §9.4) as-is. **Develop against a deployed
+**Transport:** M5's `PinnedTransport` (SPKI pinning, §9.4) as-is. The Mac reads its pins from a
+bundled `SyncPins.txt`, so the phone target bundles the same file. **Develop against a deployed
 endpoint** — a throwaway dev resource group from M5's Bicep (cost ≈ $0, teardown is `az group delete`).
 No ATS exception to reach `func start` on the Mac's LAN IP, not even in Debug.
 
