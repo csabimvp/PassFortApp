@@ -10,10 +10,13 @@ struct VaultFileCommands: Commands {
 
   @Environment(\.openWindow) private var openWindow
 
-  /// The swaps need the vault open, and the files free to move.
-  private var canReplace: Bool {
+  /// The swaps need the vault open, and the files free to move. Settings ▸ Vault's New Vault…
+  /// asks the same.
+  static func canReplace(_ model: AppModel, _ location: VaultLocationModel) -> Bool {
     model.state == .unlocked && !location.isBusy && !location.needsRelaunch
   }
+
+  private var canReplace: Bool { Self.canReplace(model, location) }
 
   var body: some Commands {
     CommandGroup(after: .newItem) {
@@ -38,6 +41,13 @@ struct VaultFileCommands: Commands {
   }
 
   private func show(_ sheet: AppModel.VaultSheet) {
+    Self.show(sheet, model, openWindow)
+  }
+
+  /// Open one of the sheets on the vault window, brought forward first -- from the menu, or from
+  /// Settings. Never on the Settings window: a new vault's recovery key appears in the vault
+  /// window, which must not be left behind Settings.
+  static func show(_ sheet: AppModel.VaultSheet, _ model: AppModel, _ openWindow: OpenWindowAction) {
     MainWindow.bringForward(openWindow)
     model.vaultSheet = sheet
   }

@@ -185,6 +185,10 @@ Built as planned, with these differences, each checked against an offscreen rend
   menus and dialogs, and its confirmation dialog is destructive.
 - The Unlock and Create screens keep their Restore from Backup link; it opens the same flow as the
   File menu.
+- **New Vault… is in Settings ▸ Vault as well as the File menu** (the maintainer's call, after the
+  build). It opens the same sheet on the vault window, brought forward, not on Settings: a new
+  vault's recovery key appears in the vault window, which must not be left behind Settings. Open
+  and Join stay in the File menu only.
 - File-menu commands bring the vault window forward first, opening one if none is open, so the
   "no window open" case below is handled rather than deferred.
 

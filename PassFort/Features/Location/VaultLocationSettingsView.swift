@@ -2,14 +2,16 @@ import AppKit
 import SwiftUI
 
 /// Settings ▸ Vault: where the vault file lives, and moving it. Local folders only -- a network
-/// drive or a synced folder can corrupt an open database -- so those are for backups. Putting
-/// another vault in this one's place is in the File menu (`VaultFileCommands`).
+/// drive or a synced folder can corrupt an open database -- so those are for backups. New Vault…
+/// is here as well as in the File menu, and opens the same sheet on the vault window; Open and Join
+/// are in the File menu only (`VaultFileCommands`).
 struct VaultLocationSettingsView: View {
   @Environment(AppModel.self) private var model
   @Environment(VaultLocationModel.self) private var location
   @Environment(BackupModel.self) private var backup: BackupModel?
   @State private var pendingFolder: URL?
   @State private var confirmingDefault = false
+  @Environment(\.openWindow) private var openWindow
 
   private var canChange: Bool {
     model.state.allowsFileMoves && !location.isBusy && !location.needsRelaunch
@@ -55,8 +57,23 @@ struct VaultLocationSettingsView: View {
       }
 
       Section {
-        Label("To start, open or join another vault, use the File menu.", systemImage: "info.circle")
-          .foregroundStyle(.secondary)
+        LabeledContent {
+          Button("New Vault…") { VaultFileCommands.show(.newVault, model, openWindow) }
+            .disabled(!VaultFileCommands.canReplace(model, location))
+        } label: {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Start a new vault")
+            Text("An empty vault takes this one's place. This one is kept beside it, never deleted.")
+              .font(.caption).foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+      } header: {
+        Text("New vault")
+      } footer: {
+        SettingsFooter(
+          (model.state == .unlocked ? "" : "Unlock PassFort first. ")
+            + "To open or join another vault instead, use the File menu.")
       }
     }
     .settingsTab()
