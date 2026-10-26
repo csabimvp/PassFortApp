@@ -21,10 +21,10 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | **M1** Crypto core + seam | [`m1-crypto-core.md`](m1-crypto-core.md) | ✅ done ([retrospective](m1-retrospective.md)) |
 | **M2** Vault + storage | [`m2-vault-storage.md`](m2-vault-storage.md) | ✅ done |
 | **M3** GUI | [`m3-gui.md`](m3-gui.md) | ✅ done — Phases 1–9 done; Phase 10 ("last used") deliberately deferred |
-| **M3 addendum** Vault backup & restore | [`m3-vault-management.md`](m3-vault-management.md) | ✎ Phases 0–5 and 7 built (3, 4, 7 await by-hand checks); Azure (6) blocked on M5 |
+| **M3 addendum** Vault backup & restore | [`m3-vault-management.md`](m3-vault-management.md) | ✅ Phases 0–5 and 7 built, by-hand checks done (2026-10-26); Azure (6) unblocked by M5 but not built |
 | **M4** Platform integration | [`m4-platform.md`](m4-platform.md) | ⏸ scaled back 2026-10-21 — no Keychain, Touch ID or notarization for a personal-use app; Phases 1–2 and 4 were tried and reverted; Phases 6 (lock on sleep/screen lock) and 7 (concealed pasteboard) built — see the note at the top of the runbook |
 | **M5** Sync (Azure) | [`m5-sync.md`](m5-sync.md) | ✅ done (2026-10-25) — Phases 0–14; deployed as `rg-passfort-dev` (`eastus2`), where the drill and the two-device checkpoint pass with pinning; doc sweep is `architecture.md` rev 16. The backend lives in the private `PassFortCloud` repository (rev 15). Left to read off the portal: the cost page, the per-request timeout, regional Table prices |
-| **M3 addendum** Settings redesign | [`settings-redesign.md`](settings-redesign.md) | ✅ built 2026-10-25 on `settings-redesign` (Phases 0–8) — from the review in `UI/settings-review.md`; by-hand checks pending, then merge |
+| **M3 addendum** Settings redesign | [`settings-redesign.md`](settings-redesign.md) | ✅ done — built 2026-10-25 (Phases 0–8) from the review in `UI/settings-review.md`; by-hand checks done and merged to `main` 2026-10-26 |
 | **M6** Web client | — | write after M5 (or pull forward — §12 note 3) |
 | **M7** iOS client | [`m7-ios.md`](m7-ios.md) | ✎ sketch — written ahead of cadence (2026-10-21); depends on M5 only, not M6; only Phase 0 (the spikes) is actionable, the rest is a plan to validate |
 | **M8** Hardening | — | write after M7 |

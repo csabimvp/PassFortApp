@@ -1,6 +1,6 @@
 # M3 addendum — Vault backup & restore
 
-**Status:** In progress — Phases 0–5 and 7 built (2026-10-20). Phases 3, 4 and 7 await their by-hand checkpoints; Phase 6 (Azure) is blocked on M5.
+**Status:** Done apart from Phase 6 — Phases 0–5 and 7 built (2026-10-20); the by-hand checkpoints of Phases 3, 4 and 7 passed (2026-10-26). Phase 6 (Azure) is unblocked by M5 but not built.
 **Prerequisite:** M3 Phases 1–8 done (the app runs, unlocks, edits, auto-locks). Independent of M4/M5, but
 Phase 0 below says where it touches each.
 **Spec:** `architecture.md` §5.5 (manifest / anti-rollback), §8.2 (WAL, `0600`, one live file), §9–§10
@@ -183,7 +183,7 @@ clear error, app keeps working.
 
 ---
 
-## Phase 3 — Settings UI: Backup section — BUILT (2026-10-20), manual checkpoint pending
+## Phase 3 — Settings UI: Backup section — DONE (built 2026-10-20, checked by hand 2026-10-26)
 
 In `SettingsView` (new `Section("Backup")`, works while locked too — backup needs no key):
 
@@ -237,7 +237,7 @@ nothing, lock → no new file.
 
 ---
 
-## Phase 4 — Restore — BUILT (2026-10-20), manual checkpoint pending
+## Phase 4 — Restore — DONE (built 2026-10-20, checked by hand 2026-10-26)
 
 Entry points: **Settings ▸ Restore from Backup…** and a link on the Unlock screen (the "my vault is gone"
 case).
@@ -352,7 +352,7 @@ phases don't paint us into a corner:
 
 ---
 
-## Phase 7 — Choose where the live vault lives — BUILT (2026-10-20), manual checkpoint pending
+## Phase 7 — Choose where the live vault lives — DONE (built 2026-10-20, checked by hand 2026-10-26)
 
 The backup folder is chosen in Settings; the same choice for the **live** vault ("put it on my
 external drive / in a folder I pick") reverses the first decision in this document ("one live vault,

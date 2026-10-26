@@ -1,7 +1,8 @@
 # Settings redesign
 
-**Status:** Phases 0–8 built (2026-10-25) on the `settings-redesign` branch, one commit per phase;
-the by-hand checks below are the maintainer's, then merge.
+**Status:** Done. Phases 0–8 built (2026-10-25) on the `settings-redesign` branch, one commit per
+phase. The maintainer's by-hand checks below passed and the branch was merged to `main` and deleted
+(2026-10-26).
 **Source:** the review in `UI/settings-review.md` and its mockups (`UI/mockups/Settings.dc.html`,
 `SettingsStates.dc.html`; local only). The review's problem numbers (1–6) are cited below.
 **Scope:** app target only (`PassFort/`, `PassFortTests/`). No vault-format change, no schema change,
@@ -162,7 +163,7 @@ plan's row in the runbooks index becomes done, and `UI/settings-review.md` notes
 
 ---
 
-## By-hand checks (the maintainer's)
+## By-hand checks (the maintainer's) — done 2026-10-26
 
 1. Rotate from Settings ▸ Security with the main window closed: the confirmation, then the key,
    appear on the Settings window.
