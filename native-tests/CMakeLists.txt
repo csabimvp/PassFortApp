@@ -44,7 +44,8 @@ add_executable(pfcrypto_tests
     tests/test_seal_open.cpp
     tests/test_manifest.cpp
     tests/test_tamper.cpp
-    tests/test_seam_fuzz.cpp)
+    tests/test_seam_fuzz.cpp
+    tests/test_secure_memory.cpp)
 # ${PFCRYPTO} itself is on the path so tests can #include "keyring/kdf.hpp" etc.
 target_include_directories(pfcrypto_tests PRIVATE
     ${PFCRYPTO} ${PFCRYPTO}/include ${PFCRYPTO}/internal)

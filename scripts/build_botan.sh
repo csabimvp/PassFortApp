@@ -13,7 +13,7 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 # exact names if any are rejected. Adjust --cpu to x86_64 on an Intel Mac.
 MODULES="argon2,argon2fmt,chacha20poly1305,chacha,poly1305,aes,aes_armv8,gcm,\
 hmac,sha2_32,sha2_64,hkdf,pbkdf2,auto_rng,system_rng,hmac_drbg,\
-base64,base32,hex,rfc3394"
+base64,base32,hex,rfc3394,locking_allocator"
 
 echo "Cloning Botan ${BOTAN_VERSION}..."
 git clone --depth 1 --branch "${BOTAN_VERSION}" \

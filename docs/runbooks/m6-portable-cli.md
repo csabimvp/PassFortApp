@@ -1,6 +1,6 @@
 # M6 — Portable CLI (Linux first)
 
-**Status:** Phase 0, the spike, ran in CI on 2026-10-26 (branch `m6-spike`, not merged; runs
+**Status:** Phase 1 done 2026-10-26. Phase 0, the spike, ran in CI on 2026-10-26 (branch `m6-spike`, not merged; runs
 `40334650317` to `40343656728`). Its WSL2 half (0.7) is still to run, on the Windows PC. Phases 1–7
 are a plan built from the spike's results. Treat each step and checkpoint as provisional until
 0.7 is in and the decisions in 0.8 are recorded.
@@ -179,14 +179,22 @@ summary. Record the result here.
 1. **ADR-0011: TLS pinning on Linux through libcurl with an OpenSSL verify callback** (0.1), and
    libcrypto for HMAC and SHA-256 there (0.2). It's a security-relevant choice with a rejected
    dependency, so it gets an ADR.
-2. **ADR-0001 amendment:** one amalgamation per target under `vendor/botan/<target>/`, and
-   `locking_allocator` in the module set (0.3, 0.4).
+2. **ADR-0001 amendment:** one amalgamation per target under `vendor/botan/<target>/` (0.3).
+   The `locking_allocator` half (0.4) landed with Phase 1.
 3. **`architecture.md` rev 18:** §3.4 (the locking allocator, true once Phase 1 lands), §11.2 (the
    table's *spike* entries resolved), §14.21 (a) and (b) resolved, §11.3 with the 0.7 results.
 
 ---
 
 ## Phase 1 — The locking allocator, on the Mac first
+
+> **Done 2026-10-26** (`architecture.md` rev 18, ADR-0001 amendment). On macOS the limit is
+> unlimited, so Botan locks its full 512 KiB pool at startup. The sandboxed app wires 560 KiB
+> against 48 KiB for the previous build (`proc_pid_rusage`, `ri_wired_size`). The pool serves only
+> allocations of 16–256 bytes, which covers every key; larger buffers fall back to ordinary
+> memory (§3.4). `internal/Secure.hpp` refuses to compile without the module, and
+> `native-tests/tests/test_secure_memory.cpp` checks the pages are locked. It skips under ASan,
+> which makes `mlock` a no-op. Native (65), package (279) and app suites pass.
 
 Add `locking_allocator` to `build_botan.sh`, regenerate the macOS amalgamation, and confirm on the
 Mac that keys land in the locked pool. One reviewed commit with the ADR-0001 amendment. Fix §3.4 and

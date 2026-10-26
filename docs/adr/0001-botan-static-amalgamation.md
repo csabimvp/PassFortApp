@@ -11,6 +11,15 @@
 > probe (`architecture.md` §4.1) still needs re-running against 3.13.0; the algorithms it covers
 > are unchanged between 3.12 and 3.13.
 
+> **Amendment — 2026-10-26.** **`locking_allocator` joins the module set.** `--minimized-build`
+> compiles only the listed modules, and the list above never had it. `Botan::secure_vector`
+> therefore scrubbed on free but never `mlock`ed anything, so `architecture.md` §3.4 and ADR-0004
+> ("a locking allocator") described something the build didn't do. The M6 spike found the gap
+> (`docs/runbooks/m6-portable-cli.md` 0.4). Same Botan 3.13.0, same vault format; the
+> amalgamation only gains the allocator and its `mem_pool` dependency. `internal/Secure.hpp` now
+> fails the build if the module is ever missing again, and `native-tests` checks that the pages are
+> locked. What it locks, and its limits, are in §3.4.
+
 ## Context
 
 The core needs Argon2id, an AEAD, HKDF, HMAC, and a CSPRNG. Three realistic sources:

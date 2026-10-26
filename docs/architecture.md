@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Living specification. M0–M3 and M5 (sync) are built, M4 was scaled back; `docs/runbooks/README.md` tracks each milestone.
-**Revision:** 17 (2026-10-26). What changed in each revision: [Appendix A](#appendix-a--revision-history).
+**Revision:** 18 (2026-10-26). What changed in each revision: [Appendix A](#appendix-a--revision-history).
 
 ---
 
@@ -127,7 +127,7 @@ This section grew when the boundary moved (ADR-0004). Be precise about what was 
 - **The master password reaches C++ as bytes from a Swift `String`** typed into a `SecureField`. That `String` is unwipeable. Unavoidable in any Swift GUI, including one with no C++ at all.
 - **The unlocked in-memory index holds decrypted titles/usernames in Swift** so the list view can search and sort (§8.3). This is the single largest concession versus the rev-1 design where C++ held the index. It is bounded — it holds titles, not passwords — and it is discarded on lock.
 - Keys are still never in Swift. A memory dump of the unlocked process yields plaintext records; it does not yield the DEK, so it does not yield the *file*.
-- `mlock` (via Botan's locking allocator) is best-effort and capped by `RLIMIT_MEMLOCK`; pages may still hit swap. macOS encrypts swap by default, which helps.
+- `mlock` (via Botan's locking allocator) is best-effort. Botan locks one pool at startup, at most 512 KiB (`BOTAN_MLOCK_POOL_SIZE` lowers it) and capped by `RLIMIT_MEMLOCK`, and serves only allocations of 16–256 bytes from it. That covers every key and subkey. Anything larger, such as Argon2id's working memory, or anything past a full pool or a zero limit, falls back to ordinary memory without an error: still zeroized on free, but pageable. The module was missing from the vendored build until rev 18, so earlier builds locked nothing. macOS encrypts swap by default, which helps.
 - Sync metadata (record count, ciphertext sizes bucketed to 256 B, update timestamps, HLC device ids, per-vault write frequency) is visible to the Azure Storage account.
 - **A hostile sync server can withhold or delay other devices' writes.** It cannot forge, alter, roll back below a device's cursor, or replay a version a device has already seen (§10.5), but freshness is not provable through an untrusted relay.
 - **The old master password keeps opening the server's copy until the DEK is rotated.** A password change or recovery only re-wraps the DEK, and DEK rotation is deferred past M5 (§9.5, open decision 20). A device that hasn't adopted the new header also keeps accepting the old password locally until its next unlock with the new one.
@@ -135,7 +135,7 @@ This section grew when the boundary moved (ADR-0004). Be precise about what was 
 - **The sync cursor lives in the vault file.** It inherits the file's rollback protection (`vault_version` vs `<db>.hw`), but an attacker who can edit the file in place *and* controls the server could lower it and hide a server rollback.
 - **The certificate pins ship with the app.** If Azure moves the site to a CA outside the pinned keys (§9.4), sync stops with an explicit pinning error until the app is rebuilt with new pins. An availability cost, never a confidentiality one: the local vault keeps working.
 - **The iPhone app's signature expires every ~7 days** (free Personal Team, §14.19). After that it won't launch until reinstalled from the Mac (`scripts/install_ios.sh`); the vault and sync cursor survive the reinstall. This is an availability cost, never a confidentiality one — the Mac app, and the CLI (M6) on any machine holding a copy of the vault, are the fallback when it lapses away from the Mac.
-- **The portable CLI (M6) shows plaintext wherever it runs.** A secret printed on request lands in terminal scrollback, and a Linux or WSL machine you don't control sees every value you open on it, the same exposure as the Mac app on a borrowed Mac. Botan's locking allocator depends on `RLIMIT_MEMLOCK` there; the M6 spike checks it (ADR-0010, §11.4).
+- **The portable CLI (M6) shows plaintext wherever it runs.** A secret printed on request lands in terminal scrollback, and a Linux or WSL machine you don't control sees every value you open on it, the same exposure as the Mac app on a borrowed Mac. Ubuntu's default `RLIMIT_MEMLOCK` (8 MiB) holds Botan's whole locked pool (`m6-portable-cli.md` 0.4); WSL2's limit is checked in 0.7 (ADR-0010, §11.4).
 
 ---
 
@@ -1161,6 +1161,7 @@ Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in
 
 Newest first. Revisions 1–3 predate the log.
 
+- **rev 18** (2026-10-26) — **keys are `mlock`ed for the first time; no format, seam or API change (ADR-0001 amendment).** The M6 spike found Botan's `locking_allocator` module missing from the vendored build, so §3.4's `mlock` claim had never held. The module is added, a compile-time check in `internal/Secure.hpp` keeps it in, and a native test checks the pages are locked. §3.4 now states the pool's real limits (512 KiB, 16–256-byte allocations) and the CLI limitation cites the spike's Linux numbers.
 - **rev 17** (2026-10-26) — **the web client is withdrawn; the portable CLI replaces M6. No format, seam or API change (ADR-0010, which supersedes ADR-0006).** Goal 7 and adversary A7 withdrawn; three §3.4 limitations replaced by one about the CLI; §6.5 and §11 rewritten, §4's `Web/` tree and the Emscripten tooling removed; the M6 and M8 rows, §12.1, §13.1–§13.4, §14.15 and §15 follow. §10.1 now says plainly that Static Web Apps hosts only the Functions API; §10.3's backend-language reason is restated. §14.21 lists the CLI's open choices.
 - **rev 16** (2026-10-25) — **M5 as shipped, no format or API change.** M5 marked built (status line, §15). What the deploys and the two-device checkpoint settled: the region is `eastus2` (§10.1); the session token travels as `X-PassFort-Token` because Static Web Apps replaces `Authorization` (§10.4); `deploy.yml` is a manual run from `main` with `_DEV` / `_PROD` secrets (§10.6, §13.3, whose Azure rows are now live); the pins are the Microsoft root plus the issuing CA, shipped as a bundled file (§9.4), and §3.4 records that a CA change stops sync until a rebuild; §13.1's drill row corrected; open decision 16 resolved (hosted runners, free for a public repository).
 - **rev 15** (2026-10-24) — **the backend moves to its own private repository, no design change.** `Cloud/` (API, Bicep, static site), its CI job, the deploy workflow and the two-device drill now live in `PassFortCloud`, split out with history. The contract moves from `Cloud/openapi.yaml` and `Cloud/fixtures/` to `SyncAPI/` here, and `PassFortCloud` consumes it as a pinned `app/` submodule; §4, §10, §13.2, §15 updated. The client still treats the server as hostile (§3.2 A2), so nothing in the threat model depends on the server's code being public.
