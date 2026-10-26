@@ -2,7 +2,8 @@ import PassFortVault
 import SwiftUI
 
 /// One account in a list: its category tile, title (starred if a favorite), the username or host
-/// beneath, and copy buttons for what the account actually has. The buttons show only on the
+/// beneath, and copy buttons for what the account actually has (plus open-and-fill in Quick
+/// Access). The buttons show only on the
 /// selected or hovered row, as the mockup draws them, so the other titles get the full width; the
 /// copy shortcuts and the VoiceOver actions work on every row regardless. Used by the vault's
 /// middle column and by the Quick Access window, so both behave the same. The row holds no secret:
@@ -10,6 +11,9 @@ import SwiftUI
 struct AccountRow: View {
   let row: AccountSummary
   var isSelected = false
+  /// Open the website and queue username then password (Quick Access's ⌘↩); its button shows
+  /// only when given and the account has a web address.
+  var fill: (() -> Void)?
   let copy: (AppModel.CopyField) -> Void
 
   @Environment(\.backgroundProminence) private var prominence
@@ -47,6 +51,13 @@ struct AccountRow: View {
           copyButton(
             "Copy one-time code", symbol: "clock", field: .oneTimeCode,
             enabled: row.hasOneTimeCode)
+          if let fill {
+            if row.host != nil {
+              IconButton("Open website and fill", systemImage: "arrow.up.right.square") { fill() }
+            } else {
+              Image(systemName: "arrow.up.right.square").hidden()
+            }
+          }
         }
       }
     }
@@ -57,6 +68,7 @@ struct AccountRow: View {
       if row.hasPassword { Button("Copy password") { copy(.password) } }
       if row.username != nil { Button("Copy username") { copy(.username) } }
       if row.hasOneTimeCode { Button("Copy one-time code") { copy(.oneTimeCode) } }
+      if let fill { Button(row.host != nil ? "Open website and fill" : "Fill") { fill() } }
     }
   }
 

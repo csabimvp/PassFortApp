@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Living specification. M0–M3 and M5 (sync) are built, M4 was scaled back; `docs/runbooks/README.md` tracks each milestone.
-**Revision:** 19 (2026-10-26). What changed in each revision: [Appendix A](#appendix-a--revision-history).
+**Revision:** 20 (2026-10-26). What changed in each revision: [Appendix A](#appendix-a--revision-history).
 
 ---
 
@@ -107,7 +107,7 @@ Write this down before writing code; every later decision points back here.
 | A2 | Cloud/sync operator (Azure, plus whoever runs the deploy) | Reads and modifies everything stored server-side; serves no client code (ADR-0010) | E2EE payloads; the server's only credential is `SHA-256(k_auth)`, nothing to crack (ADR-0009); every pulled record must `pf_open`, and a `seq` below the client's cursor is refused (§10.5); no client depends on server-delivered code (§11.4) |
 | A3 | Passive network attacker | Reads traffic | TLS 1.3 + ATS; payloads already ciphertext |
 | A4 | Active network attacker (MITM) | Substitutes certs, replays | Cert validation, optional pinning, AEAD + per-record versioning |
-| A5 | Another local app, non-root, no debugger | Reads our files, our clipboard | File perms + sandbox; concealed pasteboard type; auto-lock |
+| A5 | Another local app, non-root, no debugger | Reads our files, our clipboard | File perms + sandbox; concealed pasteboard type; auto-lock; Quick Access's open-and-fill only *promises* each value and hands it over on paste, so the password isn't on the clipboard until it is pasted |
 | A6 | Us, six months from now | Ships a format change that bricks the vault | Versioned format, forward-compatible migrations, tested restore |
 | A7 | ~~Web supply chain~~ | — | Withdrawn with the web client (rev 17, ADR-0010). Dependency review for the CLI and the backend is the pinned lockfiles of §13.2 |
 
@@ -1161,6 +1161,7 @@ Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in
 
 Newest first. Revisions 1–3 predate the log.
 
+- **rev 20** (2026-10-26) — **Quick Access opens and fills; no format, seam or API change.** ⌘Return opens the account's first http(s) address and queues its username, then its password, one per paste (an `NSPasteboardItemDataProvider` promise, cleared like any transient copy). §3.2 A5 notes that the password reaches the clipboard only when pasted. Browser autofill and auto-type stay out (§1.2); the CLI's version, and its WSL2 clipboard, are `m6-portable-cli.md` Phase 7.
 - **rev 19** (2026-10-26) — **§14.21 (a) and (b) resolved by ADR-0011, no format, seam or API change.** On Linux, sync pins through libcurl with an OpenSSL verify callback and gets SHA-256 and HMAC from libcrypto; Apple platforms are unchanged. §11.2's two *spike* rows and §14.21 follow, and §3.4's CLI limitation notes that the Linux transport doesn't check revocation. ADR-0010 gets an amendment pointing here.
 - **rev 18** (2026-10-26) — **keys are `mlock`ed for the first time; no format, seam or API change (ADR-0001 amendment).** The M6 spike found Botan's `locking_allocator` module missing from the vendored build, so §3.4's `mlock` claim had never held. The module is added, a compile-time check in `internal/Secure.hpp` keeps it in, and a native test checks the pages are locked. §3.4 now states the pool's real limits (512 KiB, 16–256-byte allocations) and the CLI limitation cites the spike's Linux numbers.
 - **rev 17** (2026-10-26) — **the web client is withdrawn; the portable CLI replaces M6. No format, seam or API change (ADR-0010, which supersedes ADR-0006).** Goal 7 and adversary A7 withdrawn; three §3.4 limitations replaced by one about the CLI; §6.5 and §11 rewritten, §4's `Web/` tree and the Emscripten tooling removed; the M6 and M8 rows, §12.1, §13.1–§13.4, §14.15 and §15 follow. §10.1 now says plainly that Static Web Apps hosts only the Functions API; §10.3's backend-language reason is restated. §14.21 lists the CLI's open choices.

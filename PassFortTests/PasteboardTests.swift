@@ -93,4 +93,77 @@ struct PasteboardTests {
     Pasteboard.clearTransient(on: mine)
     #expect(mine.string(forType: .string) == nil)
   }
+
+  // MARK: - Paste sequence
+
+  /// Past `Pasteboard.advanceDelay`, so the next value has been promised.
+  private func afterAdvance() async throws {
+    try await Task.sleep(for: Pasteboard.advanceDelay + .milliseconds(250))
+  }
+
+  @Test func aSequenceHandsOutOneValuePerPasteThenClears() async throws {
+    let board = board()
+    var left: [Int] = []
+    Pasteboard.copySequence(["me", "hunter2"], clearAfter: 60, to: board) { left.append($0) }
+
+    #expect(board.types?.contains(Pasteboard.concealedType) == true)
+    #expect(board.string(forType: .string) == "me")
+    #expect(board.string(forType: .string) == "me")  // one paste that reads twice
+    try await afterAdvance()
+    #expect(board.string(forType: .string) == "hunter2")
+    try await afterAdvance()
+    #expect(board.string(forType: .string) == nil)
+    #expect(left == [1, 0])
+  }
+
+  @Test func checkingTheTypesDoesNotAdvanceASequence() async throws {
+    let board = board()
+    var left: [Int] = []
+    Pasteboard.copySequence(["me", "hunter2"], clearAfter: 60, to: board) { left.append($0) }
+
+    #expect(board.types?.contains(.string) == true)  // what a Paste menu item checks
+    try await afterAdvance()
+    #expect(left.isEmpty)
+    #expect(board.string(forType: .string) == "me")
+  }
+
+  @Test func clearTransientStopsASequence() async throws {
+    let board = board()
+    Pasteboard.copySequence(["me", "hunter2"], clearAfter: 60, to: board)
+    #expect(board.string(forType: .string) == "me")
+    Pasteboard.clearTransient(on: board)  // as a lock does
+
+    try await afterAdvance()
+    #expect(board.string(forType: .string) == nil)
+  }
+
+  @Test func aSequenceLeavesALaterCopyAlone() async throws {
+    let board = board()
+    Pasteboard.copySequence(["me", "hunter2"], clearAfter: 60, to: board)
+    #expect(board.string(forType: .string) == "me")
+    board.clearContents()
+    board.setString("something else", forType: .string)
+
+    try await afterAdvance()
+    #expect(board.string(forType: .string) == "something else")
+  }
+
+  @Test func aTransientCopyReplacesASequence() async throws {
+    let board = board()
+    Pasteboard.copySequence(["me", "hunter2"], clearAfter: 60, to: board)
+    #expect(board.string(forType: .string) == "me")
+    Pasteboard.copyTransient("code", clearAfter: 60, to: board)
+
+    try await afterAdvance()
+    #expect(board.string(forType: .string) == "code")
+    Pasteboard.clearTransient(on: board)
+  }
+
+  @Test func anUnpastedStepClearsAfterTheDelay() async throws {
+    let board = board()
+    Pasteboard.copySequence(["me", "hunter2"], clearAfter: 0.05, to: board)
+
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(board.string(forType: .string) == nil)
+  }
 }

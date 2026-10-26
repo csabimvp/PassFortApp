@@ -21,8 +21,10 @@ and the one the maintainer runs isn't public.
 - One-time codes (TOTP), added from the secret or by reading a QR code.
 - A password generator for random passwords or EFF-wordlist passphrases.
 - Password health: weak, reused, old and expiring passwords, and plain `http://` logins.
-- Quick Access: press ⌃⌥Space in any app, search, and press Return to copy the password. Clipboard
-  managers don't see the copy, and it's cleared on lock or after 20 seconds (adjustable in Settings).
+- Quick Access: press ⌃⌥Space in any app, search, and press Return to copy the password. ⌘Return
+  opens the account's website and fills the clipboard one paste at a time: the first ⌘V pastes the
+  username, the next the password. Clipboard managers don't see the copy, and it's cleared on lock
+  or after 20 seconds (adjustable in Settings).
 - Auto-lock when idle, on sleep and on screen lock.
 - Backups to a folder you choose, with retention, optionally on every lock.
 - Import from a Password Safe plain-text export or from another PassFort vault. Plaintext export

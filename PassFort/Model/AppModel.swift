@@ -81,17 +81,21 @@ final class AppModel {
   /// This Mac to the sync server; `nil` (the device file can't be read or written) leaves sync
   /// unavailable rather than registering a new device on every launch.
   private let device: DeviceIdentity?
+  /// Opens a website in the default browser (`openAndFill`); tests pass a recorder instead.
+  private let openURL: (URL) -> Void
 
   init(
     databasePath: String = VaultDatabase.defaultPath, highWaterURL: URL? = nil,
     syncAPI: @escaping SyncController.MakeAPI = SyncTransport.api,
-    device: DeviceIdentity? = VaultService.storedDevice
+    device: DeviceIdentity? = VaultService.storedDevice,
+    openURL: @escaping (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
   ) {
     self.service = VaultService(
       databasePath: databasePath, highWaterURL: highWaterURL,
       deviceID: device?.id ?? VaultService.deviceID)
     self.syncAPI = syncAPI
     self.device = device
+    self.openURL = openURL
     self.state = service.exists() ? .locked() : .needsVault
   }
 
@@ -558,6 +562,51 @@ final class AppModel {
     Pasteboard.copyTransient(value, to: board)
     if board != .general, !copyBoards.contains(board) { copyBoards.append(board) }
     return nil
+  }
+
+  /// What `openAndFill` did, for its confirmation.
+  struct Fill: Equatable {
+    /// The host of the website it opened; `nil` when the account has no web address.
+    var opened: String?
+    /// What the pastes will give, in order: the username and/or the password.
+    var fields: [CopyField]
+  }
+
+  /// Open the account's website, if it has one, and queue its username then its password on the
+  /// clipboard as a paste sequence (`Pasteboard.copySequence`): paste, move to the next field,
+  /// paste again. Either field may be missing; an account with neither is refused.
+  func openAndFill(
+    from id: UUID, to board: NSPasteboard = .general
+  ) async -> Result<Fill, AppError> {
+    let account: Account
+    switch await loadAccount(id: id) {
+    case .loaded(let loaded): account = loaded
+    case .missing: return .failure(.io("That account no longer exists."))
+    case .failed(let message): return .failure(.io(message))
+    }
+    let payload = account.payload
+    let queued: [(CopyField, String?)] = [
+      (.username, payload.username ?? payload.email), (.password, payload.password),
+    ]
+    let present = queued.compactMap { field, value in
+      value.flatMap { $0.isEmpty ? nil : (field, $0) }
+    }
+    guard !present.isEmpty else {
+      return .failure(.io("“\(payload.title)” has no username or password saved."))
+    }
+    let site = Self.website(in: payload)
+    if let site { openURL(site) }
+    Pasteboard.copySequence(present.map(\.1), to: board)
+    if board != .general, !copyBoards.contains(board) { copyBoards.append(board) }
+    return .success(Fill(opened: site?.host(), fields: present.map(\.0)))
+  }
+
+  /// The address `openAndFill` opens: the first http or https one with a host. Anything else
+  /// (`file:`, `javascript:`, an app's own scheme) is never handed to the system to open.
+  static func website(in payload: AccountPayload) -> URL? {
+    payload.urls.first { url in
+      ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host() != nil
+    }
   }
 
   // MARK: - Account writes
