@@ -220,3 +220,16 @@ extension AccountPayload: Codable {
     }
   }
 }
+
+// MARK: - Website
+
+extension AccountPayload {
+  /// The address to open for this account -- the app's and the CLI's open-and-fill: the first
+  /// http or https URL with a host. Anything else (`file:`, `javascript:`, an app's own scheme)
+  /// is never handed to the system to open.
+  public var website: URL? {
+    urls.first { url in
+      ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host() != nil
+    }
+  }
+}

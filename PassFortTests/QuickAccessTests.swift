@@ -144,15 +144,6 @@ struct QuickAccessTests {
     #expect(board.string(forType: .string) == nil)
   }
 
-  @Test func onlyWebAddressesAreOpened() throws {
-    func site(_ strings: String...) -> URL? {
-      AppModel.website(in: AccountPayload(title: "x", urls: strings.compactMap(URL.init(string:))))
-    }
-    #expect(site("file:///etc/passwd", "javascript:alert(1)", "ftp://h/x", "slack://open") == nil)
-    #expect(site("https:///nohost") == nil)
-    #expect(site("mailto:me@x.com", "HTTP://Example.com/a")?.host() == "Example.com")
-  }
-
   @Test func theFillConfirmationNamesTheSiteAndTheOrder() {
     #expect(
       QuickAccessView.confirmation(

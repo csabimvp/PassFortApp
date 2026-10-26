@@ -572,9 +572,9 @@ final class AppModel {
     var fields: [CopyField]
   }
 
-  /// Open the account's website, if it has one, and queue its username then its password on the
-  /// clipboard as a paste sequence (`Pasteboard.copySequence`): paste, move to the next field,
-  /// paste again. Either field may be missing; an account with neither is refused.
+  /// Open the account's website (`AccountPayload.website`), if it has one, and queue its username
+  /// then its password on the clipboard as a paste sequence (`Pasteboard.copySequence`): paste,
+  /// move to the next field, paste again. Either field may be missing; an account with neither is refused.
   func openAndFill(
     from id: UUID, to board: NSPasteboard = .general
   ) async -> Result<Fill, AppError> {
@@ -594,19 +594,11 @@ final class AppModel {
     guard !present.isEmpty else {
       return .failure(.io("“\(payload.title)” has no username or password saved."))
     }
-    let site = Self.website(in: payload)
+    let site = payload.website
     if let site { openURL(site) }
     Pasteboard.copySequence(present.map(\.1), to: board)
     if board != .general, !copyBoards.contains(board) { copyBoards.append(board) }
     return .success(Fill(opened: site?.host(), fields: present.map(\.0)))
-  }
-
-  /// The address `openAndFill` opens: the first http or https one with a host. Anything else
-  /// (`file:`, `javascript:`, an app's own scheme) is never handed to the system to open.
-  static func website(in payload: AccountPayload) -> URL? {
-    payload.urls.first { url in
-      ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host() != nil
-    }
   }
 
   // MARK: - Account writes
