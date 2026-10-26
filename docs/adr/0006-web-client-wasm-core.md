@@ -1,7 +1,11 @@
 # ADR-0006: The web client runs the crypto core as WebAssembly
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0010
 **Date:** 2026-08-28
+
+> **Superseded 2026-10-26 by ADR-0010:** the web client is not being built. The reasoning below is
+> kept as written; the one-implementation argument against a JavaScript reimplementation still
+> stands and ADR-0010 relies on it.
 
 ## Context
 

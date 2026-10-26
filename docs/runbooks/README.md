@@ -25,7 +25,7 @@ runbook you need doesn't exist yet, that's the signal to ask for it.
 | **M4** Platform integration | [`m4-platform.md`](m4-platform.md) | ⏸ scaled back 2026-10-21 — no Keychain, Touch ID or notarization for a personal-use app; Phases 1–2 and 4 were tried and reverted; Phases 6 (lock on sleep/screen lock) and 7 (concealed pasteboard) built — see the note at the top of the runbook |
 | **M5** Sync (Azure) | [`m5-sync.md`](m5-sync.md) | ✅ done (2026-10-25) — Phases 0–14; deployed as `rg-passfort-dev` (`eastus2`), where the drill and the two-device checkpoint pass with pinning; doc sweep is `architecture.md` rev 16. The backend lives in the private `PassFortCloud` repository (rev 15). Left to read off the portal: the cost page, the per-request timeout, regional Table prices |
 | **M3 addendum** Settings redesign | [`settings-redesign.md`](settings-redesign.md) | ✅ done — built 2026-10-25 (Phases 0–8) from the review in `UI/settings-review.md`; by-hand checks done and merged to `main` 2026-10-26 |
-| **M6** Web client | — | write after M5 (or pull forward — §12 note 3) |
+| **M6** Portable CLI (Linux first) | — | write when starting; Phase 0 is a spike on Linux pinning, `CryptoKit` and a second Botan amalgamation ([ADR-0010](../adr/0010-no-web-client-portable-cli.md)). The web client was dropped 2026-10-26 |
 | **M7** iOS client | [`m7-ios.md`](m7-ios.md) | ✎ sketch — written ahead of cadence (2026-10-21); depends on M5 only, not M6; only Phase 0 (the spikes) is actionable, the rest is a plan to validate |
 | **M8** Hardening | — | write after M7 |
 

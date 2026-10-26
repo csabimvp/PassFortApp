@@ -2,7 +2,7 @@
 
 **Status:** Sketch, written ahead of the normal cadence (2026-10-21, on request). **Nothing is built.**
 M5 is done (2026-10-25), so its prerequisite is met and the sync client Phase 0.2 / 0.3 wait on
-exists; M6 has no runbook yet, and M7 doesn't need it. Only Phase 0 is safe to act on as written.
+exists; M6 (the portable CLI) has no runbook yet, and M7 doesn't need it. Only Phase 0 is safe to act on as written.
 Everything past Phase 0 is a plan to *validate against the spikes*, not a set of steps to follow
 blind. Treat every "Checkpoint" and command below as provisional until Phase 0 has run. Phase 5's
 note records how M5's join flow shipped.
@@ -10,7 +10,7 @@ note records how M5's join flow shipped.
 **Prerequisite:** M5 complete — two Macs converge through the deployed Azure backend, a second device
 can **join an existing vault** from `GET /api/v1/vaults/{id}/header` alone, conflict copies surface in the
 UI, and the `seq` floor + manifest recheck (§10.5) are wired. M7 is a client of that contract as-is.
-**M7 does not depend on M6** — the web client and the iPhone client are independent consumers of the
+**M7 does not depend on M6** — the Linux CLI and the iPhone client are independent consumers of the
 same API, so this milestone can be built before M6 if the phone is the part you want first.
 
 **Spec:** `architecture.md` §12 (the M7 row), §14 decisions 9, 18 and 19 (resolved / re-scoped / added in
@@ -462,7 +462,7 @@ list when fewer than 2 days remain. Plus a recurring calendar reminder — belt 
 
 If the signature lapses away from the Mac, the vault is unreachable *on the phone* until the next
 install — an availability problem, never a confidentiality one (§3.4). The Mac app and, once M6
-exists, the web client in Safari are the fallbacks.
+exists, the CLI on another machine are the fallbacks.
 
 ### 10.4 Join the real vault
 
@@ -517,7 +517,7 @@ pushes that touch `PassFortiOS/`, `Packages/` or `Package.resolved` only.
 - **The phone is a joining device, not an owner.** Vault creation, recovery, export and backup stay on
   the Mac.
 - **A known, managed availability cost:** the free Personal Team's 7-day signature, handled by
-  `scripts/install_ios.sh`, an in-app expiry warning, and the Mac (and later web) client as fallback.
+  `scripts/install_ios.sh`, an in-app expiry warning, and the Mac (and later the Linux CLI) as fallback.
   §14.19 records when paying $99 would be worth it.
 - **Deferred, tracked:** AutoFill extension (non-goal + needs the paid program), push-driven live sync,
   background sync, iPad layout, widgets.

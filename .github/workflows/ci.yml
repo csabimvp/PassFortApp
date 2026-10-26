@@ -2,7 +2,7 @@
 # PFCrypto, plain and under ASan/UBSan), deps (Package.resolved drift), lint (shellcheck,
 # clang-format), secrets (gitleaks, full history). The sync backend and its CI and deploy live in
 # the PassFortCloud repository (architecture.md rev 15).
-# Verifies a clean build only: never regenerates the Botan amalgamation or the WASM blob, and holds
+# Verifies a clean build only: never regenerates the Botan amalgamation, and holds
 # no credentials.
 name: CI
 

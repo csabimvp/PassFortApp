@@ -10,6 +10,12 @@
 > dev server on an in-memory store, Azurite runs only as a CI service container, and `az` / Bicep run
 > in Cloud Shell and the deploy workflow. `Cloud/api`'s runtime dependencies are `@azure/functions`
 > and `@azure/data-tables`. The backend choice itself is unchanged.
+>
+> **Amended 2026-10-26 by ADR-0010:** there is no web client, so Static Web Apps hosts only the
+> managed Functions API (plus a placeholder page); the bullets below that say it "hosts the web
+> client" and that TypeScript is chosen "because the web client is unavoidably TypeScript" no
+> longer apply. The backend choice, the tier and the language are unchanged: the API is built and
+> deployed, and one language with DTOs generated from `openapi.yaml` still holds.
 
 **Status:** Accepted
 **Date:** 2026-08-28

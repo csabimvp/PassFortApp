@@ -8,11 +8,12 @@ One file per decision, numbered, immutable once accepted — corrections go in a
 | [0002](0002-cxx-swift-boundary-style.md) | Opaque handles and `noexcept` free functions at the Swift↔C++ seam | Accepted (amended by 0004) |
 | [0003](0003-per-record-envelope-encryption.md) | Per-record envelope encryption in SQLite | Accepted (amended by 0004) |
 | [0004](0004-swift-owns-storage.md) | Swift owns storage; C++ owns only keys | Accepted |
-| [0005](0005-azure-sync-backend.md) | Custom Azure sync backend, not CloudKit | Accepted (auth amended by 0009) |
-| [0006](0006-web-client-wasm-core.md) | The web client runs the crypto core as WebAssembly | Accepted |
+| [0005](0005-azure-sync-backend.md) | Custom Azure sync backend, not CloudKit | Accepted (auth amended by 0009; web client dropped by 0010) |
+| [0006](0006-web-client-wasm-core.md) | The web client runs the crypto core as WebAssembly | Superseded by 0010 |
 | [0007](0007-recovery-key-header-slot.md) | Recovery-key DEK slot folded into vault-header format v1 (no migration) | Accepted |
 | [0008](0008-biometric-unlock-keychain.md) | Biometric unlock keeps the master password in a Touch ID-gated Keychain item | Accepted, then not adopted (amended 2026-10-21) |
 | [0009](0009-sync-auth-key.md) | Sync authenticates with a DEK-derived key, stored server-side only as a hash | Accepted |
+| [0010](0010-no-web-client-portable-cli.md) | No web client; a portable CLI reaches the vault where the apps can't be installed | Accepted |
 
 ## Template
 
