@@ -1,7 +1,7 @@
 # M6 — Portable CLI (Linux first)
 
 **Status:** Phase 1 done 2026-10-26. Phase 0, the spike, ran in CI on 2026-10-26 (branch `m6-spike`, not merged; runs
-`40334650317` to `40343656728`). Its WSL2 half (0.7) is still to run, on the Windows PC. Phases 1–7
+`40334650317` to `40343656728`). Its WSL2 half (0.7) is still to run, on the Windows PC. Phases 1–8
 are a plan built from the spike's results. Treat each step and checkpoint as provisional until
 0.7 is in and the decisions in 0.8 are recorded.
 
@@ -246,7 +246,66 @@ device (§13.1). The vault stays in the WSL filesystem (0.7).
 **Checkpoint (the milestone's):** an edit on the Mac appears in the WSL2 CLI after `sync`, and the
 reverse. A wrong pin stops sync with `pinningFailed`.
 
-## Phase 7 — Doc sweep
+## Phase 7 — The WSL2 clipboard (`copy` and `fill`)
+
+**Depends on:** `passfort-cli copy` and `fill` already built on macOS, against a `Clipboard`
+protocol in `passfort-cli` with the `NSPasteboard` backend (concealed type, cleared after the
+delay, on Ctrl-C, and only if the clipboard is still ours). This phase adds the second backend; the
+commands don't change. Plain Linux outside WSL has no backend in M6: both commands refuse and point
+at `get`.
+
+**Which clipboard.** In WSL2 the browser runs on Windows, so the target is the Windows clipboard,
+reached through Windows interop. WSL is detected by `WSL_DISTRO_NAME`.
+
+**Why not `clip.exe`.** It is the obvious tool and it fails twice: it reads stdin in the console
+code page, so a non-ASCII password arrives mangled unless it is fed UTF-16LE with a BOM, and it
+can't mark the copy as sensitive. With Windows clipboard history (Win+V) or cloud clipboard on, the
+password would stay in the history after we "clear" it, and could sync to other Windows devices.
+That is the Windows form of §3.2 A5, which the concealed type answers on the Mac.
+
+**The route: `powershell.exe` (5.1, STA by default) with a .NET `DataObject`.**
+
+- The secret goes in as base64 on **stdin**, never as an argument: argv is visible in the process
+  list on both the Linux and the Windows side. Base64 also sidesteps the console code page.
+- The script decodes it and sets `Text` plus the three formats Windows' clipboard history and
+  cloud clipboard honour: `ExcludeClipboardContentFromMonitorProcessing` (present), and
+  `CanIncludeInClipboardHistory` and `CanUploadToCloudClipboard` (a 4-byte DWORD 0). Then
+  `Clipboard::SetDataObject(data, $true)` so the content outlives the process.
+- About half a second of PowerShell startup per write. Acceptable for a CLI.
+- **Clear** after the delay, and on SIGINT, by setting an empty clipboard. There is no cheap
+  "is it still ours" check from WSL like the Mac's `changeCount`, so clearing is unconditional.
+  Note that in the command's help.
+
+**`fill` advances on Enter only.** PowerShell sets the clipboard and exits, so nothing is left to
+see the paste. The Windows equivalent of the Mac's promise (delayed rendering, `WM_RENDERFORMAT`)
+needs a process that stays up with a message loop: a native Windows helper, which is out of scope
+(§11: native Windows later and only if needed). Enter already works on every backend, so this costs
+nothing but the auto-advance.
+
+**Opening the URL:** `explorer.exe "<url>"`, http and https only (the same check as the Mac).
+`cmd.exe /c start` is avoided: cmd parses `&` in the URL. `wslview` is avoided: it needs `wslu`,
+no longer installed by default.
+
+**Spike first, on the Windows PC** (a throwaway script, before the backend):
+
+1. A password with non-ASCII characters pastes intact into Edge, Chrome and Notepad.
+2. With clipboard history on, the copy never appears in Win+V, and with cloud clipboard on, never
+   on a second device.
+3. The cleared clipboard pastes nothing.
+
+If 2 fails, the fallback is a warning, not a workaround: read
+`HKCU\Software\Microsoft\Clipboard\EnableClipboardHistory` through `reg.exe query` and say on
+stderr that the copy will stay in Win+V history. Record the spike's result here, and in §3.2 A5.
+
+**Tests:** the PowerShell script builder and the base64 framing are pure functions, tested on every
+platform. The backend itself only runs where `powershell.exe` exists, so it is checked by hand in
+the Phase 6 session, not in the `linux` CI job.
+
+**Checkpoint:** in WSL2, `passfort-cli fill <vault> github` opens the login page in the Windows
+browser, pastes the username, then (after Enter) the password, and clears the clipboard. Nothing
+shows in Win+V. Ctrl-C mid-sequence clears it.
+
+## Phase 8 — Doc sweep
 
 `architecture.md` (§11, §13.2, §14.21, Appendix A), `development.md` (the Linux loop),
 `SECURITY.md` (Linux pinning, the locking allocator), the README's requirements and a short "CLI on
