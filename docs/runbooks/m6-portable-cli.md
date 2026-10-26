@@ -177,12 +177,11 @@ summary. Record the result here.
 ### 0.8 Decisions to record before Phase 1
 
 1. **ADR-0011: TLS pinning on Linux through libcurl with an OpenSSL verify callback** (0.1), and
-   libcrypto for HMAC and SHA-256 there (0.2). It's a security-relevant choice with a rejected
-   dependency, so it gets an ADR.
+   libcrypto for HMAC and SHA-256 there (0.2). **Recorded 2026-10-26** (`architecture.md` rev 19).
 2. **ADR-0001 amendment:** one amalgamation per target under `vendor/botan/<target>/` (0.3).
    The `locking_allocator` half (0.4) landed with Phase 1.
-3. **`architecture.md` rev 18:** §3.4 (the locking allocator, true once Phase 1 lands), §11.2 (the
-   table's *spike* entries resolved), §14.21 (a) and (b) resolved, §11.3 with the 0.7 results.
+3. **`architecture.md`:** §3.4 and the locking allocator landed in rev 18; §11.2's *spike* rows and
+   §14.21 (a) and (b) in rev 19. §11.3 still waits for the 0.7 results.
 
 ---
 

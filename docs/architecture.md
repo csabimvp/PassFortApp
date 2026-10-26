@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Living specification. M0–M3 and M5 (sync) are built, M4 was scaled back; `docs/runbooks/README.md` tracks each milestone.
-**Revision:** 18 (2026-10-26). What changed in each revision: [Appendix A](#appendix-a--revision-history).
+**Revision:** 19 (2026-10-26). What changed in each revision: [Appendix A](#appendix-a--revision-history).
 
 ---
 
@@ -135,7 +135,7 @@ This section grew when the boundary moved (ADR-0004). Be precise about what was 
 - **The sync cursor lives in the vault file.** It inherits the file's rollback protection (`vault_version` vs `<db>.hw`), but an attacker who can edit the file in place *and* controls the server could lower it and hide a server rollback.
 - **The certificate pins ship with the app.** If Azure moves the site to a CA outside the pinned keys (§9.4), sync stops with an explicit pinning error until the app is rebuilt with new pins. An availability cost, never a confidentiality one: the local vault keeps working.
 - **The iPhone app's signature expires every ~7 days** (free Personal Team, §14.19). After that it won't launch until reinstalled from the Mac (`scripts/install_ios.sh`); the vault and sync cursor survive the reinstall. This is an availability cost, never a confidentiality one — the Mac app, and the CLI (M6) on any machine holding a copy of the vault, are the fallback when it lapses away from the Mac.
-- **The portable CLI (M6) shows plaintext wherever it runs.** A secret printed on request lands in terminal scrollback, and a Linux or WSL machine you don't control sees every value you open on it, the same exposure as the Mac app on a borrowed Mac. Ubuntu's default `RLIMIT_MEMLOCK` (8 MiB) holds Botan's whole locked pool (`m6-portable-cli.md` 0.4); WSL2's limit is checked in 0.7 (ADR-0010, §11.4).
+- **The portable CLI (M6) shows plaintext wherever it runs.** A secret printed on request lands in terminal scrollback, and a Linux or WSL machine you don't control sees every value you open on it, the same exposure as the Mac app on a borrowed Mac. Ubuntu's default `RLIMIT_MEMLOCK` (8 MiB) holds Botan's whole locked pool (`m6-portable-cli.md` 0.4); WSL2's limit is checked in 0.7. Its TLS checks pins but not revocation: OpenSSL's default verification fetches no CRLs or OCSP, where the Mac uses the system's revocation policy (ADR-0010, ADR-0011, §11.4).
 
 ---
 
@@ -975,8 +975,8 @@ Everything outside this table builds as it is. The decisions marked *spike* are 
 
 | Apple-only today | On Linux |
 |---|---|
-| SPKI pinning in `PinnedTransport.swift` (`Security`, `SecTrust`) | a replacement that evaluates trust, then requires an SPKI pin; fails closed on a wrong pin (§9.4). *Spike:* libcurl's pinned-public-key option vs a `URLSession` hook |
-| `CryptoKit` SHA-256 (the pin hash) and HMAC (`OneTimeCode.swift`) | `swift-crypto`, or something smaller. *Spike.* A new dependency is its own reviewed commit with its transitive cost stated |
+| SPKI pinning in `PinnedTransport.swift` (`Security`, `SecTrust`) | libcurl with an OpenSSL verify callback: normal chain verification, then an SPKI pin anywhere in the verified chain; fails closed on a wrong pin, and refuses to sync if libcurl isn't built on OpenSSL (§9.4, ADR-0011) |
+| `CryptoKit` SHA-256 (the pin hash) and HMAC (`OneTimeCode.swift`) | libcrypto, through the same C target as the pinning; Apple platforms keep `CryptoKit` (ADR-0011) |
 | `os` `OSAllocatedUnfairLock` | a lock from the standard library or Foundation |
 | the Botan amalgamation, configured for `--os=macos --cpu=arm64` | a second amalgamation for Linux x86_64 from `build_botan.sh`, committed (an ADR-0001 amendment). Arm64 Linux only if a machine needs it |
 | `platforms: [.macOS(.v14)]` in `Package.swift` | whatever per-platform target conditions SwiftPM needs |
@@ -1141,7 +1141,7 @@ Resolved ones link to their ADR.
 19. **iOS signing: free Personal Team vs the paid Apple Developer Program ($99/yr).** Free: install on your own iPhone only, profile expires every ~7 days (re-sign with `scripts/install_ios.sh`), 3 sideloaded apps per device, no push / iCloud / App Groups / TestFlight. Paid: 1-year profiles, all capabilities, and it would also unlock real notarization (§13.3) and an AutoFill extension (still a §1.2 non-goal). **Leaning free for M7** — the sync backend already avoids every paid-only capability (§9.2). Revisit if the weekly re-sign actually bites, or if live push sync is ever wanted.
 
 20. **DEK rotation and blind indexes — when, and in what format?** Both moved out of M5 (rev 12). DEK rotation under sync needs a key-generation id in the header and the AAD (a format change, its own ADR, a re-seal migration) and re-registers `SHA-256(k_auth)`; until it exists, the old master password plus the server's copy still opens every record (§3.4, §9.5). Blind indexes (`pf_blind_index`, `idx_title` / `idx_url`) have no reader: search is the in-memory index (§8.3) and the server never sees `idx_*`. Build either when a concrete need appears — DEK rotation most likely as part of M8's threat-model review.
-21. **The portable CLI's open choices (rev 17, ADR-0010).** (a) Linux SPKI pinning: libcurl's pinned-public-key option vs a `URLSession` hook. (b) `CryptoKit` → `swift-crypto` vs something smaller. (c) Native Windows, only if WSL2 is not enough. (d) Linux arm64, if a machine needs it. (a) and (b) are settled by the M6 Phase 0 spike.
+21. **The portable CLI's open choices (rev 17, ADR-0010).** (a) Linux SPKI pinning: libcurl's pinned-public-key option vs a `URLSession` hook. (b) `CryptoKit` → `swift-crypto` vs something smaller. (c) Native Windows, only if WSL2 is not enough. (d) Linux arm64, if a machine needs it. (a) and (b) **resolved in rev 19 (ADR-0011):** libcurl with an OpenSSL verify callback, and libcrypto for SHA-256 and HMAC.
 
 ---
 
@@ -1161,6 +1161,7 @@ Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in
 
 Newest first. Revisions 1–3 predate the log.
 
+- **rev 19** (2026-10-26) — **§14.21 (a) and (b) resolved by ADR-0011, no format, seam or API change.** On Linux, sync pins through libcurl with an OpenSSL verify callback and gets SHA-256 and HMAC from libcrypto; Apple platforms are unchanged. §11.2's two *spike* rows and §14.21 follow, and §3.4's CLI limitation notes that the Linux transport doesn't check revocation. ADR-0010 gets an amendment pointing here.
 - **rev 18** (2026-10-26) — **keys are `mlock`ed for the first time; no format, seam or API change (ADR-0001 amendment).** The M6 spike found Botan's `locking_allocator` module missing from the vendored build, so §3.4's `mlock` claim had never held. The module is added, a compile-time check in `internal/Secure.hpp` keeps it in, and a native test checks the pages are locked. §3.4 now states the pool's real limits (512 KiB, 16–256-byte allocations) and the CLI limitation cites the spike's Linux numbers.
 - **rev 17** (2026-10-26) — **the web client is withdrawn; the portable CLI replaces M6. No format, seam or API change (ADR-0010, which supersedes ADR-0006).** Goal 7 and adversary A7 withdrawn; three §3.4 limitations replaced by one about the CLI; §6.5 and §11 rewritten, §4's `Web/` tree and the Emscripten tooling removed; the M6 and M8 rows, §12.1, §13.1–§13.4, §14.15 and §15 follow. §10.1 now says plainly that Static Web Apps hosts only the Functions API; §10.3's backend-language reason is restated. §14.21 lists the CLI's open choices.
 - **rev 16** (2026-10-25) — **M5 as shipped, no format or API change.** M5 marked built (status line, §15). What the deploys and the two-device checkpoint settled: the region is `eastus2` (§10.1); the session token travels as `X-PassFort-Token` because Static Web Apps replaces `Authorization` (§10.4); `deploy.yml` is a manual run from `main` with `_DEV` / `_PROD` secrets (§10.6, §13.3, whose Azure rows are now live); the pins are the Microsoft root plus the issuing CA, shipped as a bundled file (§9.4), and §3.4 records that a CA change stops sync until a rebuild; §13.1's drill row corrected; open decision 16 resolved (hosted runners, free for a public repository).

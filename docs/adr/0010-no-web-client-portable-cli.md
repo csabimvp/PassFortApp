@@ -4,6 +4,11 @@
 **Date:** 2026-10-26
 **Supersedes:** ADR-0006 (the web client and its WebAssembly crypto core)
 
+> **Amendment — 2026-10-26.** Decision 5's guess about Linux pinning was wrong: libcurl's
+> pinned-public-key option checks only the leaf, and a `URLSession` can't pin on Linux at all.
+> **ADR-0011** settles it (libcurl with an OpenSSL verify callback) and the `CryptoKit` question
+> with it (libcrypto, not `swift-crypto`). The rest of this ADR stands.
+
 ## Context
 
 ADR-0006 planned M6, a browser client that runs `PFCrypto` compiled to WebAssembly and speaks the

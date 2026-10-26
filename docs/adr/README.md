@@ -13,7 +13,8 @@ One file per decision, numbered, immutable once accepted — corrections go in a
 | [0007](0007-recovery-key-header-slot.md) | Recovery-key DEK slot folded into vault-header format v1 (no migration) | Accepted |
 | [0008](0008-biometric-unlock-keychain.md) | Biometric unlock keeps the master password in a Touch ID-gated Keychain item | Accepted, then not adopted (amended 2026-10-21) |
 | [0009](0009-sync-auth-key.md) | Sync authenticates with a DEK-derived key, stored server-side only as a hash | Accepted |
-| [0010](0010-no-web-client-portable-cli.md) | No web client; a portable CLI reaches the vault where the apps can't be installed | Accepted |
+| [0010](0010-no-web-client-portable-cli.md) | No web client; a portable CLI reaches the vault where the apps can't be installed | Accepted (Linux pinning amended by 0011) |
+| [0011](0011-linux-tls-pinning-libcurl-openssl.md) | On Linux, sync pins through libcurl with an OpenSSL verify callback | Accepted |
 
 ## Template
 
