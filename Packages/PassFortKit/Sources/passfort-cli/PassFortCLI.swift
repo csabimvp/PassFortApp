@@ -10,8 +10,8 @@ struct PassFortCLI: AsyncParsableCommand {
     abstract: "PassFort vault tool -- create an encrypted SQLite vault and manage accounts in it.",
     subcommands: [
       Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
-      Add.self, List.self, Get.self, Code.self, History.self, Edit.self, Remove.self,
-      Undelete.self, Audit.self, Import.self, ImportVault.self,
+      Add.self, List.self, Get.self, Code.self, Copy.self, Fill.self, History.self, Edit.self,
+      Remove.self, Undelete.self, Audit.self, Import.self, ImportVault.self,
       Dump.self, Export.self, Backup.self, Restore.self, Recover.self, RecoveryKeyCommand.self,
       Passwd.self, Sync.self,
       Seam.self,

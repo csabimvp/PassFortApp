@@ -92,6 +92,7 @@ cd Packages/PassFortKit
 swift run passfort-cli init  vault.sqlite
 swift run passfort-cli add   vault.sqlite --title github --username me --prompt-password
 swift run passfort-cli get   vault.sqlite github
+swift run passfort-cli fill  vault.sqlite github   # macOS: opens the site, username then password per paste
 ```
 
 Every command is listed in [`docs/development.md`](docs/development.md#the-cli).

@@ -111,6 +111,8 @@ passfort-cli add      <vault> --title T [--username U] [--prompt-password] [--ur
 passfort-cli list     <vault> [--search Q] [--all]          # summary index, no secrets
 passfort-cli get      <vault> <id|title> [--json]           # one account, secrets to stdout
 passfort-cli code     <vault> <id|title>                    # the account's current one-time code
+passfort-cli copy     <vault> <id|title> [--username|--code] # to the clipboard until pasted (macOS)
+passfort-cli fill     <vault> <id|title> [--no-open]        # open the site; username, then password, one per paste (macOS)
 passfort-cli history  <vault> <id|title> [--passwords]      # the account's version timeline
 passfort-cli edit     <vault> <id|title> --set password=… [--add-url U] [--prompt-password]
 passfort-cli rm       <vault> <id|title>                    # tombstone
