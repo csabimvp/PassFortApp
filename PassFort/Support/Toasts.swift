@@ -19,7 +19,7 @@ final class ToastCenter {
   struct Notice {
     let message: String
     var systemImage = "checkmark.circle"
-    var color: Color = Palette.success
+    var color: Color
     var action: Action?
   }
 
@@ -38,12 +38,14 @@ final class ToastCenter {
   }
 
   /// Show `message` for a moment, and tell VoiceOver; a newer one replaces it and restarts the
-  /// clock.
+  /// clock. `color` is `Palette.success` unless given: it is looked up here, not as a default
+  /// argument, because `Palette` is main-actor isolated and a default is evaluated outside it.
   func show(
-    _ message: String, systemImage: String = "checkmark.circle", color: Color = Palette.success,
+    _ message: String, systemImage: String = "checkmark.circle", color: Color? = nil,
     action: Action? = nil
   ) {
-    notice = Notice(message: message, systemImage: systemImage, color: color, action: action)
+    notice = Notice(
+      message: message, systemImage: systemImage, color: color ?? Palette.success, action: action)
     AccessibilityNotification.Announcement(message).post()
     clearing?.cancel()
     clearing = Task { [duration = action == nil ? duration : actionDuration] in
