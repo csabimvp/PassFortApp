@@ -984,7 +984,9 @@ Everything outside this table builds as it is. The decisions marked *spike* are 
 
 ### 11.3 Windows
 
-WSL2 runs the Linux build, so a Windows machine is covered as soon as Linux is. A native Windows build is a separate, optional step: its own Botan amalgamation, Swift with C++ interop on Windows, and a check that GRDB builds there. None of it is planned in detail.
+WSL2 runs the Linux build, so a Windows machine is covered as soon as Linux is. It is also the only Linux environment the maintainer has (no native Linux machine), so WSL2 is the primary M6 target, not a convenience, and the M6 checkpoints run in it. One consequence for the spike: keep the vault inside the WSL filesystem, not under `/mnt/c`. WAL needs shared-memory mapping and reliable locks, which the Windows-mounted drives probably don't give (the same reason the live vault never sits on a NAS, `m3-vault-management.md`); the spike confirms it.
+
+A native Windows build is a separate, optional step, taken only if WSL2 is ever unavailable on a machine: its own Botan amalgamation, Swift with C++ interop on Windows, and a check that GRDB builds there. None of it is planned in detail.
 
 ### 11.4 Trust model
 
