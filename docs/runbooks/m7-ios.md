@@ -1,10 +1,11 @@
 # M7 — iOS client
 
-**Status:** Sketch, written ahead of the normal cadence (2026-10-21, on request). **M5 is not done** (its
-own runbook is still a sketch) and M6 has no runbook yet. Only Phase 0 is safe to act on as written —
-and even Phase 0.2 / 0.3 need the M5 sync client to exist before their results mean anything. Everything
-past Phase 0 is a plan to *validate against the spikes*, not a set of steps to follow blind. Treat every
-"Checkpoint" and command below as provisional until Phase 0 has run and M5 has shipped.
+**Status:** Sketch, written ahead of the normal cadence (2026-10-21, on request). **Nothing is built.**
+M5 is done (2026-10-25), so its prerequisite is met and the sync client Phase 0.2 / 0.3 wait on
+exists; M6 has no runbook yet, and M7 doesn't need it. Only Phase 0 is safe to act on as written.
+Everything past Phase 0 is a plan to *validate against the spikes*, not a set of steps to follow
+blind. Treat every "Checkpoint" and command below as provisional until Phase 0 has run. Phase 5's
+note records how M5's join flow shipped.
 
 **Prerequisite:** M5 complete — two Macs converge through the deployed Azure backend, a second device
 can **join an existing vault** from `GET /api/v1/vaults/{id}/header` alone, conflict copies surface in the

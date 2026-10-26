@@ -10,11 +10,14 @@
 > - **A Release `build` signs with `get-task-allow`** unless `CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO`.
 > - The Keychain helper and device-id commits were reverted (`7e4a59c`, `532141c`); the rollback mark
 >   stays the `<db>.hw` file sidecar and `VaultService.deviceID` stays the zero UUID until M5 needs a
->   real one. Phases 3 and 5 to 8 were never started.
+>   real one. Phases 3, 5 and 8 were never started. Phase 6.1 (lock on sleep and screen lock) and
+>   Phase 7 (concealed, lock-cleared pasteboard) are built (`6230386`) and are all that M4 shipped;
+>   Phase 6.2 (synchronous teardown) was not part of that commit.
 
 
-**Status:** Draft, starts after M3. Follow top to bottom. Two load-bearing decisions are in Phase 0 —
-settle them before writing code.
+**Status:** Scaled back and closed (2026-10-21; see the note at the top). Kept as the record of the
+original plan and of what trying Phases 1, 2 and 4 taught us. Only Phases 6.1 and 7 were built; the
+rest, including the Phase 0 decisions, is not to be followed.
 **Prerequisite:** M3 complete — the SwiftUI app does full CRUD against a real vault, the lock-state
 machine (`AppModel`) is the spine, auto-lock is idle-timeout + lock-on-background + ⌘L, CI builds the
 app unsigned and runs `AppModelTests`. See `m3-gui.md` "Where this leaves you" for the exact list of
@@ -732,6 +735,10 @@ locally and in CI; the `release.yml` assertions green on a test tag.
 ---
 
 ## Where this leaves you
+
+> **As planned, not as shipped.** After the scale-back the app has no Keychain-backed mark, no Touch
+> ID, no `release.yml` and no notarization; it has the lock on sleep / screen lock and the concealed
+> pasteboard. M5 (sync) followed and is done: `m5-sync.md`.
 
 - **A macOS app that behaves like one:** hardened runtime, sandbox with no gratuitous exceptions,
   Keychain-backed anti-rollback mark, optional Touch ID unlock, concealed pasteboard, and a lock that
