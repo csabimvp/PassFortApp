@@ -7,11 +7,13 @@ import SwiftUI
 /// the password, one per paste (`AppModel.openAndFill`). The window confirms it for a moment, then
 /// closes and PassFort steps back so the app you came from (or the opened site) is frontmost, ready
 /// to paste. Copies are transient (concealed, cleared after the Settings delay or on lock).
+/// Reopened within a minute, it comes back on the same search and account.
 ///
 /// It *deactivates* rather than hides: hiding would trip lock-on-background, and locking clears
 /// the very clipboard entry just written.
 struct QuickAccessView: View {
   @Environment(AppModel.self) private var model
+  @Environment(QuickAccessController.self) private var controller
   @Environment(\.dismissWindow) private var dismissWindow
 
   @State private var query = ""
@@ -20,6 +22,8 @@ struct QuickAccessView: View {
   /// The confirmation shown for a moment after a copy, before the window steps back.
   @State private var copied: String?
   @State private var password = ""
+  /// Set while reopening on the last pick, so restoring its query doesn't reset the selection.
+  @State private var restoring = false
   @FocusState private var focused: Bool
 
   private var matches: [AccountSummary] { quickMatches(from: model.summaries, query: query) }
@@ -49,7 +53,9 @@ struct QuickAccessView: View {
         .textFieldStyle(.roundedBorder)
         .font(.title3)
         .focused($focused)
-        .onChange(of: query) { selection = matches.first?.id }
+        .onChange(of: query) {
+          if restoring { restoring = false } else { selection = matches.first?.id }
+        }
         .onKeyPress(.downArrow) { move(1) }
         .onKeyPress(.upArrow) { move(-1) }
         .onKeyPress(.return, phases: .down) { press in
@@ -89,7 +95,15 @@ struct QuickAccessView: View {
           .font(.caption2).foregroundStyle(.tertiary)
       }
     }
-    .onAppear { selection = matches.first?.id }
+    .onAppear {
+      if let pick = controller.recentPick(in: model.summaries) {
+        restoring = pick.query != query
+        query = pick.query
+        selection = pick.id
+      } else {
+        selection = matches.first?.id
+      }
+    }
   }
 
   private var currentID: AccountSummary.ID? {
@@ -146,6 +160,7 @@ struct QuickAccessView: View {
         confirmation = Self.confirmation(for: fill, title: title)
       }
     }
+    controller.remember(query: query, id: id)
     message = nil
     copied = confirmation
     AccessibilityNotification.Announcement(confirmation).post()
@@ -200,4 +215,5 @@ struct QuickAccessView: View {
 #Preview {
   QuickAccessView()
     .environment(AppModel(databasePath: "/tmp/passfort-preview-nonexistent.sqlite"))
+    .environment(QuickAccessController())
 }

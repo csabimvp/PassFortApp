@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Observation
+import PassFortVault
 import SwiftUI
 
 /// Owns the ⌃⌥Space shortcut and knows how to open the Quick Access window.
@@ -19,6 +20,12 @@ final class QuickAccessController {
 
   /// `false` when the shortcut is on but another app already owns the combination.
   private(set) var hotKeyAvailable = true
+
+  /// The search and account last acted on, so reopening soon after picks up where you were:
+  /// ⇧↩ the username, paste, ⌃⌥Space, ↩ the password -- without searching twice.
+  @ObservationIgnored private var lastPick: (query: String, id: UUID, at: Date)?
+  /// How long `lastPick` is offered again.
+  static let reselectWindow: TimeInterval = 60
 
   @ObservationIgnored private var openWindow: OpenWindowAction?
   @ObservationIgnored private var hotKey: GlobalHotKey?
@@ -42,6 +49,24 @@ final class QuickAccessController {
       hotKey = nil
       hotKeyAvailable = true
     }
+  }
+
+  /// Remember `id`, found by searching `query`, for the next open.
+  func remember(query: String, id: UUID, at now: Date = .now) {
+    lastPick = (query, id, now)
+  }
+
+  /// The last pick, if it is recent and still in `summaries`; otherwise nothing (and forgotten).
+  func recentPick(
+    in summaries: [AccountSummary], at now: Date = .now
+  ) -> (query: String, id: UUID)? {
+    guard let lastPick, now.timeIntervalSince(lastPick.at) < Self.reselectWindow,
+      summaries.contains(where: { $0.id == lastPick.id && !$0.isDeleted })
+    else {
+      lastPick = nil
+      return nil
+    }
+    return (lastPick.query, lastPick.id)
   }
 
   /// Bring PassFort forward with the Quick Access window on top.

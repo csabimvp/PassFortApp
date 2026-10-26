@@ -83,6 +83,7 @@ struct PassFortApp: App {
     Window("Quick Access", id: QuickAccessController.windowID) {
       QuickAccessView()
         .environment(model)
+        .environment(quickAccess)
         .tint(Palette.primary)
     }
     .windowResizability(.contentSize)
@@ -92,6 +93,7 @@ struct PassFortApp: App {
     MenuBarExtra("PassFort", systemImage: "key.fill", isInserted: $showsMenuBarExtra) {
       QuickAccessView()
         .environment(model)
+        .environment(quickAccess)
         .tint(Palette.primary)
         .modifier(AdoptOpenWindow(controller: quickAccess))
     }

@@ -171,4 +171,29 @@ struct QuickAccessTests {
     #expect(QuickAccessView.Action(.command) == .fill)
     #expect(QuickAccessView.Action([.command, .shift]) == .fill)
   }
+
+  // MARK: - Reopening
+
+  @Test func aRecentPickIsOfferedOnceThenExpires() {
+    let controller = QuickAccessController()
+    let github = summary("GitHub")
+    let start = Date()
+    controller.remember(query: "git", id: github.id, at: start)
+
+    let pick = controller.recentPick(in: [github], at: start.addingTimeInterval(30))
+    #expect(pick?.query == "git")
+    #expect(pick?.id == github.id)
+    #expect(controller.recentPick(in: [github], at: start.addingTimeInterval(61)) == nil)
+    // Expired picks are forgotten, not just skipped.
+    #expect(controller.recentPick(in: [github], at: start.addingTimeInterval(30)) == nil)
+  }
+
+  @Test func aPickThatIsGoneIsNotOffered() {
+    let controller = QuickAccessController()
+    let gone = summary("Gone", deleted: true)
+    controller.remember(query: "", id: gone.id)
+    #expect(controller.recentPick(in: [gone]) == nil)
+    controller.remember(query: "", id: UUID())
+    #expect(controller.recentPick(in: [gone]) == nil)
+  }
 }
