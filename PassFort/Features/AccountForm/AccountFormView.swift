@@ -53,7 +53,7 @@ struct AccountFormView: View {
     _urlsText = State(initialValue: payload.urls.map(\.absoluteString).joined(separator: "\n"))
     _tagsText = State(initialValue: payload.tags.joined(separator: ", "))
     _totpText = State(initialValue: payload.totp?.otpauthURI ?? "")
-    _questions = State(initialValue: payload.securityQuestions.map(EditableQuestion.init))
+    _questions = State(initialValue: payload.securityQuestions.map { EditableQuestion($0) })
     _recoveryCodesText = State(initialValue: payload.recoveryCodes.joined(separator: "\n"))
     _expiry = State(
       initialValue: payload.expiresAt ?? Calendar.current.date(byAdding: .year, value: 1, to: .now)
