@@ -16,13 +16,15 @@ struct ToastCenterTests {
     #expect(ToastCenter.message(copying: "invite link", .plain) == "Invite link copied")
   }
 
-  /// Waits for `condition` up to `limit`: under a busy test run the clearing task can start late,
-  /// so "goes away" is checked against a generous deadline, never a fixed sleep.
+  /// Waits for `condition`, polling every 20 ms for up to `attempts` polls (3 s by default): under
+  /// a busy test run the clearing task can start late, so "goes away" is never a fixed sleep.
+  /// It counts polls, not elapsed time. Other `@MainActor` tests can hold the main actor for
+  /// seconds, and the poll's short timer then fires before the toast's longer one: a deadline
+  /// would already have passed by the time the clearing task gets to run.
   private func eventually(
-    within limit: Duration = .seconds(3), _ condition: () -> Bool
+    attempts: Int = 150, _ condition: () -> Bool
   ) async throws -> Bool {
-    let deadline = ContinuousClock.now + limit
-    while ContinuousClock.now < deadline {
+    for _ in 0..<attempts {
       if condition() { return true }
       try await Task.sleep(for: .milliseconds(20))
     }
