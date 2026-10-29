@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Living specification. M0–M3 and M5 (sync) are built, M4 was scaled back; `docs/runbooks/README.md` tracks each milestone.
-**Revision:** 20 (2026-10-26). What changed in each revision: [Appendix A](#appendix-a--revision-history).
+**Revision:** 21 (2026-10-29). What changed in each revision: [Appendix A](#appendix-a--revision-history).
 
 ---
 
@@ -135,7 +135,7 @@ This section grew when the boundary moved (ADR-0004). Be precise about what was 
 - **The sync cursor lives in the vault file.** It inherits the file's rollback protection (`vault_version` vs `<db>.hw`), but an attacker who can edit the file in place *and* controls the server could lower it and hide a server rollback.
 - **The certificate pins ship with the app.** If Azure moves the site to a CA outside the pinned keys (§9.4), sync stops with an explicit pinning error until the app is rebuilt with new pins. An availability cost, never a confidentiality one: the local vault keeps working.
 - **The iPhone app's signature expires every ~7 days** (free Personal Team, §14.19). After that it won't launch until reinstalled from the Mac (`scripts/install_ios.sh`); the vault and sync cursor survive the reinstall. This is an availability cost, never a confidentiality one — the Mac app, and the CLI (M6) on any machine holding a copy of the vault, are the fallback when it lapses away from the Mac.
-- **The portable CLI (M6) shows plaintext wherever it runs.** A secret printed on request lands in terminal scrollback, and a Linux or WSL machine you don't control sees every value you open on it, the same exposure as the Mac app on a borrowed Mac. Ubuntu's default `RLIMIT_MEMLOCK` (8 MiB) holds Botan's whole locked pool (`m6-portable-cli.md` 0.4); WSL2's limit is checked in 0.7. Its TLS checks pins but not revocation: OpenSSL's default verification fetches no CRLs or OCSP, where the Mac uses the system's revocation policy (ADR-0010, ADR-0011, §11.4).
+- **The portable CLI (M6) shows plaintext wherever it runs.** A secret printed on request lands in terminal scrollback, and a Linux or WSL machine you don't control sees every value you open on it, the same exposure as the Mac app on a borrowed Mac. Ubuntu's default `RLIMIT_MEMLOCK` (8 MiB) and WSL2's (64 MiB) both hold Botan's whole locked pool (`m6-portable-cli.md` 0.4, 0.7). Its TLS checks pins but not revocation: OpenSSL's default verification fetches no CRLs or OCSP, where the Mac uses the system's revocation policy (ADR-0010, ADR-0011, §11.4).
 
 ---
 
@@ -984,7 +984,7 @@ Everything outside this table builds as it is. The decisions marked *spike* are 
 
 ### 11.3 Windows
 
-WSL2 runs the Linux build, so a Windows machine is covered as soon as Linux is. It is also the only Linux environment the maintainer has (no native Linux machine), so WSL2 is the primary M6 target, not a convenience, and the M6 checkpoints run in it. One consequence for the spike: keep the vault inside the WSL filesystem, not under `/mnt/c`. WAL needs shared-memory mapping and reliable locks, which the Windows-mounted drives probably don't give (the same reason the live vault never sits on a NAS, `m3-vault-management.md`); the spike confirms it.
+WSL2 runs the Linux build, so a Windows machine is covered as soon as Linux is. It is also the only Linux environment the maintainer has (no native Linux machine), so WSL2 is the primary M6 target, not a convenience, and the M6 checkpoints run in it. The vault lives inside the WSL filesystem, not under `/mnt/c`. The spike (`m6-portable-cli.md` 0.7) found that WAL does work under `/mnt/c` for a single process, which this section expected it not to. It didn't test two processes on one vault, or a Windows program opening the file while the CLI holds it, and WSL's locks aren't promised to mean anything to Windows. That is the same reason the live vault never sits on a NAS (`m3-vault-management.md`), and nothing in the CLI needs a Windows path.
 
 A native Windows build is a separate, optional step, taken only if WSL2 is ever unavailable on a machine: its own Botan amalgamation, Swift with C++ interop on Windows, and a check that GRDB builds there. None of it is planned in detail.
 
@@ -1161,6 +1161,7 @@ Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in
 
 Newest first. Revisions 1–3 predate the log.
 
+- **rev 21** (2026-10-29) — **The WSL2 spike's results; no format, seam or API change.** In WSL2 the package builds and passes, the CLI works, pinning behaves as in CI, and the 64 MiB `RLIMIT_MEMLOCK` holds Botan's whole pool (§3.4). WAL worked under `/mnt/c` for one process, against §11.3's expectation. §11.3 now says so and keeps the vault in the WSL filesystem, for the cases the spike didn't test (`m6-portable-cli.md` 0.7).
 - **rev 20** (2026-10-26) — **Quick Access opens and fills; no format, seam or API change.** ⌘Return opens the account's first http(s) address and queues its username, then its password, one per paste (an `NSPasteboardItemDataProvider` promise, cleared like any transient copy). §3.2 A5 notes that the password reaches the clipboard only when pasted. Browser autofill and auto-type stay out (§1.2); the CLI's version, and its WSL2 clipboard, are `m6-portable-cli.md` Phase 7.
 - **rev 19** (2026-10-26) — **§14.21 (a) and (b) resolved by ADR-0011, no format, seam or API change.** On Linux, sync pins through libcurl with an OpenSSL verify callback and gets SHA-256 and HMAC from libcrypto; Apple platforms are unchanged. §11.2's two *spike* rows and §14.21 follow, and §3.4's CLI limitation notes that the Linux transport doesn't check revocation. ADR-0010 gets an amendment pointing here.
 - **rev 18** (2026-10-26) — **keys are `mlock`ed for the first time; no format, seam or API change (ADR-0001 amendment).** The M6 spike found Botan's `locking_allocator` module missing from the vendored build, so §3.4's `mlock` claim had never held. The module is added, a compile-time check in `internal/Secure.hpp` keeps it in, and a native test checks the pages are locked. §3.4 now states the pool's real limits (512 KiB, 16–256-byte allocations) and the CLI limitation cites the spike's Linux numbers.

@@ -1,9 +1,9 @@
 # M6 — Portable CLI (Linux first)
 
-**Status:** Phase 1 done 2026-10-26. Phase 0, the spike, ran in CI on 2026-10-26 (branch `m6-spike`, not merged; runs
-`40334650317` to `40343656728`). Its WSL2 half (0.7) is still to run, on the Windows PC. Phases 1–8
-are a plan built from the spike's results. Treat each step and checkpoint as provisional until
-0.7 is in and the decisions in 0.8 are recorded.
+**Status:** Phase 0 and Phase 1 done. The spike ran in CI on 2026-10-26 (branch `m6-spike`, not
+merged; runs `40334650317` to `40343656728`) and in WSL2 on 2026-10-29 (0.7, all checks pass).
+Phase 1 landed 2026-10-26. Of 0.8, only the per-target amalgamation amendment is left; it lands
+with Phase 2, which is next. Phases 2–8 are a plan built from the spike's results.
 
 **Prerequisite:** M5 complete (it is). M6 doesn't depend on M7, and M7 doesn't depend on M6.
 
@@ -160,10 +160,10 @@ stdin-password mode, and this isn't a reason to add one.
 - **Proposed:** the CLI is built where it runs, with Swift installed via `swiftly`. A copied binary
   is not a goal for M6.
 
-### 0.7 WSL2 (to run on the Windows PC)
+### 0.7 WSL2 (on the Windows PC): everything passes
 
 CI can't answer these questions: the WSL2 kernel's `RLIMIT_MEMLOCK`, whether WAL works for a vault
-under `/mnt/c` (§11.3 expects it not to), and whether the build, tests, pinning probe and CLI behave
+under `/mnt/c` (§11.3 expected it not to), and whether the build, tests, pinning probe and CLI behave
 the same in WSL2. From a clone of `m6-spike` inside the WSL filesystem:
 
 ```bash
@@ -172,7 +172,29 @@ spikes/m6/wsl-check.sh 2>&1 | tee ~/m6-wsl-check.log
 ```
 
 It writes only under `~/m6-wsl-check/` and `/mnt/c/Users/<you>/m6-wsl-check/`, and ends with a
-summary. Record the result here.
+summary.
+
+**Ran 2026-10-29** on WSL2 kernel 6.18.33.2, **Ubuntu 22.04.5** and **Swift 6.4.1** (swiftly's
+default, not the pinned 6.3.3; CI runs Ubuntu 24.04). All eight checks passed:
+
+| Check | Result |
+|---|---|
+| `swift build`, `swift test` | 256 vault + 16 boundary tests pass, as in CI |
+| CLI `init` / `add` / `get`, vault under `~` | pass |
+| The same, vault under `/mnt/c` | pass |
+| WAL, two connections in one process (snapshot read across a write) | pass under `~` **and** under `/mnt/c` |
+| Pinning probe (libcurl 7.81 here, 8.5 in CI) | all ten scenarios as expected; TOTP vectors match |
+| `RLIMIT_MEMLOCK` | **64 MiB**; Botan locks its full 512 KiB pool (`VmLck` 512 kB) |
+
+**What `/mnt/c` passing does and doesn't show.** §11.3 expected WAL to fail there and it didn't:
+WAL mode, shared memory and a snapshot read all work for one process. Not tested: two processes on
+the same vault at once (the CLI's `sync` while another command runs), or a Windows program
+(Explorer preview, antivirus, a cloud-sync client) opening the file while the CLI has it. POSIX
+locks taken in WSL aren't promised to mean anything to Windows. The rule stays: **the vault lives
+in the WSL filesystem.** Nothing in M6 needs `/mnt/c`, so this isn't worth more testing.
+
+**Toolchain.** The package also passes on Swift 6.4.1 and Ubuntu 22.04, so neither is a blocker. The
+Phase 6 checkpoint still runs on the pinned toolchain: `swiftly install 6.3.3 && swiftly use 6.3.3`.
 
 ### 0.8 Decisions to record before Phase 1
 
@@ -181,7 +203,7 @@ summary. Record the result here.
 2. **ADR-0001 amendment:** one amalgamation per target under `vendor/botan/<target>/` (0.3).
    The `locking_allocator` half (0.4) landed with Phase 1.
 3. **`architecture.md`:** §3.4 and the locking allocator landed in rev 18; §11.2's *spike* rows and
-   §14.21 (a) and (b) in rev 19. §11.3 still waits for the 0.7 results.
+   §14.21 (a) and (b) in rev 19; §11.3 and §3.4's WSL2 limit, from 0.7, in rev 21.
 
 ---
 
