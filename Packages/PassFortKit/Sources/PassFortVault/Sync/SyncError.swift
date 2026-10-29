@@ -16,8 +16,9 @@ public enum SyncError: Error, Sendable, Equatable {
 
   /// No network, DNS failure, timeout, connection lost. Silent and retried (A.11).
   case offline
-  /// The server's chain failed normal trust evaluation, or no certificate in it matched a pin.
-  /// Sync stops; never "continue anyway".
+  /// The server's chain failed normal trust evaluation, or no certificate in it matched a pin --
+  /// or, on Linux, libcurl isn't built on OpenSSL and can't run the pin check (ADR-0011). Sync
+  /// stops; never "continue anyway".
   case pinningFailed
   /// A `3xx`. The API never redirects, so one is refused rather than followed -- a redirect
   /// could move the request to another host or scheme.
