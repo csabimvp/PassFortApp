@@ -50,9 +50,10 @@ public struct VaultDatabase: Sendable {
 // MARK: - Location and hardening
 
 extension VaultDatabase {
-  /// `~/Library/Application Support/PassFort/vault.sqlite` (§8.2).
+  /// `~/Library/Application Support/PassFort/vault.sqlite` (§8.2); on Linux, the same under the
+  /// XDG data home.
   public static var defaultPath: String {
-    URL.applicationSupportDirectory
+    PlatformPaths.applicationSupport
       .appending(path: "PassFort/vault.sqlite")
       .path(percentEncoded: false)
   }

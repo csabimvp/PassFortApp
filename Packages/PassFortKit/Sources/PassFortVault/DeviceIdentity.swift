@@ -18,7 +18,7 @@ public struct DeviceIdentity: Codable, Sendable, Equatable {
   /// `Application Support/PassFort/device.json` -- beside the default vault, inside the sandbox
   /// container for the app.
   public static var defaultURL: URL {
-    URL.applicationSupportDirectory.appending(path: "PassFort/device.json")
+    PlatformPaths.applicationSupport.appending(path: "PassFort/device.json")
   }
 
   /// This Mac's name as the user set it ("Alice's MacBook Air"), for a new identity.
