@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+  import FoundationNetworking  // URLSession and friends on Linux
+#endif
 
 /// `SyncAPI` over `URLSession` (`m5-sync.md` 7.2): pinned TLS, a 15 s request timeout, no cache,
 /// no cookies, and nothing logged -- bodies carry `k_auth`, tokens and sealed blobs. Stateless:

@@ -1,5 +1,8 @@
 import CryptoKit
 import Foundation
+#if canImport(FoundationNetworking)
+  import FoundationNetworking  // URLSession and friends on Linux
+#endif
 import Security
 
 /// SPKI pins: SHA-256 of a certificate's DER `SubjectPublicKeyInfo` (A.4, §9.4) -- the format

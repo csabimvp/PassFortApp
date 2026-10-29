@@ -1,6 +1,10 @@
 import Foundation
 import Testing
 
+#if canImport(FoundationNetworking)
+  import FoundationNetworking  // URLSession and friends on Linux
+#endif
+
 @testable import PassFortVault
 
 /// `HTTPSyncAPI` against a `URLProtocol` stub (m5-sync.md 7.2): the endpoint rule, what each call
@@ -23,6 +27,12 @@ import Testing
     let url: URL
     let headers: [String: String]
     let body: Data
+
+    /// Header names are case-insensitive, and Foundation on Linux stores them capitalized
+    /// (`X-Passfort-Token`), so look them up the way a server does.
+    func header(_ name: String) -> String? {
+      headers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
   }
 
   /// Routes by the first path segment, a per-test id, so suites running in parallel never see each
@@ -101,6 +111,15 @@ import Testing
   private let vaultID = UUID(uuidString: "6F1C2B3A-4D5E-4F60-8A7B-9C0D1E2F3A4B")!
   private let device = DeviceDTO(id: UUID(), name: "test", platform: .cli)
 
+  @Test func capturedHeadersMatchInAnyCase() throws {
+    let sent = Captured(
+      method: "GET", url: try #require(URL(string: "http://localhost/")),
+      headers: ["X-Passfort-Token": "tok"], body: Data())
+    #expect(sent.header("X-PassFort-Token") == "tok")
+    #expect(sent.header("x-passfort-token") == "tok")
+    #expect(sent.header("Authorization") == nil)
+  }
+
   // MARK: - The endpoint rule (A.4)
 
   @Test(arguments: [
@@ -141,10 +160,10 @@ import Testing
     let sent = try #require(Stub.captured(id).first)
     #expect(sent.method == "POST")
     #expect(sent.url.path().hasSuffix("/api/v1/vaults"))
-    #expect(sent.headers["X-PassFort-Enroll"] == "enroll-me")
-    #expect(sent.headers["Content-Type"] == "application/json")
-    #expect(sent.headers["X-PassFort-Token"] == nil)
-    #expect(sent.headers["Authorization"] == nil)
+    #expect(sent.header("X-PassFort-Enroll") == "enroll-me")
+    #expect(sent.header("Content-Type") == "application/json")
+    #expect(sent.header("X-PassFort-Token") == nil)
+    #expect(sent.header("Authorization") == nil)
     let body = try JSONSerialization.jsonObject(with: sent.body) as? NSDictionary
     let expected = try JSONSerialization.jsonObject(with: try fixture("create-vault.request.json"))
     #expect(body == expected as? NSDictionary)
@@ -157,8 +176,8 @@ import Testing
 
     let sent = try #require(Stub.captured(id).first)
     #expect(sent.method == "GET")
-    #expect(sent.headers["X-PassFort-Token"] == "tok")
-    #expect(sent.headers["Authorization"] == nil)
+    #expect(sent.header("X-PassFort-Token") == "tok")
+    #expect(sent.header("Authorization") == nil)
     #expect(sent.url.path().hasSuffix("/vaults/6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b/changes"))
     let query = URLComponents(url: sent.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
     #expect(
