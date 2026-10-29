@@ -102,7 +102,8 @@
     ) -> Result {
       let copies = strings.map { strdup($0) }
       defer { for copy in copies { free(copy) } }
-      return copies.map { $0.map(UnsafePointer.init) }.withUnsafeBufferPointer(body)
+      let pointers: [UnsafePointer<CChar>?] = copies.map { $0.map { UnsafePointer($0) } }
+      return pointers.withUnsafeBufferPointer(body)
     }
   }
 
