@@ -2,8 +2,8 @@
 
 **Status:** Phase 0 and Phase 1 done. The spike ran in CI on 2026-10-26 (branch `m6-spike`, not
 merged; runs `40334650317` to `40343656728`) and in WSL2 on 2026-10-29 (0.7, all checks pass).
-Phase 1 landed 2026-10-26, Phase 2 and the last of 0.8 on 2026-10-29. Phase 3 is next. Phases
-3–8 are a plan built from the spike's results.
+Phase 1 landed 2026-10-26; Phase 2, the last of 0.8 and Phase 3 on 2026-10-29. Phase 4 is
+next. Phases 4–8 are a plan built from the spike's results.
 
 **Prerequisite:** M5 complete (it is). M6 doesn't depend on M7, and M7 doesn't depend on M6.
 
@@ -243,6 +243,14 @@ the shim, which they already compile unchanged.
 **Checkpoint:** macOS is byte-identical apart from the rename; macOS CI is green.
 
 ## Phase 3 — The platform shims
+
+> **Done 2026-10-29**, one commit per shim. `Locked` (`LockedTests`), `PlatformPaths`
+> (`PlatformPathsTests`), the `FoundationNetworking` imports in `HTTPSyncAPI`, `PinnedTransport`
+> and `HTTPSyncAPITests`, and the stub's case-insensitive `header(_:)`
+> (`capturedHeadersMatchInAnyCase`). The spike's import in `FakeSyncServer` isn't needed on
+> `main`. The CLI already keeps its files under `~/.config/passfort/` and its clipboard code
+> behind `canImport(AppKit)`, so it needed nothing. Package (271 + 16) and app suites pass.
+> The package doesn't build on Linux yet: `CryptoKit` and `Security` are Phase 4.
 
 `Locked`, the Application Support lookup, the `FoundationNetworking` imports and the
 case-insensitive header lookup (0.5), each with the test that covers it. No behaviour change on
