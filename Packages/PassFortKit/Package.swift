@@ -26,6 +26,8 @@ let package = Package(
         // -- C++ -- keys and byte-marshaling only. NO interop flag on this target. --
         .target(
             name: "PFCrypto",
+            // One amalgamation per target; vendor/botan/botan_all.cpp includes the right one.
+            exclude: ["vendor/botan/macos-arm64", "vendor/botan/linux-x86_64"],
             cxxSettings: [
                 .headerSearchPath("."),  // boundary/*.cpp -> #include "keyring/header.hpp"
                 .headerSearchPath("include"),

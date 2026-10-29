@@ -90,14 +90,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
   native:
-    runs-on: macos-15            # NOT Linux -- the amalgamation is configured for
-    steps:                       # macos/arm64 in Phase 3 (build_botan.sh)
+    runs-on: macos-15            # the linux job (M6 Phase 5) runs these on Linux
+    steps:
       - uses: actions/checkout@v5
       - name: Cache CMake build
         uses: actions/cache@v6
         with:
           path: native-tests/build
-          key: cmake-${{ runner.os }}-${{ hashFiles('native-tests/CMakeLists.txt', 'Packages/PassFortKit/Sources/PFCrypto/vendor/botan/botan_all.cpp') }}
+          key: cmake-${{ runner.os }}-${{ hashFiles('native-tests/CMakeLists.txt', 'Packages/PassFortKit/Sources/PFCrypto/vendor/botan/**/botan_all.*') }}
       - run: cmake -S native-tests -B native-tests/build
       - run: cmake --build native-tests/build
       - run: ctest --test-dir native-tests/build --output-on-failure

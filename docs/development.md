@@ -166,14 +166,15 @@ These are run by hand and their output is committed. CI never regenerates them; 
 that the committed output still matches its inputs.
 
 ```bash
-scripts/build_botan.sh                    # regenerate the minimized Botan 3.13.0 amalgamation (ADR-0001)
+scripts/build_botan.sh macos-arm64        # regenerate one target's minimized Botan 3.13.0 amalgamation
+scripts/build_botan.sh linux-x86_64       # (ADR-0001); each lands in vendor/botan/<target>/
 swift scripts/gen_palette.swift           # UI/tokens.json -> PaletteTokens.swift + AccentColor
 swift scripts/make_icon.swift PassFort/Assets.xcassets/AppIcon.appiconset
 swift scripts/make_readme_art.swift       # UI/tokens.json -> docs/images/hero-{light,dark}.svg
 ```
 
 Upgrading the Botan pin is its own reviewable commit, because the version is recorded in the vault
-header. After regenerating the amalgamation, rebuild both `swift build` and a clean
+header, and it regenerates both targets. After regenerating, rebuild both `swift build` and a clean
 `cmake --build`. Colour changes start in `UI/tokens.json`; see [`UI/README.md`](../UI/README.md).
 
 ## Never commit

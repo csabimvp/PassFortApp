@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
 **Status:** Living specification. M0–M3 and M5 (sync) are built, M4 was scaled back; `docs/runbooks/README.md` tracks each milestone.
-**Revision:** 21 (2026-10-29). What changed in each revision: [Appendix A](#appendix-a--revision-history).
+**Revision:** 22 (2026-10-29). What changed in each revision: [Appendix A](#appendix-a--revision-history).
 
 ---
 
@@ -169,7 +169,7 @@ PassFortApp/
 │       │   │   ├── keyring/              # argon2id, hkdf, dek wrap, header codec
 │       │   │   ├── aead/                 # record seal/open, AAD construction
 │       │   │   ├── util/                 # secure memory, zeroize, canonical encoding
-│       │   │   └── vendor/botan/         # botan_all.{h,cpp}  (NOT in include/)
+│       │   │   └── vendor/botan/         # <target>/botan_all.{h,cpp} + #if wrappers (NOT in include/)
 │       │   ├── PassFortCrypto/           # ── Swift wrapper — the ONLY interop module ──
 │       │   │   ├── VaultSession.swift    # actor; owns the C++ session handle
 │       │   │   ├── KdfParameters.swift
@@ -978,7 +978,7 @@ Everything outside this table builds as it is. The decisions marked *spike* are 
 | SPKI pinning in `PinnedTransport.swift` (`Security`, `SecTrust`) | libcurl with an OpenSSL verify callback: normal chain verification, then an SPKI pin anywhere in the verified chain; fails closed on a wrong pin, and refuses to sync if libcurl isn't built on OpenSSL (§9.4, ADR-0011) |
 | `CryptoKit` SHA-256 (the pin hash) and HMAC (`OneTimeCode.swift`) | libcrypto, through the same C target as the pinning; Apple platforms keep `CryptoKit` (ADR-0011) |
 | `os` `OSAllocatedUnfairLock` | a lock from the standard library or Foundation |
-| the Botan amalgamation, configured for `--os=macos --cpu=arm64` | a second amalgamation for Linux x86_64 from `build_botan.sh`, committed (an ADR-0001 amendment). Arm64 Linux only if a machine needs it |
+| the Botan amalgamation, configured for `--os=macos --cpu=arm64` | a second amalgamation for Linux x86_64 from `build_botan.sh linux-x86_64`, committed under `vendor/botan/linux-x86_64/` next to `macos-arm64/` and picked by `#if` (ADR-0001 amendment, 2026-10-29). Arm64 Linux only if a machine needs it |
 | `platforms: [.macOS(.v14)]` in `Package.swift` | whatever per-platform target conditions SwiftPM needs |
 | GRDB | believed to build on Linux; confirmed in the spike. Native Windows support is unverified |
 
@@ -1161,6 +1161,7 @@ Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in
 
 Newest first. Revisions 1–3 predate the log.
 
+- **rev 22** (2026-10-29) — **One Botan amalgamation per target (ADR-0001 amendment); no format, seam or API change.** `vendor/botan/` holds `macos-arm64/` and `linux-x86_64/`, and `botan_all.{h,cpp}` include the right one by `#if`. The macOS amalgamation is byte-identical to the one it replaces. §4's tree and §11.2's Botan row follow (`m6-portable-cli.md` Phase 2).
 - **rev 21** (2026-10-29) — **The WSL2 spike's results; no format, seam or API change.** In WSL2 the package builds and passes, the CLI works, pinning behaves as in CI, and the 64 MiB `RLIMIT_MEMLOCK` holds Botan's whole pool (§3.4). WAL worked under `/mnt/c` for one process, against §11.3's expectation. §11.3 now says so and keeps the vault in the WSL filesystem, for the cases the spike didn't test (`m6-portable-cli.md` 0.7).
 - **rev 20** (2026-10-26) — **Quick Access opens and fills; no format, seam or API change.** ⌘Return opens the account's first http(s) address and queues its username, then its password, one per paste (an `NSPasteboardItemDataProvider` promise, cleared like any transient copy). §3.2 A5 notes that the password reaches the clipboard only when pasted. Browser autofill and auto-type stay out (§1.2); the CLI's version, and its WSL2 clipboard, are `m6-portable-cli.md` Phase 7.
 - **rev 19** (2026-10-26) — **§14.21 (a) and (b) resolved by ADR-0011, no format, seam or API change.** On Linux, sync pins through libcurl with an OpenSSL verify callback and gets SHA-256 and HMAC from libcrypto; Apple platforms are unchanged. §11.2's two *spike* rows and §14.21 follow, and §3.4's CLI limitation notes that the Linux transport doesn't check revocation. ADR-0010 gets an amendment pointing here.

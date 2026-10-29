@@ -143,5 +143,5 @@ xcodebuild test -scheme PassFort -destination 'platform=macOS'
 ## License
 
 MIT, see [`LICENSE`](LICENSE). Bundled third-party code keeps its own license: Botan (BSD-2-Clause,
-`Packages/PassFortKit/Sources/PFCrypto/vendor/botan/license.txt`) and the EFF large wordlist
+`Packages/PassFortKit/Sources/PFCrypto/vendor/botan/macos-arm64/license.txt`) and the EFF large wordlist
 (CC BY 3.0 US). GRDB (MIT) and swift-argument-parser (Apache-2.0) are fetched by SwiftPM.

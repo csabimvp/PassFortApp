@@ -2,8 +2,8 @@
 
 **Status:** Phase 0 and Phase 1 done. The spike ran in CI on 2026-10-26 (branch `m6-spike`, not
 merged; runs `40334650317` to `40343656728`) and in WSL2 on 2026-10-29 (0.7, all checks pass).
-Phase 1 landed 2026-10-26. Of 0.8, only the per-target amalgamation amendment is left; it lands
-with Phase 2, which is next. Phases 2–8 are a plan built from the spike's results.
+Phase 1 landed 2026-10-26, Phase 2 and the last of 0.8 on 2026-10-29. Phase 3 is next. Phases
+3–8 are a plan built from the spike's results.
 
 **Prerequisite:** M5 complete (it is). M6 doesn't depend on M7, and M7 doesn't depend on M6.
 
@@ -201,7 +201,8 @@ Phase 6 checkpoint still runs on the pinned toolchain: `swiftly install 6.3.3 &&
 1. **ADR-0011: TLS pinning on Linux through libcurl with an OpenSSL verify callback** (0.1), and
    libcrypto for HMAC and SHA-256 there (0.2). **Recorded 2026-10-26** (`architecture.md` rev 19).
 2. **ADR-0001 amendment:** one amalgamation per target under `vendor/botan/<target>/` (0.3).
-   The `locking_allocator` half (0.4) landed with Phase 1.
+   The `locking_allocator` half (0.4) landed with Phase 1, the per-target half with Phase 2
+   (2026-10-29, `architecture.md` rev 22).
 3. **`architecture.md`:** §3.4 and the locking allocator landed in rev 18; §11.2's *spike* rows and
    §14.21 (a) and (b) in rev 19; §11.3 and §3.4's WSL2 limit, from 0.7, in rev 21.
 
@@ -225,6 +226,15 @@ ADR-0004's claim in the same change. This is independent of Linux.
 pool is visible on macOS.
 
 ## Phase 2 — The second amalgamation
+
+> **Done 2026-10-29** (ADR-0001 amendment, `architecture.md` rev 22). The macOS amalgamation moved
+> to `vendor/botan/macos-arm64/`. Regenerating it with the new script gives the same bytes (SHA-1
+> of `botan_all.{h,cpp}` unchanged). `linux-x86_64/` is generated on the Mac, with
+> `locking_allocator`. The spike's `PF_BOTAN_EXTRA_MODULES` / `PF_BOTAN_OUT` knobs were dropped,
+> since the module is in the standard set now; the spike's `swift-crypto` dependency was not
+> brought over (ADR-0011). Package (265 + 16), native (65, and 62 under ASan/UBSan, which leaves
+> a few out by design) and app suites pass on the Mac. Linux compiles the new amalgamation for
+> the first time in Phase 5's CI job.
 
 Port the spike's `build_botan.sh` targets, the `#if` shims, the `exclude:` and the Linux
 amalgamation (now with `locking_allocator`) to `main`. Point `native-tests` and the CI cache key at

@@ -20,6 +20,16 @@
 > fails the build if the module is ever missing again, and `native-tests` checks that the pages are
 > locked. What it locks, and its limits, are in §3.4.
 
+> **Amendment — 2026-10-29.** **One amalgamation per target.** The portable CLI (ADR-0010) needs
+> Botan on Linux x86_64. An amalgamation is configured for one OS and CPU, so each target gets its
+> own, committed under `vendor/botan/<target>/` (`macos-arm64`, `linux-x86_64`):
+> `scripts/build_botan.sh <target>` writes it, and `vendor/botan/botan_all.{h,cpp}` are `#if`
+> wrappers that include the right one and fail the build on a target that has none. Same Botan
+> 3.13.0 and the same module set. The only difference is the AES hardware module (`aes_armv8` or
+> `aes_ni`). The macOS amalgamation is byte-identical to the one it replaces, so no vault changes.
+> Both targets are generated on the Mac and regenerated together when the pin moves. Results:
+> `docs/runbooks/m6-portable-cli.md` 0.3 and Phase 2.
+
 ## Context
 
 The core needs Argon2id, an AEAD, HKDF, HMAC, and a CSPRNG. Three realistic sources:
