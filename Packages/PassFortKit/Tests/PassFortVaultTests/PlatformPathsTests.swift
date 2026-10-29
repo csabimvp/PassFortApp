@@ -11,13 +11,18 @@ import Testing
     #if canImport(Darwin)
       #expect(PlatformPaths.applicationSupport == URL.applicationSupportDirectory)
     #else
-      let home = FileManager.default.homeDirectoryForCurrentUser
+      // The XDG spec's terms: $XDG_DATA_HOME, else $HOME/.local/share. $HOME, not the passwd
+      // entry: in CI's container they differ (/github/home vs /root), and Foundation reads $HOME.
+      let environment = ProcessInfo.processInfo.environment
       let expected =
-        ProcessInfo.processInfo.environment["XDG_DATA_HOME"].map { URL(filePath: $0) }
-        ?? home.appending(path: ".local/share")
+        environment["XDG_DATA_HOME"] ?? ((environment["HOME"] ?? "") + "/.local/share")
+      func normalized(_ path: String) -> String {
+        URL(filePath: path).standardizedFileURL.path(percentEncoded: false)
+          .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+      }
       #expect(
-        PlatformPaths.applicationSupport.standardizedFileURL.path(percentEncoded: false)
-          == expected.standardizedFileURL.path(percentEncoded: false))
+        normalized(PlatformPaths.applicationSupport.path(percentEncoded: false))
+          == normalized(expected))
     #endif
   }
 
