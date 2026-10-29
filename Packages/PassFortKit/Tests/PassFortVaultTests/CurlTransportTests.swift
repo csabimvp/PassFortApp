@@ -118,7 +118,8 @@
   }
 
   /// A one-shot HTTP/1.1 server on 127.0.0.1: accepts one connection, reads one request (headers,
-  /// then `Content-Length` bytes), answers with `response` after `delay`, and closes.
+  /// then `Content-Length` bytes), answers with `response` after `delay`, and closes. Releasing the
+  /// server cuts a delay short, so no thread outlives its test (LeakSanitizer would count it).
   final class LoopbackServer: @unchecked Sendable {
     struct Failure: Error {}
 
@@ -126,6 +127,7 @@
     private let listener: Int32
     private let received = Locked(initialState: Data())
     private let answered = DispatchSemaphore(value: 0)
+    private let released = DispatchSemaphore(value: 0)
 
     init(response: String, delay: TimeInterval = 0) throws {
       let listener = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
@@ -150,6 +152,7 @@
 
       let received = received
       let answered = answered
+      let released = released
       Thread.detachNewThread {
         defer { answered.signal() }
         let connection = accept(listener, nil, nil)
@@ -157,7 +160,7 @@
         defer { close(connection) }
         let request = Self.readRequest(connection)
         received.withLock { $0 = request }
-        if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+        if delay > 0 { _ = released.wait(timeout: .now() + delay) }
         let bytes = Array(response.utf8)
         _ = bytes.withUnsafeBytes {
           send(connection, $0.baseAddress, $0.count, Int32(MSG_NOSIGNAL))
@@ -166,6 +169,7 @@
     }
 
     deinit {
+      released.signal()  // ends a delay still running
       shutdown(listener, Int32(SHUT_RDWR))  // wakes an accept() still waiting
       close(listener)
     }

@@ -133,9 +133,12 @@ jobs:
       - name: CLinuxTLS and its callers under ASan
         working-directory: Packages/PassFortKit
         # The C target parses certificates and handles network input (ADR-0011, Consequences).
+        # Leak checking stays on for it; only XCTest's runner, which keeps its suites until exit,
+        # is suppressed.
         run: |
-          swift test --sanitize=address \
-            --filter 'CurlTransportTests|LinuxPinningTests|PinSetTests|OneTimeCodeTests'
+          LSAN_OPTIONS="suppressions=$GITHUB_WORKSPACE/.github/lsan-suppressions.txt" \
+            swift test --sanitize=address \
+              --filter 'CurlTransportTests|LinuxPinningTests|PinSetTests|OneTimeCodeTests'
       - name: Native suites
         run: |
           cmake -S native-tests -B native-tests/build -DCMAKE_CXX_COMPILER=clang++

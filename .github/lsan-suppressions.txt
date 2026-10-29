@@ -1,0 +1,3 @@
+# LeakSanitizer suppressions for the linux job's ASan step (ci.yml). Only code we don't own.
+# XCTest's runner allocates its suite objects once and keeps them until the process exits.
+leak:libXCTest.so
