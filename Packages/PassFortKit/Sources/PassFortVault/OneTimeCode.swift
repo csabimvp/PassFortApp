@@ -1,13 +1,12 @@
-import CryptoKit
 import Foundation
 
 /// RFC 6238 time-based one-time codes, and the `otpauth://` URI that carries a `TOTPConfig` in
 /// and out of other apps.
 ///
-/// Pure Swift over CryptoKit's HMAC. The shared seed is **record payload, not key material**: it
-/// sits decrypted in `AccountPayload` the same way a password does (§3.4), so computing the code
-/// in C++ would buy nothing -- the same reasoning as `PasswordPolicy`. The vault keys stay in
-/// C++; this never sees one. Known-answer tested against RFC 6238 Appendix B.
+/// Pure Swift over the platform's HMAC (`PlatformCrypto`: CryptoKit, or libcrypto on Linux). The
+/// shared seed is **record payload, not key material**: it sits decrypted in `AccountPayload` the
+/// same way a password does (§3.4), so computing the code in C++ would buy nothing -- the same
+/// reasoning as `PasswordPolicy`. The vault keys stay in C++; this never sees one. Known-answer tested against RFC 6238 Appendix B.
 
 // MARK: - Codes
 
@@ -18,13 +17,7 @@ extension TOTPConfig {
     var message = counter.bigEndian
     let counterBytes = withUnsafeBytes(of: &message) { Data($0) }
 
-    let mac: Data
-    let key = SymmetricKey(data: secret)
-    switch algorithm {
-    case .sha1: mac = Data(HMAC<Insecure.SHA1>.authenticationCode(for: counterBytes, using: key))
-    case .sha256: mac = Data(HMAC<SHA256>.authenticationCode(for: counterBytes, using: key))
-    case .sha512: mac = Data(HMAC<SHA512>.authenticationCode(for: counterBytes, using: key))
-    }
+    let mac = PlatformCrypto.hmac(algorithm, key: secret, message: counterBytes)
 
     // RFC 4226 §5.3 dynamic truncation.
     let offset = Int(mac[mac.count - 1] & 0x0F)

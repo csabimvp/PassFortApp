@@ -59,6 +59,19 @@ let package = Package(
             dependencies: [
                 "PassFortCrypto",
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .target(name: "CLinuxTLS", condition: .when(platforms: [.linux])),
+            ]
+        ),
+
+        // -- C, Linux only (ADR-0011): sync's pinned TLS through libcurl + OpenSSL, and SHA-256 /
+        // HMAC from libcrypto. Apple platforms use URLSession, SecTrust and CryptoKit; there the
+        // source compiles to nothing. Holds no key material (ADR-0004). --
+        .target(
+            name: "CLinuxTLS",
+            linkerSettings: [
+                .linkedLibrary("curl", .when(platforms: [.linux])),
+                .linkedLibrary("ssl", .when(platforms: [.linux])),
+                .linkedLibrary("crypto", .when(platforms: [.linux])),
             ]
         ),
 
@@ -91,6 +104,8 @@ let package = Package(
                 "PassFortVault",
                 "PassFortCrypto",  // manifest / repository tests need a live VaultSession
                 .product(name: "GRDB", package: "GRDB.swift"),
+                // LinuxPinningTests drive the offline pin check directly.
+                .target(name: "CLinuxTLS", condition: .when(platforms: [.linux])),
             ],
             // Fixture vaults are opened by #filePath-relative path, not bundled.
             exclude: ["Fixtures"]

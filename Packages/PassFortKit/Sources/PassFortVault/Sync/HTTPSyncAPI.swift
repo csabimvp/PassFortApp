@@ -1,56 +1,48 @@
 import Foundation
-#if canImport(FoundationNetworking)
-  import FoundationNetworking  // URLSession and friends on Linux
-#endif
 
-/// `SyncAPI` over `URLSession` (`m5-sync.md` 7.2): pinned TLS, a 15 s request timeout, no cache,
-/// no cookies, and nothing logged -- bodies carry `k_auth`, tokens and sealed blobs. Stateless:
-/// the engine passes the token in. Every failure is a `SyncError`.
+/// `SyncAPI` over HTTPS (`m5-sync.md` 7.2): pinned TLS, a 15 s request timeout, no cache, no
+/// cookies, and nothing logged -- bodies carry `k_auth`, tokens and sealed blobs. Stateless: the
+/// engine passes the token in. Every failure is a `SyncError`. The bytes go through a
+/// `SyncTransport`: `URLSession` with `PinnedTransport` on Apple platforms, libcurl on Linux
+/// (ADR-0011).
 ///
 /// **HTTPS only, in code** (A.4): `init` refuses an endpoint that isn't `https`, unless it is
 /// plain `http` to a loopback host (the local `npm run dev` loop). App Transport Security would
 /// stop plain HTTP in the app anyway, but it doesn't apply to the CLI, and this type serves both.
-/// Redirects are refused (`PinnedTransport`), so a `3xx` can't downgrade the scheme or move the
+/// Redirects are refused by both transports, so a `3xx` can't downgrade the scheme or move the
 /// request elsewhere.
 public final class HTTPSyncAPI: SyncAPI {
   public static let requestTimeout: TimeInterval = 15
 
   private let endpoint: URL
-  private let session: URLSession
-  private let transport: PinnedTransport
+  private let transport: any SyncTransport
 
   /// - Parameters:
   ///   - endpoint: the API root, e.g. `https://<site>.azurestaticapps.net/api/v1`.
   ///   - pins: SPKI pins for the server's chain; may be empty only for a loopback endpoint.
   /// - Throws: `SyncError.insecureEndpoint`, `SyncError.noPins` -- before any request exists.
   public convenience init(endpoint: URL, pins: PinSet) throws {
-    try self.init(endpoint: endpoint, pins: pins, configuration: .ephemeral)
+    try Self.checkEndpoint(endpoint, pins: pins)
+    #if canImport(Security)
+      try self.init(endpoint: endpoint, pins: pins, transport: URLSessionTransport(pins: pins))
+    #elseif os(Linux)
+      try self.init(endpoint: endpoint, pins: pins, transport: CurlTransport(pins: pins))
+    #else
+      #error("no pinned HTTPS transport for this platform (ADR-0011)")
+    #endif
   }
 
-  /// The designated initializer; tests pass a configuration with stub `protocolClasses`.
-  init(endpoint: URL, pins: PinSet, configuration: URLSessionConfiguration) throws {
+  /// The designated initializer; tests pass a stub transport.
+  init(endpoint: URL, pins: PinSet, transport: any SyncTransport) throws {
     try Self.checkEndpoint(endpoint, pins: pins)
     self.endpoint = endpoint
-    transport = PinnedTransport(pins: pins)
-
-    configuration.timeoutIntervalForRequest = Self.requestTimeout
-    configuration.urlCache = nil
-    configuration.httpCookieStorage = nil
-    configuration.httpShouldSetCookies = false
-    configuration.urlCredentialStorage = nil
-    configuration.tlsMinimumSupportedProtocolVersion = .TLSv13  // §9.4
-    session = URLSession(configuration: configuration, delegate: transport, delegateQueue: nil)
-  }
-
-  deinit {
-    // The session holds its delegate strongly until invalidated.
-    session.finishTasksAndInvalidate()
+    self.transport = transport
   }
 
   /// `https` anywhere (with pins), or `http` / `https` to this machine. Nothing else.
   static func checkEndpoint(_ endpoint: URL, pins: PinSet) throws {
     let scheme = endpoint.scheme?.lowercased()
-    if PinnedTransport.isLoopback(host: endpoint.host()) {
+    if PinSet.isLoopback(host: endpoint.host()) {
       guard scheme == "http" || scheme == "https" else { throw SyncError.insecureEndpoint }
       return
     }
@@ -162,54 +154,29 @@ public final class HTTPSyncAPI: SyncAPI {
   ) async throws -> Data {
     var url = endpoint.appending(path: path)
     if !query.isEmpty { url.append(queryItems: query) }
-    var request = URLRequest(url: url)
-    request.httpMethod = method
-    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    var request = SyncHTTPRequest(
+      method: method, url: url, headers: ["Accept": "application/json"], body: nil)
     if let body {
-      request.httpBody = try SyncCoding.encoder.encode(body)
-      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.body = try SyncCoding.encoder.encode(body)
+      request.headers["Content-Type"] = "application/json"
     }
     // Not `Authorization`: Static Web Apps replaces that header before the API sees it.
-    if let token { request.setValue(token, forHTTPHeaderField: "X-PassFort-Token") }
-    for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+    if let token { request.headers["X-PassFort-Token"] = token }
+    for (name, value) in headers { request.headers[name] = value }
 
-    let (data, response) = try await perform(request)
-    switch response.statusCode {
-    case 200..<300: return data
-    case 409: throw conflict?(data) ?? SyncError.server(status: 409, retryAfter: nil)
+    let response = try await transport.send(request)
+    switch response.status {
+    case 200..<300: return response.body
+    case 409: throw conflict?(response.body) ?? SyncError.server(status: 409, retryAfter: nil)
     default: throw Self.error(for: response)
-    }
-  }
-
-  /// `dataTask` rather than `data(for:)`: the task's identifier is what tells a pinning failure
-  /// apart from any other cancellation.
-  private func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-    let box = TaskBox()
-    return try await withTaskCancellationHandler {
-      try await withCheckedThrowingContinuation { continuation in
-        let task = session.dataTask(with: request) { [transport] data, response, error in
-          if let error {
-            continuation.resume(
-              throwing: Self.error(for: error, pinFailed: transport.takePinFailure(box.identifier)))
-          } else if let response = response as? HTTPURLResponse {
-            continuation.resume(returning: (data ?? Data(), response))
-          } else {
-            continuation.resume(throwing: SyncError.invalidResponse)
-          }
-        }
-        box.task = task
-        task.resume()
-      }
-    } onCancel: {
-      box.task?.cancel()
     }
   }
 
   // MARK: - Error mapping
 
-  static func error(for response: HTTPURLResponse) -> SyncError {
-    let retryAfter = (response.value(forHTTPHeaderField: "Retry-After")).flatMap(TimeInterval.init)
-    switch response.statusCode {
+  static func error(for response: SyncHTTPResponse) -> SyncError {
+    let retryAfter = response.header("Retry-After").flatMap(TimeInterval.init)
+    switch response.status {
     case 300..<400: return .redirectRefused
     case 400: return .badRequest
     case 401: return .unauthorized
@@ -218,35 +185,9 @@ public final class HTTPSyncAPI: SyncAPI {
     case 410: return .resyncRequired
     case 413: return .tooLarge
     case 429: return .rateLimited(retryAfter: retryAfter ?? 1)
-    default: return .server(status: response.statusCode, retryAfter: retryAfter)
+    default: return .server(status: response.status, retryAfter: retryAfter)
     }
   }
-
-  static func error(for error: any Error, pinFailed: Bool) -> any Error {
-    if pinFailed { return SyncError.pinningFailed }
-    guard let urlError = error as? URLError else { return SyncError.offline }
-    switch urlError.code {
-    case .cancelled:
-      return CancellationError()
-    case .serverCertificateUntrusted, .serverCertificateHasBadDate,
-      .serverCertificateHasUnknownRoot,
-      .serverCertificateNotYetValid:
-      return SyncError.pinningFailed
-    default:
-      return SyncError.offline
-    }
-  }
-}
-
-/// The in-flight task, for cancellation and for its identifier in the completion handler.
-private final class TaskBox: @unchecked Sendable {
-  private let lock = NSLock()
-  private var stored: URLSessionDataTask?
-  var task: URLSessionDataTask? {
-    get { lock.withLock { stored } }
-    set { lock.withLock { stored = newValue } }
-  }
-  var identifier: Int { task?.taskIdentifier ?? -1 }
 }
 
 extension UUID {

@@ -1,109 +1,51 @@
 import Foundation
 import Testing
 
-#if canImport(FoundationNetworking)
-  import FoundationNetworking  // URLSession and friends on Linux
-#endif
-
 @testable import PassFortVault
 
-/// `HTTPSyncAPI` against a `URLProtocol` stub (m5-sync.md 7.2): the endpoint rule, what each call
-/// sends, and how every status and transport failure maps to `SyncError`. The real server is
-/// exercised end to end by the Phase 11 drill.
+/// `HTTPSyncAPI` against a stub `SyncTransport` (m5-sync.md 7.2; ADR-0011 decision 4): the
+/// endpoint rule, what each call sends, and how every status maps to `SyncError`. It runs on every
+/// platform; `URLSessionTransportTests` and `CurlTransportTests` cover the two real transports, and
+/// the Phase 11 drill the real server.
 @Suite struct HTTPSyncAPITests {
 
   // MARK: - Stub
 
-  /// One canned reply, or a transport error.
+  /// One canned reply, or a transport failure.
   struct Reply: Sendable {
     var status = 200
     var headers: [String: String] = [:]
     var body = Data()
-    var error: URLError?
+    var error: SyncError?
   }
 
-  struct Captured: Sendable {
-    let method: String
-    let url: URL
-    let headers: [String: String]
-    let body: Data
+  /// Answers every request with its reply and keeps what was sent.
+  final class Stub: SyncTransport {
+    private let reply: Reply
+    private let sent = Locked(initialState: [SyncHTTPRequest]())
 
-    /// Header names are case-insensitive, and Foundation on Linux stores them capitalized
-    /// (`X-Passfort-Token`), so look them up the way a server does.
-    func header(_ name: String) -> String? {
-      headers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
-    }
-  }
-
-  /// Routes by the first path segment, a per-test id, so suites running in parallel never see each
-  /// other's requests.
-  final class Stub: URLProtocol, @unchecked Sendable {
-    private static let routes = Locked(
-      initialState: [String: (reply: Reply, captured: [Captured])]())
-
-    static func register(_ id: String, _ reply: Reply) {
-      routes.withLock { $0[id] = (reply, []) }
+    init(_ reply: Reply) {
+      self.reply = reply
     }
 
-    static func captured(_ id: String) -> [Captured] {
-      routes.withLock { $0[id]?.captured ?? [] }
-    }
+    var captured: [SyncHTTPRequest] { sent.withLock { $0 } }
 
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-      guard let url = request.url else { return }
-      let id = url.pathComponents.dropFirst().first ?? ""
-      let body = request.httpBodyStream.map(Self.read) ?? request.httpBody ?? Data()
-      let capture = Captured(
-        method: request.httpMethod ?? "", url: url,
-        headers: request.allHTTPHeaderFields ?? [:], body: body)
-      guard
-        let reply = Self.routes.withLock({ routes -> Reply? in
-          routes[id]?.captured.append(capture)
-          return routes[id]?.reply
-        })
-      else { return client?.urlProtocol(self, didFailWithError: URLError(.badURL)) ?? () }
-
-      if let error = reply.error { return client?.urlProtocol(self, didFailWithError: error) ?? () }
-      let response = HTTPURLResponse(
-        url: url, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: reply.headers)
-      if let response {
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-      }
-      client?.urlProtocol(self, didLoad: reply.body)
-      client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
-
-    private static func read(_ stream: InputStream) -> Data {
-      stream.open()
-      defer { stream.close() }
-      var data = Data()
-      var buffer = [UInt8](repeating: 0, count: 4096)
-      while stream.hasBytesAvailable {
-        let count = stream.read(&buffer, maxLength: buffer.count)
-        if count <= 0 { break }
-        data.append(buffer, count: count)
-      }
-      return data
+    func send(_ request: SyncHTTPRequest) async throws -> SyncHTTPResponse {
+      sent.withLock { $0.append(request) }
+      if let error = reply.error { throw error }
+      return SyncHTTPResponse(status: reply.status, headers: reply.headers, body: reply.body)
     }
   }
 
-  /// An API whose requests all land in the stub under a fresh id.
-  private func stubbed(_ reply: Reply, https: Bool = false) throws -> (HTTPSyncAPI, String) {
-    let id = UUID().uuidString
-    Stub.register(id, reply)
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [Stub.self]
+  /// An API whose requests all land in a fresh stub.
+  private func stubbed(_ reply: Reply, https: Bool = false) throws -> (HTTPSyncAPI, Stub) {
+    let stub = Stub(reply)
     let endpoint =
       https
-      ? URL(string: "https://sync.test/\(id)/api/v1")!
-      : URL(string: "http://localhost:7071/\(id)/api/v1")!
+      ? URL(string: "https://sync.test/api/v1")!
+      : URL(string: "http://localhost:7071/api/v1")!
     let pins = try PinSet(base64: ["M1AWPj3AZEniRAxIO4lxAIEtRyVX2LOoj7MHpuzGpDU="])
-    return (try HTTPSyncAPI(endpoint: endpoint, pins: pins, configuration: configuration), id)
+    return (try HTTPSyncAPI(endpoint: endpoint, pins: pins, transport: stub), stub)
   }
 
   private func fixture(_ name: String) throws -> Data { try SyncDTOTests.fixture(name) }
@@ -111,13 +53,16 @@ import Testing
   private let vaultID = UUID(uuidString: "6F1C2B3A-4D5E-4F60-8A7B-9C0D1E2F3A4B")!
   private let device = DeviceDTO(id: UUID(), name: "test", platform: .cli)
 
-  @Test func capturedHeadersMatchInAnyCase() throws {
-    let sent = Captured(
+  @Test func headerLookupIgnoresCase() throws {
+    // Foundation on Linux stores header names capitalized (`X-Passfort-Token`).
+    let sent = SyncHTTPRequest(
       method: "GET", url: try #require(URL(string: "http://localhost/")),
-      headers: ["X-Passfort-Token": "tok"], body: Data())
+      headers: ["X-Passfort-Token": "tok"], body: nil)
     #expect(sent.header("X-PassFort-Token") == "tok")
     #expect(sent.header("x-passfort-token") == "tok")
     #expect(sent.header("Authorization") == nil)
+    let response = SyncHTTPResponse(status: 503, headers: ["retry-after": "4"], body: Data())
+    #expect(response.header("Retry-After") == "4")
   }
 
   // MARK: - The endpoint rule (A.4)
@@ -150,32 +95,34 @@ import Testing
   // MARK: - What each call sends
 
   @Test func createVaultSendsTheEnrollSecretAndTheBody() async throws {
-    let (api, id) = try stubbed(Reply(status: 201, body: try fixture("create-vault.response.json")))
+    let (api, stub) = try stubbed(
+      Reply(status: 201, body: try fixture("create-vault.response.json")))
     let request = try SyncCoding.decoder.decode(
       CreateVaultRequest.self, from: try fixture("create-vault.request.json"))
 
     let response = try await api.createVault(request, enrollSecret: "enroll-me")
     #expect(response == CreateVaultResponse(seq: 0, headerVersion: 1))
 
-    let sent = try #require(Stub.captured(id).first)
+    let sent = try #require(stub.captured.first)
     #expect(sent.method == "POST")
     #expect(sent.url.path().hasSuffix("/api/v1/vaults"))
     #expect(sent.header("X-PassFort-Enroll") == "enroll-me")
     #expect(sent.header("Content-Type") == "application/json")
     #expect(sent.header("X-PassFort-Token") == nil)
     #expect(sent.header("Authorization") == nil)
-    let body = try JSONSerialization.jsonObject(with: sent.body) as? NSDictionary
+    let body = try JSONSerialization.jsonObject(with: try #require(sent.body)) as? NSDictionary
     let expected = try JSONSerialization.jsonObject(with: try fixture("create-vault.request.json"))
     #expect(body == expected as? NSDictionary)
   }
 
   @Test func authenticatedCallsCarryTheSessionTokenAndLowerCaseIDs() async throws {
-    let (api, id) = try stubbed(Reply(body: try fixture("changes.response.json")))
+    let (api, stub) = try stubbed(Reply(body: try fixture("changes.response.json")))
     let page = try await api.changes(vaultID: vaultID, since: 40, limit: 500, token: "tok")
     #expect(page.records.count == 2)
 
-    let sent = try #require(Stub.captured(id).first)
+    let sent = try #require(stub.captured.first)
     #expect(sent.method == "GET")
+    #expect(sent.body == nil && sent.header("Content-Type") == nil, "a GET sends no body")
     #expect(sent.header("X-PassFort-Token") == "tok")
     #expect(sent.header("Authorization") == nil)
     #expect(sent.url.path().hasSuffix("/vaults/6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b/changes"))
@@ -193,9 +140,9 @@ import Testing
     func check(
       _ reply: Reply, _ method: String, _ suffix: String, _ call: (HTTPSyncAPI) async throws -> Void
     ) async throws {
-      let (api, id) = try stubbed(reply)
+      let (api, stub) = try stubbed(reply)
       try await call(api)
-      let sent = try #require(Stub.captured(id).first)
+      let sent = try #require(stub.captured.first)
       #expect(sent.method == method)
       #expect(sent.url.path().hasSuffix("/api/v1/\(suffix)"), "\(sent.url)")
     }
@@ -230,9 +177,9 @@ import Testing
   }
 
   @Test func httpsEndpointsWorkTheSameWay() async throws {
-    let (api, id) = try stubbed(Reply(body: try fixture("header.response.json")), https: true)
+    let (api, stub) = try stubbed(Reply(body: try fixture("header.response.json")), https: true)
     _ = try await api.header(vaultID: vaultID)
-    #expect(Stub.captured(id).first?.url.scheme == "https")
+    #expect(stub.captured.first?.url.scheme == "https")
   }
 
   // MARK: - Status mapping
@@ -287,33 +234,10 @@ import Testing
 
   // MARK: - Transport failures
 
-  @Test(arguments: [
-    (URLError.Code.notConnectedToInternet, SyncError.offline), (.timedOut, .offline),
-    (.cannotFindHost, .offline), (.networkConnectionLost, .offline),
-    (.serverCertificateUntrusted, .pinningFailed),
-    (.serverCertificateHasUnknownRoot, .pinningFailed),
-  ])
-  func transportErrorsMapToOfflineOrPinning(_ code: URLError.Code, _ expected: SyncError)
-    async throws
-  {
-    let (api, _) = try stubbed(Reply(error: URLError(code)))
-    await #expect(throws: expected) { _ = try await api.header(vaultID: vaultID) }
-  }
-
-  @Test func theTransportRefusesEveryRedirect() async {
-    let transport = PinnedTransport(pins: .none)
-    let session = URLSession(configuration: .ephemeral)
-    let task = session.dataTask(with: URL(string: "https://sync.test/a")!)
-    let redirect = HTTPURLResponse(
-      url: URL(string: "https://sync.test/a")!, statusCode: 302, httpVersion: nil,
-      headerFields: ["Location": "http://evil.test/a"])!
-    let followed = await withCheckedContinuation { continuation in
-      transport.urlSession(
-        session, task: task, willPerformHTTPRedirection: redirect,
-        newRequest: URLRequest(url: URL(string: "http://evil.test/a")!)
-      ) { continuation.resume(returning: $0) }
-    }
-    #expect(followed == nil)
-    session.invalidateAndCancel()
+  /// The transports map their own failures (URLError, libcurl); HTTPSyncAPI passes them on.
+  @Test(arguments: [SyncError.offline, .pinningFailed, .invalidResponse])
+  func transportFailuresPassThroughUnchanged(_ error: SyncError) async throws {
+    let (api, _) = try stubbed(Reply(error: error))
+    await #expect(throws: error) { _ = try await api.header(vaultID: vaultID) }
   }
 }

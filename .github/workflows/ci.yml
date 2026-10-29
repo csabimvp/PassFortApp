@@ -1,6 +1,6 @@
-# Five jobs (architecture.md §13.2): swift (the Swift build and tests), native (CMake + Catch2 over
-# PFCrypto, plain and under ASan/UBSan), deps (Package.resolved drift), lint (shellcheck,
-# clang-format), secrets (gitleaks, full history). The sync backend and its CI and deploy live in
+# Six jobs (architecture.md §13.2): swift (the Swift build and tests), native (CMake + Catch2 over
+# PFCrypto, plain and under ASan/UBSan), linux (both again on Linux x86_64, M6), deps
+# (Package.resolved drift), lint (shellcheck, clang-format), secrets (gitleaks, full history). The sync backend and its CI and deploy live in
 # the PassFortCloud repository (architecture.md rev 15).
 # Verifies a clean build only: never regenerates the Botan amalgamation, and holds
 # no credentials.
@@ -107,6 +107,43 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined"
           cmake --build native-tests/build-san
           ctest --test-dir native-tests/build-san --output-on-failure
+
+  linux:
+    # The portable CLI's platform (ADR-0010): the package and the native suites on Linux x86_64,
+    # in the Swift container M6 pins. CLinuxTLS links the system libcurl and OpenSSL (ADR-0011),
+    # GRDB the system SQLite. The CLI is built where it runs, so nothing is packaged here.
+    runs-on: ubuntu-24.04
+    container: swift:6.3.3-noble
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: System packages
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq libsqlite3-dev libcurl4-openssl-dev libssl-dev cmake
+      - name: Build and test
+        working-directory: Packages/PassFortKit
+        # $GITHUB_WORKSPACE, not github.workspace: in a container job the latter is the host path.
+        run: |
+          swift build
+          PF_KILLTEST_BIN="$GITHUB_WORKSPACE/Packages/PassFortKit/.build/debug/pf-killtest" swift test
+      - name: CLinuxTLS and its callers under ASan
+        working-directory: Packages/PassFortKit
+        # The C target parses certificates and handles network input (ADR-0011, Consequences).
+        # Leak checking stays on for it; only XCTest's runner, which keeps its suites until exit,
+        # is suppressed.
+        run: |
+          LSAN_OPTIONS="suppressions=$GITHUB_WORKSPACE/.github/lsan-suppressions.txt" \
+            swift test --sanitize=address \
+              --filter 'CurlTransportTests|LinuxPinningTests|PinSetTests|OneTimeCodeTests'
+      - name: Native suites
+        run: |
+          cmake -S native-tests -B native-tests/build -DCMAKE_CXX_COMPILER=clang++
+          cmake --build native-tests/build -j "$(nproc)"
+          ctest --test-dir native-tests/build --output-on-failure
 
   deps:
     runs-on: macos-15            # Swift ships with the default Xcode; no build here
