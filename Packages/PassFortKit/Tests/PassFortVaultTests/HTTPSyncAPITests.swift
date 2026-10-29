@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-import os
 
 @testable import PassFortVault
 
@@ -29,7 +28,7 @@ import os
   /// Routes by the first path segment, a per-test id, so suites running in parallel never see each
   /// other's requests.
   final class Stub: URLProtocol, @unchecked Sendable {
-    private static let routes = OSAllocatedUnfairLock(
+    private static let routes = Locked(
       initialState: [String: (reply: Reply, captured: [Captured])]())
 
     static func register(_ id: String, _ reply: Reply) {

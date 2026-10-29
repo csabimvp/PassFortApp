@@ -1,7 +1,6 @@
 import CryptoKit
 import Foundation
 import Security
-import os
 
 /// SPKI pins: SHA-256 of a certificate's DER `SubjectPublicKeyInfo` (A.4, §9.4) -- the format
 /// `openssl x509 -pubkey | openssl pkey -pubin -outform der | openssl dgst -sha256` prints. Pin the
@@ -46,7 +45,7 @@ public struct PinSet: Sendable, Equatable {
 /// rather than a bare cancellation.
 final class PinnedTransport: NSObject, URLSessionTaskDelegate, Sendable {
   private let pins: PinSet
-  private let pinFailures = OSAllocatedUnfairLock(initialState: Set<Int>())
+  private let pinFailures = Locked(initialState: Set<Int>())
 
   init(pins: PinSet) {
     self.pins = pins
