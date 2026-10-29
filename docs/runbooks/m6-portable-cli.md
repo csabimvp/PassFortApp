@@ -2,8 +2,8 @@
 
 **Status:** Phase 0 and Phase 1 done. The spike ran in CI on 2026-10-26 (branch `m6-spike`, not
 merged; runs `40334650317` to `40343656728`) and in WSL2 on 2026-10-29 (0.7, all checks pass).
-Phase 1 landed 2026-10-26; Phase 2, the last of 0.8 and Phase 3 on 2026-10-29. Phase 4 is
-next. Phases 4–8 are a plan built from the spike's results.
+Phase 1 landed 2026-10-26; Phase 2, the last of 0.8, and Phases 3, 4 and 5 on 2026-10-29.
+Phase 6, the WSL2 checkpoint, is next. Phases 6–8 are a plan built from the spike's results.
 
 **Prerequisite:** M5 complete (it is). M6 doesn't depend on M7, and M7 doesn't depend on M6.
 
@@ -258,6 +258,27 @@ macOS.
 
 ## Phase 4 — `CLinuxTLS`: pinned transport, HMAC, SHA-256
 
+> **Done 2026-10-29** (PR #1, ADR-0011). `HTTPSyncAPI` sends through `SyncTransport`:
+> `URLSessionTransport` with `PinnedTransport` on Apple platforms, `CurlTransport` over `CLinuxTLS`
+> on Linux. `PinSet` and its helpers (`isLoopback`, `spkiHash`) moved to a shared file;
+> `PlatformCrypto` picks CryptoKit or libcrypto for SHA-256 and HMAC. `CLinuxTLS` compiles to
+> nothing on Apple platforms. Beyond the plan, `pf_tls_send`:
+>
+> - refuses a pinned request that isn't https **before sending** (redirects are off, so the scheme
+>   can't change), and treats a request that ended without the pin check passing as untrusted;
+> - fails closed when libcurl isn't on OpenSSL (`.pinningFailed`, no new `SyncError` case);
+> - refuses header lines with CR, LF or NUL (`.badRequest`), caps a response at 64 MiB
+>   (`.invalidResponse`), turns off TLS session reuse (a resumed session would skip the callback)
+>   and `Expect: 100-continue`, and treats the 15 s timeout as an idle limit, as `URLSession` does.
+>
+> Tests: `HTTPSyncAPITests` stub the protocol on both platforms; `URLSessionTransportTests` keep
+> the `URLProtocol` and redirect cases (Apple); `PinSetTests` run on both; `LinuxPinningTests` are
+> `PinningTests`' twins through `pf_tls_verify_chain`; `CurlTransportTests` drive libcurl against
+> a one-shot loopback server (request and response, no body on GET, redirects unfollowed, offline,
+> header splitting, cancellation, and pinned http refused before a byte goes out). Linux: 295
+> package tests pass. Mac: 273 + 16, and the app. Not covered offline: a live pinned handshake,
+> which is Phase 6's drill.
+
 A C target compiled on Linux only (`.when(platforms: [.linux])`) against the system libcurl and
 OpenSSL. It holds the probe's verify callback grown into a request function, plus HMAC and SHA-256.
 
@@ -272,6 +293,15 @@ OpenSSL. It holds the probe's verify callback grown into a request function, plu
 **Checkpoint:** every `PinningTests` case has a Linux twin, and both platforms pass `OneTimeCodeTests`.
 
 ## Phase 5 — The `linux` CI job
+
+> **Done 2026-10-29**, with Phase 4, since nothing else compiled its Linux code. `swift build` and
+> `swift test` in `swift:6.3.3-noble`, then `CLinuxTLS`'s callers under ASan with leak checking
+> (suppressing only libXCTest, `.github/lsan-suppressions.txt`), then the native suites. Its first
+> runs found three things, each fixed in its own commit: a pointer conversion Linux's compiler
+> wouldn't infer, Phase 3's `PlatformPathsTests` reading the passwd home where Foundation reads
+> `$HOME` (they differ in the container), and the test server's thread outliving its test.
+> Green on run `40964037856`: 295 package tests, 27 under ASan with no leaks, 65 native.
+> `Package.resolved` is unchanged.
 
 The package suites and `native` on `ubuntu-24.04` in `swift:6.3.3-noble` (§13.2), with the
 `-dev` packages from 0.1. `deps` keeps checking `Package.resolved`, which doesn't change if 0.2's
