@@ -266,7 +266,7 @@ struct List: AsyncParsableCommand {
       }
     }
     // Prefixes unique across every record, tombstones included, so one never names two.
-    printSummaryTable(rows, ids: shortIDs(summaries.map(\.id)))
+    print(summaryTable(rows, ids: shortIDs(summaries.map(\.id)), style: .stdout), terminator: "")
   }
 }
 
@@ -292,7 +292,7 @@ struct Get: AsyncParsableCommand {
       FileHandle.standardOutput.write(try prettyJSON(AccountJSON(account)))
       FileHandle.standardOutput.write(Data("\n".utf8))
     } else {
-      printAccount(account, reveal: reveal)
+      print(accountCard(account, reveal: reveal, style: .stdout), terminator: "")
     }
   }
 }

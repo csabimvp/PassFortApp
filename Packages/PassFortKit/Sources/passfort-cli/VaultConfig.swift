@@ -187,12 +187,15 @@ struct VaultList: AsyncParsableCommand {
       print("no vaults remembered -- passfort-cli vault add <name> <path>")
       return
     }
+    let style = Style.stdout
     let width = config.vaults.keys.map(\.count).max() ?? 0
     for (name, path) in config.vaults.sorted(by: { $0.key < $1.key }) {
-      let mark = name == config.defaultVault ? "*" : " "
-      let missing = FileManager.default.fileExists(atPath: path) ? "" : "  (missing)"
+      let isDefault = name == config.defaultVault
+      let mark = isDefault ? style.green("*") : " "
+      let missing =
+        FileManager.default.fileExists(atPath: path) ? "" : "  " + style.red("(missing)")
       let padded = name.padding(toLength: width, withPad: " ", startingAt: 0)
-      print("\(mark) \(padded)  \(path)\(missing)")
+      print("\(mark) \(isDefault ? style.bold(padded) : padded)  \(style.dim(path))\(missing)")
     }
     if let variable = ProcessInfo.processInfo.environment[CLIConfig.vaultVariable],
       !variable.isEmpty
