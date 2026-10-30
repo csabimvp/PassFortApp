@@ -22,7 +22,7 @@ struct Copy: AsyncParsableCommand {
   }
 
   @OptionGroup var vaultOption: VaultOption
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @Argument(help: "Account title, id or id prefix.") var account: String
   @Flag(help: "Which field to copy.") var field: Field = .password
   @OptionGroup var clipboard: ClipboardOptions
 
@@ -60,7 +60,7 @@ struct Fill: AsyncParsableCommand {
       """)
 
   @OptionGroup var vaultOption: VaultOption
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @Argument(help: "Account title, id or id prefix.") var account: String
   @Flag(help: "Don't open the website, only fill the clipboard.") var noOpen = false
   @OptionGroup var clipboard: ClipboardOptions
 

@@ -235,7 +235,8 @@ struct List: AsyncParsableCommand {
   func run() async throws {
     let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
-    var rows = try await repo.summaries()
+    let summaries = try await repo.summaries()
+    var rows = summaries
     if !all { rows = rows.filter { !$0.isDeleted } }
     if let query = search?.lowercased(), !query.isEmpty {
       rows = rows.filter { row in
@@ -245,7 +246,8 @@ struct List: AsyncParsableCommand {
           || row.tags.contains { $0.lowercased().contains(query) }
       }
     }
-    printSummaryTable(rows)
+    // Prefixes unique across every record, tombstones included, so one never names two.
+    printSummaryTable(rows, ids: shortIDs(summaries.map(\.id)))
   }
 }
 
@@ -256,7 +258,7 @@ struct Get: AsyncParsableCommand {
     abstract: "Show one account -- secrets included -- on stdout.")
 
   @OptionGroup var vaultOption: VaultOption
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @Argument(help: "Account title, id or id prefix.") var account: String
   @Flag(help: "Emit the decrypted payload as JSON.") var json = false
 
   func run() async throws {
@@ -282,7 +284,7 @@ struct Code: AsyncParsableCommand {
     abstract: "Print an account's current one-time code (TOTP) and how long it stays valid.")
 
   @OptionGroup var vaultOption: VaultOption
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @Argument(help: "Account title, id or id prefix.") var account: String
 
   func run() async throws {
     let vault = try vaultOption.path()
@@ -308,7 +310,7 @@ struct History: AsyncParsableCommand {
     abstract: "Show an account's version timeline -- what changed, when.")
 
   @OptionGroup var vaultOption: VaultOption
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @Argument(help: "Account title, id or id prefix.") var account: String
   @Flag(help: "Also print the old password values (secrets, like `get`).") var passwords = false
 
   func run() async throws {
@@ -358,7 +360,7 @@ struct Edit: AsyncParsableCommand {
       """)
 
   @OptionGroup var vaultOption: VaultOption
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @Argument(help: "Account title, id or id prefix.") var account: String
   @Option(name: .customLong("set"), help: "key=value (repeatable).") var sets: [String] = []
   @Flag(help: "Prompt for a new account password with no echo.") var promptPassword = false
   @Flag(help: "Set the password to a fresh random one (see generation options); printed to stderr.")
@@ -413,7 +415,7 @@ struct Remove: AsyncParsableCommand {
     abstract: "Tombstone an account. The row survives until `compact` (M5).")
 
   @OptionGroup var vaultOption: VaultOption
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @Argument(help: "Account title, id or id prefix.") var account: String
 
   func run() async throws {
     let vault = try vaultOption.path()

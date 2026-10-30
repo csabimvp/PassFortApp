@@ -99,10 +99,11 @@ let package = Package(
         ),
 
         // The CLI's own logic that needs no vault or terminal: the WSL2 clipboard's scripts and
-        // framing, the clipboard prompts. Runs on every platform.
+        // framing, the clipboard prompts, the vault config, account matching. Runs on every
+        // platform. PassFortVault only to build `AccountSummary` values.
         .testTarget(
             name: "PassFortCLITests",
-            dependencies: ["passfort-cli"]
+            dependencies: ["passfort-cli", "PassFortVault"]
         ),
 
         .testTarget(

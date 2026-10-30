@@ -97,9 +97,10 @@ enum VaultCLI {
   }
 }
 
-/// Resolve an account reference -- a UUID string, or a (case-insensitive) title,
-/// exact match first then a unique substring -- to its id. Titles match live
-/// accounts, or only deleted ones with `deleted`.
+// MARK: - Naming an account
+
+/// Resolve an account reference to its id (`matchAccount`). Titles and id prefixes match live
+/// accounts, or only deleted ones with `deleted`. Several matches go to `AccountPicker`.
 func resolveAccountID(
   _ reference: String, in repo: VaultRepository, deleted: Bool = false
 ) async throws -> UUID {
@@ -107,18 +108,91 @@ func resolveAccountID(
 
   // Live accounts, or only the deleted ones when `deleted` is set (for `undelete`).
   let pool = try await repo.summaries().filter { $0.isDeleted == deleted }
+  switch matchAccount(reference, in: pool) {
+  case .one(let id): return id
+  case .none: throw CLIError("no account matches \"\(reference)\"")
+  case .several(let rows): return try AccountPicker.choose(from: rows, for: reference)
+  }
+}
+
+enum AccountMatch: Equatable {
+  case one(UUID)
+  case none
+  case several([AccountSummary])
+}
+
+/// What `reference` names in `pool`: a full id; else a title, an exact (case-insensitive) match
+/// first; else every account whose title contains it or whose id starts with it. An id prefix
+/// needs at least `minimumIDPrefix` hex digits, so a short word isn't read as one.
+func matchAccount(_ reference: String, in pool: [AccountSummary]) -> AccountMatch {
+  if let uuid = UUID(uuidString: reference) { return .one(uuid) }
+
   let exact = pool.filter { $0.title.caseInsensitiveCompare(reference) == .orderedSame }
-  if exact.count == 1 { return exact[0].id }
-  if exact.count > 1 {
-    throw CLIError("\(exact.count) accounts are titled \"\(reference)\" -- pass the id instead")
+  if exact.count == 1 { return .one(exact[0].id) }
+  if exact.count > 1 { return .several(exact) }
+
+  let hex = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+  let idPrefix =
+    reference.count >= minimumIDPrefix && reference.unicodeScalars.allSatisfy(hex.contains)
+    ? reference.lowercased() : nil
+  let partial = pool.filter { row in
+    row.title.range(of: reference, options: .caseInsensitive) != nil
+      || idPrefix.map { row.id.uuidString.lowercased().hasPrefix($0) } ?? false
+  }
+  switch partial.count {
+  case 0: return .none
+  case 1: return .one(partial[0].id)
+  default: return .several(partial)
+  }
+}
+
+let minimumIDPrefix = 4
+
+/// The shortest id prefixes, at least 8 characters, that still tell `ids` apart -- what `list`
+/// prints, lowercase, and what a reference may use instead of the whole id.
+func shortIDs(_ ids: [UUID]) -> [UUID: String] {
+  let full = Dictionary(ids.map { ($0, $0.uuidString.lowercased()) }) { first, _ in first }
+  var width = 8
+  while width < 36, Set(full.values.map { $0.prefix(width) }).count < full.count {
+    width += 1
+  }
+  return full.mapValues { String($0.prefix(width)) }
+}
+
+/// A reference that matches several accounts. At a terminal, offer them as a numbered list;
+/// otherwise (a pipe, a script) fail and say how to narrow it.
+enum AccountPicker {
+  /// More than this and the reference is too vague to be worth a menu.
+  static let limit = 20
+
+  static func choose(from rows: [AccountSummary], for reference: String) throws -> UUID {
+    let rows = rows.sorted {
+      $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+    }
+    guard isatty(STDIN_FILENO) == 1, isatty(STDERR_FILENO) == 1, rows.count <= limit else {
+      throw CLIError(
+        "\"\(reference)\" matches \(rows.count) accounts -- narrow it, or use the id from `list`")
+    }
+    FileHandle.standardError.write(Data(menu(rows, for: reference).utf8))
+    guard let line = readLine(strippingNewline: true),
+      let choice = Int(line.trimmingCharacters(in: .whitespaces)),
+      rows.indices.contains(choice - 1)
+    else {
+      throw CLIError("no account chosen")
+    }
+    return rows[choice - 1].id
   }
 
-  let partial = pool.filter { $0.title.range(of: reference, options: .caseInsensitive) != nil }
-  switch partial.count {
-  case 1: return partial[0].id
-  case 0: throw CLIError("no account matches \"\(reference)\"")
-  default:
-    throw CLIError("\"\(reference)\" matches \(partial.count) accounts -- narrow it or pass the id")
+  /// The numbered list and the question, for rows already in display order.
+  static func menu(_ rows: [AccountSummary], for reference: String) -> String {
+    let ids = shortIDs(rows.map(\.id))
+    var text = "\"\(reference)\" matches \(rows.count) accounts:\n"
+    for (index, row) in rows.enumerated() {
+      let details = [row.username, row.host].compactMap { $0 }.joined(separator: "  ")
+      text += "  \(index + 1)) \(row.title)\(details.isEmpty ? "" : "  \(details)")"
+      text += "  [\(ids[row.id] ?? "")]\n"
+    }
+    return text + "Which one? [1-\(rows.count)]: "
   }
 }
 
@@ -298,7 +372,8 @@ struct AccountJSON: Encodable {
   }
 }
 
-func printSummaryTable(_ rows: [AccountSummary]) {
+/// `rows` by title, each under its short id from `ids` (`shortIDs`).
+func printSummaryTable(_ rows: [AccountSummary], ids: [UUID: String]) {
   guard !rows.isEmpty else {
     print("(no matching accounts)")
     return
@@ -309,9 +384,11 @@ func printSummaryTable(_ rows: [AccountSummary]) {
   func pad(_ string: String, _ width: Int) -> String {
     string.count >= width ? string : string + String(repeating: " ", count: width - string.count)
   }
-  print("\(pad("ID", 36))  \(pad("TITLE", 24))  \(pad("USERNAME", 20))  HOST")
+  let idWidth = ids.values.map(\.count).max() ?? 8
+  print("\(pad("ID", idWidth))  \(pad("TITLE", 24))  \(pad("USERNAME", 20))  HOST")
   for row in sorted {
-    var line = "\(pad(row.id.uuidString, 36))  \(pad(String(row.title.prefix(24)), 24))  "
+    let id = ids[row.id] ?? row.id.uuidString.lowercased()
+    var line = "\(pad(id, idWidth))  \(pad(String(row.title.prefix(24)), 24))  "
     line += "\(pad(row.username ?? "-", 20))  \(row.host ?? "-")"
     var flags: [String] = []
     if row.favorite { flags.append("fav") }
