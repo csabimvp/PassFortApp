@@ -77,10 +77,11 @@ The CLI on Linux:
    Replace `ABCDE12345` with your team ID. To update later, `git pull` and run the same command.
    Your vault lives in the app's sandbox container, so reinstalling doesn't touch it.
 
-4. Optionally, build the CLI. The binary is `.build/release/passfort-cli`.
+4. Optionally, install the CLI. The script builds it and copies `passfort-cli` to `~/.local/bin`,
+   with zsh and bash completion.
 
    ```bash
-   cd Packages/PassFortKit && swift build -c release --product passfort-cli
+   scripts/install_cli.sh
    ```
 
 ### The CLI on Linux and WSL2
@@ -98,14 +99,12 @@ filesystem (under `~`), not under `/mnt/c`.
    sudo apt-get install -y libsqlite3-dev libcurl4-openssl-dev libssl-dev
    ```
 
-2. Clone and build:
+2. Clone, build and install to `~/.local/bin`, with bash completion:
 
    ```bash
    git clone https://github.com/csabimvp/PassFortApp.git ~/PassFortApp
-   cd ~/PassFortApp/Packages/PassFortKit && swift build -c release --product passfort-cli
+   ~/PassFortApp/scripts/install_cli.sh
    ```
-
-   The binary is `.build/release/passfort-cli`.
 
 3. To sync, put the server's pins in `~/.config/passfort/pins`, one base64 SHA-256 per line, then
    join with the vault id from the app's Add a Device…:
@@ -113,6 +112,8 @@ filesystem (under `~`), not under `/mnt/c`.
    ```bash
    passfort-cli sync join ~/passfort/vault.sqlite --endpoint https://<site>/api/v1 --vault-id <id>
    ```
+
+   The first vault you create or join becomes the default, so later commands need no path.
 
 `copy` and `fill` use the Windows clipboard in WSL2: press Enter after each paste. On Linux outside
 WSL2 there is no clipboard support, so use `get`.
@@ -137,17 +138,21 @@ password.
 - **Leaving.** `passfort-cli export` writes a whole vault as plaintext JSON after you type a
   confirmation phrase. Delete the file once you've imported it elsewhere.
 
-The CLI works on the same vault format. On Linux, run the built binary instead of `swift run`:
+The CLI works on the same vault format. It remembers your vaults by name, and the first one becomes
+the default, so most commands need only an account:
 
 ```bash
-cd Packages/PassFortKit
-swift run passfort-cli init  vault.sqlite
-swift run passfort-cli add   vault.sqlite --title github --username me --prompt-password
-swift run passfort-cli get   vault.sqlite github
-swift run passfort-cli fill  vault.sqlite github   # opens the site; username, then password
+passfort-cli init ~/passfort/vault.sqlite   # create a vault; it becomes the default
+passfort-cli add --title GitHub --username me --prompt-password
+passfort-cli list
+passfort-cli copy github                    # the password, on the clipboard until pasted
+passfort-cli fill github                    # opens the site; username, then password
+passfort-cli vault add work ~/work.sqlite   # another vault: passfort-cli list --vault work
 ```
 
-Every command is listed in [`docs/development.md`](docs/development.md#the-cli).
+An account is named by its title or part of it. When several match, the CLI asks which one you
+mean. `get` hides passwords unless you pass `--reveal`. Every command is listed in
+[`docs/development.md`](docs/development.md#the-cli).
 
 ## Security
 
