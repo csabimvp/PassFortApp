@@ -1,7 +1,7 @@
 # PassFort — Architecture
 
-**Status:** Living specification. M0–M3 and M5 (sync) are built, M4 was scaled back; `docs/runbooks/README.md` tracks each milestone.
-**Revision:** 23 (2026-10-29). What changed in each revision: [Appendix A](#appendix-a--revision-history).
+**Status:** Living specification. M0–M3, M5 (sync) and M6 (the CLI on Linux and WSL2) are built, M4 was scaled back; `docs/runbooks/README.md` tracks each milestone.
+**Revision:** 24 (2026-10-30). What changed in each revision: [Appendix A](#appendix-a--revision-history).
 
 ---
 
@@ -107,7 +107,7 @@ Write this down before writing code; every later decision points back here.
 | A2 | Cloud/sync operator (Azure, plus whoever runs the deploy) | Reads and modifies everything stored server-side; serves no client code (ADR-0010) | E2EE payloads; the server's only credential is `SHA-256(k_auth)`, nothing to crack (ADR-0009); every pulled record must `pf_open`, and a `seq` below the client's cursor is refused (§10.5); no client depends on server-delivered code (§11.4) |
 | A3 | Passive network attacker | Reads traffic | TLS 1.3 + ATS; payloads already ciphertext |
 | A4 | Active network attacker (MITM) | Substitutes certs, replays | Cert validation, optional pinning, AEAD + per-record versioning |
-| A5 | Another local app, non-root, no debugger | Reads our files, our clipboard | File perms + sandbox; concealed pasteboard type; auto-lock; Quick Access's open-and-fill only *promises* each value and hands it over on paste, so the password isn't on the clipboard until it is pasted |
+| A5 | Another local app, non-root, no debugger | Reads our files, our clipboard | File perms + sandbox; concealed pasteboard type; auto-lock; Quick Access's open-and-fill only *promises* each value and hands it over on paste, so the password isn't on the clipboard until it is pasted. In WSL2, `passfort-cli copy` / `fill` mark the Windows copy to stay out of clipboard history and the cloud clipboard (not yet checked on Windows, `m6-portable-cli.md` Phase 7) |
 | A6 | Us, six months from now | Ships a format change that bricks the vault | Versioned format, forward-compatible migrations, tested restore |
 | A7 | ~~Web supply chain~~ | — | Withdrawn with the web client (rev 17, ADR-0010). Dependency review for the CLI and the backend is the pinned lockfiles of §13.2 |
 
@@ -135,7 +135,7 @@ This section grew when the boundary moved (ADR-0004). Be precise about what was 
 - **The sync cursor lives in the vault file.** It inherits the file's rollback protection (`vault_version` vs `<db>.hw`), but an attacker who can edit the file in place *and* controls the server could lower it and hide a server rollback.
 - **The certificate pins ship with the app.** If Azure moves the site to a CA outside the pinned keys (§9.4), sync stops with an explicit pinning error until the app is rebuilt with new pins. An availability cost, never a confidentiality one: the local vault keeps working.
 - **The iPhone app's signature expires every ~7 days** (free Personal Team, §14.19). After that it won't launch until reinstalled from the Mac (`scripts/install_ios.sh`); the vault and sync cursor survive the reinstall. This is an availability cost, never a confidentiality one — the Mac app, and the CLI (M6) on any machine holding a copy of the vault, are the fallback when it lapses away from the Mac.
-- **The portable CLI (M6) shows plaintext wherever it runs.** A secret printed on request lands in terminal scrollback, and a Linux or WSL machine you don't control sees every value you open on it, the same exposure as the Mac app on a borrowed Mac. Ubuntu's default `RLIMIT_MEMLOCK` (8 MiB) and WSL2's (64 MiB) both hold Botan's whole locked pool (`m6-portable-cli.md` 0.4, 0.7). Its TLS checks pins but not revocation: OpenSSL's default verification fetches no CRLs or OCSP, where the Mac uses the system's revocation policy (ADR-0010, ADR-0011, §11.4).
+- **The portable CLI (M6) shows plaintext wherever it runs.** A secret printed on request lands in terminal scrollback, and a Linux or WSL machine you don't control sees every value you open on it, the same exposure as the Mac app on a borrowed Mac. Ubuntu's default `RLIMIT_MEMLOCK` (8 MiB) and WSL2's (64 MiB) both hold Botan's whole locked pool (`m6-portable-cli.md` 0.4, 0.7). Its TLS checks pins but not revocation: OpenSSL's default verification fetches no CRLs or OCSP, where the Mac uses the system's revocation policy (ADR-0010, ADR-0011, §11.4). In WSL2, `copy` and `fill` put values on the Windows clipboard, which can't tell the CLI when they are pasted: each one stays until Enter, the timeout or Ctrl-C, and clearing empties the clipboard even if something else was copied since.
 
 ---
 
@@ -971,20 +971,24 @@ A web UI can't decrypt on the server without the server seeing plaintext, so the
 
 ### 11.2 What the port replaces
 
-Everything outside this table builds as it is. The decisions marked *spike* are made in the M6 runbook's Phase 0 (§14.21).
+Built in M6 (`m6-portable-cli.md` Phases 2–7). Everything outside this table builds on Linux as it is. Apple platforms keep their side of each row, so the Mac build is unchanged.
 
-| Apple-only today | On Linux |
+| Apple platforms | Linux |
 |---|---|
-| SPKI pinning in `PinnedTransport.swift` (`Security`, `SecTrust`) | libcurl with an OpenSSL verify callback: normal chain verification, then an SPKI pin anywhere in the verified chain; fails closed on a wrong pin, and refuses to sync if libcurl isn't built on OpenSSL (§9.4, ADR-0011) |
-| `CryptoKit` SHA-256 (the pin hash) and HMAC (`OneTimeCode.swift`) | libcrypto, through the same C target as the pinning; Apple platforms keep `CryptoKit` (ADR-0011) |
-| `os` `OSAllocatedUnfairLock` | a lock from the standard library or Foundation |
-| the Botan amalgamation, configured for `--os=macos --cpu=arm64` | a second amalgamation for Linux x86_64 from `build_botan.sh linux-x86_64`, committed under `vendor/botan/linux-x86_64/` next to `macos-arm64/` and picked by `#if` (ADR-0001 amendment, 2026-10-29). Arm64 Linux only if a machine needs it |
-| `platforms: [.macOS(.v14)]` in `Package.swift` | whatever per-platform target conditions SwiftPM needs |
-| GRDB | believed to build on Linux; confirmed in the spike. Native Windows support is unverified |
+| SPKI pinning: `URLSession` with `PinnedTransport` (`Security`, `SecTrust`) | `CurlTransport` over the C target `CLinuxTLS`: libcurl with an OpenSSL verify callback, normal chain verification and then an SPKI pin anywhere in the verified chain. TLS 1.3 floor, no redirects, the same timeout. Fails closed on a wrong pin, on a pinned non-https request (before sending) and when libcurl isn't on OpenSSL (§9.4, ADR-0011). `HTTPSyncAPI` picks one through the `SyncTransport` protocol |
+| `CryptoKit` SHA-256 (the pin hash) and HMAC (`OneTimeCode`) | libcrypto through `CLinuxTLS`, behind `PlatformCrypto` (ADR-0011) |
+| `os` `OSAllocatedUnfairLock` | `Locked`, over `NSLock`, with the same `withLock` shape (`Synchronization.Mutex` needs macOS 15) |
+| `URL.applicationSupportDirectory` | `PlatformPaths`: Foundation's lookup, the XDG data home. The CLI keeps its own files under `~/.config/passfort/` on both |
+| the Botan amalgamation, configured for `--os=macos --cpu=arm64` | a second one from `build_botan.sh linux-x86_64`, committed under `vendor/botan/linux-x86_64/` next to `macos-arm64/` and picked by `#if` (ADR-0001 amendment, 2026-10-29). Arm64 Linux only if a machine needs it |
+| the CLI's clipboard: `NSPasteboard`, concealed and promised | in WSL2, the Windows clipboard through `powershell.exe` and a .NET `DataObject` with the history and cloud exclusions; `explorer.exe` opens the site. Plain Linux has none: `copy` and `fill` refuse and point at `get` |
+| `platforms: [.macOS(.v14)]` in `Package.swift` | unchanged; `CLinuxTLS` and the system libcurl, libssl and libcrypto are linked `.when(platforms: [.linux])`, and the target compiles to nothing on Apple platforms |
+| GRDB | builds and passes against the system `libsqlite3`. Native Windows support is unverified |
 
 ### 11.3 Windows
 
 WSL2 runs the Linux build, so a Windows machine is covered as soon as Linux is. It is also the only Linux environment the maintainer has (no native Linux machine), so WSL2 is the primary M6 target, not a convenience, and the M6 checkpoints run in it. The vault lives inside the WSL filesystem, not under `/mnt/c`. The spike (`m6-portable-cli.md` 0.7) found that WAL does work under `/mnt/c` for a single process, which this section expected it not to. It didn't test two processes on one vault, or a Windows program opening the file while the CLI holds it, and WSL's locks aren't promised to mean anything to Windows. That is the same reason the live vault never sits on a NAS (`m3-vault-management.md`), and nothing in the CLI needs a Windows path.
+
+The CLI is built where it runs, with Swift installed through `swiftly` and the distribution's `-dev` packages (README, *The CLI on Linux and WSL2*). There is no copied binary: `--static-swift-stdlib` can't link a C++-interop target, and the static Linux SDK has no SQLite (`m6-portable-cli.md` 0.6).
 
 A native Windows build is a separate, optional step, taken only if WSL2 is ever unavailable on a machine: its own Botan amalgamation, Swift with C++ interop on Windows, and a check that GRDB builds there. None of it is planned in detail.
 
@@ -994,7 +998,7 @@ The CLI is the same trust tier as the native apps: it runs code you built or ins
 
 ### 11.5 Tests and CI
 
-The package's suites run on Linux in a `linux` job (§13.2). Fixture vaults written on macOS must open on Linux, and the reverse; that replaces the "three cores agree" rule of ADR-0006. A scripted two-device drill uses a Linux CLI as one device (§13.1).
+The package's suites run on Linux in the `linux` job (§13.2): the Apple-only suites drop out, and their Linux twins (`LinuxPinningTests`, `CurlTransportTests`) take their place; `CLinuxTLS`'s callers also run under ASan with leak checking. Fixture vaults written on macOS open on Linux, and a Linux-written vault opens on the Mac (`m6-portable-cli.md` 0.3); that replaces the "three cores agree" rule of ADR-0006. The two-device check runs by hand: the CLI in WSL2 and the Mac app, through `rg-passfort-dev` with pins (Phase 6).
 
 ---
 
@@ -1044,7 +1048,7 @@ Since rev 17 (ADR-0010) only Swift hosts the core, in the apps and the CLI, so t
 | Migrations | Checked-in fixture vaults per format version, opened by every later build |
 | Swift layer | XCTest against `PassFortVault`; UI state machines (locked/unlocking/unlocked/error) |
 | iOS client *(M7)* | `PassFortAppCoreTests` under `swift test` and on the iOS Simulator; the crypto + storage suites re-run on the Simulator; a join against a stub server serving a forged cheap-KDF header must fail the unwrap **before** any auth response is sent; vault directory is Data Protection `.complete`. By hand on a device: lock on background, app-switcher cover, conflict drill, re-sign survival. |
-| Linux CLI *(M6)* | The package's suites on Linux (`PassFortVaultTests`, `PFCryptoBoundaryTests`); the primitive KATs agree with macOS; fixture vaults written on macOS open on Linux and the reverse; the pinning replacement fails closed on a wrong pin (§9.4); the scripted two-device drill with a Linux CLI as one device |
+| Linux CLI *(M6)* | The package's suites on Linux (`PassFortVaultTests`, `PFCryptoBoundaryTests`, `PassFortCLITests`), with `LinuxPinningTests` and `CurlTransportTests` in place of the `SecTrust` and `URLSession` ones; the native KATs agree with macOS; fixture vaults written on macOS open on Linux and the reverse; the pinning replacement fails closed on a wrong pin (§9.4). By hand, in WSL2: the two-device check with the Mac app as the other device, a wrong pin, and the Windows clipboard |
 
 Two rules worth stating up front: **a decrypt failure must be indistinguishable from a wrong password** (no error-message oracle — `pf_open` returns `AuthFailed` for both), and **no secret ever reaches a log or a crash report** — audit that deliberately, because the default behaviour of every logging system is to be helpful.
 
@@ -1141,16 +1145,16 @@ Resolved ones link to their ADR.
 19. **iOS signing: free Personal Team vs the paid Apple Developer Program ($99/yr).** Free: install on your own iPhone only, profile expires every ~7 days (re-sign with `scripts/install_ios.sh`), 3 sideloaded apps per device, no push / iCloud / App Groups / TestFlight. Paid: 1-year profiles, all capabilities, and it would also unlock real notarization (§13.3) and an AutoFill extension (still a §1.2 non-goal). **Leaning free for M7** — the sync backend already avoids every paid-only capability (§9.2). Revisit if the weekly re-sign actually bites, or if live push sync is ever wanted.
 
 20. **DEK rotation and blind indexes — when, and in what format?** Both moved out of M5 (rev 12). DEK rotation under sync needs a key-generation id in the header and the AAD (a format change, its own ADR, a re-seal migration) and re-registers `SHA-256(k_auth)`; until it exists, the old master password plus the server's copy still opens every record (§3.4, §9.5). Blind indexes (`pf_blind_index`, `idx_title` / `idx_url`) have no reader: search is the in-memory index (§8.3) and the server never sees `idx_*`. Build either when a concrete need appears — DEK rotation most likely as part of M8's threat-model review.
-21. **The portable CLI's open choices (rev 17, ADR-0010).** (a) Linux SPKI pinning: libcurl's pinned-public-key option vs a `URLSession` hook. (b) `CryptoKit` → `swift-crypto` vs something smaller. (c) Native Windows, only if WSL2 is not enough. (d) Linux arm64, if a machine needs it. (a) and (b) **resolved in rev 19 (ADR-0011):** libcurl with an OpenSSL verify callback, and libcrypto for SHA-256 and HMAC.
+21. **The portable CLI's open choices (rev 17, ADR-0010).** (a) Linux SPKI pinning: libcurl's pinned-public-key option vs a `URLSession` hook. (b) `CryptoKit` → `swift-crypto` vs something smaller. (c) Native Windows, only if WSL2 is not enough. (d) Linux arm64, if a machine needs it. (a) and (b) **resolved in rev 19 (ADR-0011):** libcurl with an OpenSSL verify callback, and libcrypto for SHA-256 and HMAC. M6 is built (rev 24); (c) and (d) stay open, taken only when a machine needs them.
 
 ---
 
 ## 15. Immediate next steps
 
-The bootstrap steps that used to live here (toolchain, repository skeleton, package targets, the Botan amalgamation, the M1 surface, the local half of the Azure spike) are done (rev 14). M5 is done (rev 16): two devices converge through the deployed `rg-passfort-dev`, conflicts surface in the app, and teardown-then-redeploy leaves no orphans (`docs/runbooks/m5-sync.md`). Next, in either order (§12 note 4):
+The bootstrap steps that used to live here (toolchain, repository skeleton, package targets, the Botan amalgamation, the M1 surface, the local half of the Azure spike) are done (rev 14). M5 is done (rev 16): two devices converge through the deployed `rg-passfort-dev`, conflicts surface in the app, and teardown-then-redeploy leaves no orphans (`docs/runbooks/m5-sync.md`). Next:
 
-1. **M6, the portable CLI** — `passfort-cli` on Linux, and on Windows through WSL2, against the same API (ADR-0010). Its runbook is written when it starts, beginning with a Phase 0 spike on §14.21.
-2. **M7, the iOS client** — `docs/runbooks/m7-ios.md`; only its Phase 0 spikes are actionable yet.
+1. **M7, the iOS client** — `docs/runbooks/m7-ios.md`; only its Phase 0 spikes are actionable yet.
+2. **M6's one open check** — the WSL2 clipboard by hand on Windows: a non-ASCII paste, nothing in Win+V, clearing, the URL (`m6-portable-cli.md` Phase 7). M6 is otherwise done (rev 24): the CLI builds, passes and syncs with pins on Linux and in WSL2.
 3. **A production environment** — `rg-passfort-prod` from the same Bicep, whenever the real vault should sync. No design work: `PassFortCloud`'s README, *Deploying*.
 
 Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in `PassFortCloud`), any `*.pfvault` / `*.sqlite` holding real data, `.build/` or `DerivedData/`. `.gitignore` covers them, and the CI `secrets` job is the only secret scan (§13.2).
@@ -1161,6 +1165,7 @@ Standing rule, unchanged since rev 1: never commit `local.settings.json` (now in
 
 Newest first. Revisions 1–3 predate the log.
 
+- **rev 24** (2026-10-30) — **M6 built; no format, seam or API change.** The doc sweep after `m6-portable-cli.md` Phases 2–7: §11.2 lists what the port replaced and how, §11.3 how the CLI is built, §11.5 the tests; the WSL2 clipboard joins §3.2 A5 and §3.4; §14.21 keeps (c) and (d) open; §15 drops M6 apart from its one by-hand check on Windows.
 - **rev 23** (2026-10-29) — **Sync on Linux, and the `linux` CI job; no format, seam or API change.** `HTTPSyncAPI` sends through a transport protocol: `URLSession` with `PinnedTransport` on Apple platforms, libcurl over the C target `CLinuxTLS` on Linux, with the same pins, TLS 1.3 floor, timeout and refused redirects (ADR-0011). `CLinuxTLS` refuses a pinned non-https request before sending and fails closed if libcurl isn't on OpenSSL. §13.2 gains the `linux` job (`m6-portable-cli.md` Phases 4–5).
 - **rev 22** (2026-10-29) — **One Botan amalgamation per target (ADR-0001 amendment); no format, seam or API change.** `vendor/botan/` holds `macos-arm64/` and `linux-x86_64/`, and `botan_all.{h,cpp}` include the right one by `#if`. The macOS amalgamation is byte-identical to the one it replaces. §4's tree and §11.2's Botan row follow (`m6-portable-cli.md` Phase 2).
 - **rev 21** (2026-10-29) — **The WSL2 spike's results; no format, seam or API change.** In WSL2 the package builds and passes, the CLI works, pinning behaves as in CI, and the 64 MiB `RLIMIT_MEMLOCK` holds Botan's whole pool (§3.4). WAL worked under `/mnt/c` for one process, against §11.3's expectation. §11.3 now says so and keeps the vault in the WSL filesystem, for the cases the spike didn't test (`m6-portable-cli.md` 0.7).

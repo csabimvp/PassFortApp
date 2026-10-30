@@ -98,6 +98,13 @@ let package = Package(
             swiftSettings: [.interoperabilityMode(.Cxx)]
         ),
 
+        // The CLI's own logic that needs no vault or terminal: the WSL2 clipboard's scripts and
+        // framing, the clipboard prompts. Runs on every platform.
+        .testTarget(
+            name: "PassFortCLITests",
+            dependencies: ["passfort-cli"]
+        ),
+
         .testTarget(
             name: "PassFortVaultTests",
             dependencies: [
