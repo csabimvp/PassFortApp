@@ -296,7 +296,7 @@ struct Code: AsyncParsableCommand {
     }
     guard let totp = account.payload.totp else {
       throw CLIError(
-        "\(account.payload.title) has no one-time code -- add one with `edit --set totp=...`")
+        "\(account.payload.title) has no one-time code -- add one with `edit <account> --totp ...`")
     }
     let now = Date()
     print(totp.code(at: now))
@@ -354,14 +354,24 @@ struct History: AsyncParsableCommand {
 
 struct Edit: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    abstract: """
-      Update an account. Repeatable --set key=value; keys: title, username, \
-      password, email, notes, favorite, category, totp (an otpauth:// URI or \
-      Base32 secret; empty clears it).
+    abstract: "Update an account. The options take the same names as `add`'s; \"\" clears a field.",
+    discussion: """
+      --set key=value (repeatable) does the same; keys: title, username, password, email, notes, \
+      favorite, category, totp.
       """)
 
   @OptionGroup var vaultOption: VaultOption
   @Argument(help: "Account title, id or id prefix.") var account: String
+  @Option(help: "New title.") var title: String?
+  @Option(help: "New username.") var username: String?
+  @Option(help: "New email.") var email: String?
+  @Option(help: "New password value (ends up in shell history -- prefer --prompt-password).")
+  var password: String?
+  @Option(help: "New free-text note.") var note: String?
+  @Option(help: "New category.") var category: String?
+  @Option(help: "One-time-code secret: an otpauth://totp/... URI or a Base32 secret.")
+  var totp: String?
+  @Flag(inversion: .prefixedNo, help: "Mark or unmark as a favorite.") var favorite: Bool?
   @Option(name: .customLong("set"), help: "key=value (repeatable).") var sets: [String] = []
   @Flag(help: "Prompt for a new account password with no echo.") var promptPassword = false
   @Flag(help: "Set the password to a fresh random one (see generation options); printed to stderr.")
@@ -373,14 +383,14 @@ struct Edit: AsyncParsableCommand {
 
   func run() async throws {
     let vault = try vaultOption.path()
-    let setsPassword = sets.contains { $0.hasPrefix("password=") }
+    let setsPassword = password != nil || sets.contains { $0.hasPrefix("password=") }
     let passwordSources = [setsPassword, promptPassword, generatePassword].filter { $0 }.count
     guard passwordSources <= 1 else {
       throw CLIError(
-        "set the password one way: --set password=..., --prompt-password, or --generate-password")
+        "set the password one way: --password, --prompt-password, or --generate-password")
     }
 
-    var parsed = try sets.map(EditOp.parse)
+    var parsed = try namedEdits() + sets.map(EditOp.parse)
     if promptPassword {
       let entered = String(decoding: try Password.prompt("New account password: "), as: UTF8.self)
       parsed.append(.set(.password, entered))
@@ -393,8 +403,7 @@ struct Edit: AsyncParsableCommand {
     let ops = parsed
     let appended = try addURLs.map(parseURL)
     guard !ops.isEmpty || !appended.isEmpty else {
-      throw CLIError(
-        "nothing to change -- pass --set, --add-url, --prompt-password, or --generate-password")
+      throw CLIError("nothing to change -- pass a field to set, e.g. --username or --add-url")
     }
 
     let repo = try await VaultCLI.open(vault)
@@ -406,6 +415,16 @@ struct Edit: AsyncParsableCommand {
     print("updated \(updated.id.uuidString) -> version \(updated.version)")
   }
 
+  /// The named options as `--set` edits, so they are validated the same way.
+  private func namedEdits() throws -> [EditOp] {
+    let fields: [(EditOp.Field, String?)] = [
+      (.title, title), (.username, username), (.email, email), (.password, password),
+      (.notes, note), (.category, category), (.totp, totp), (.favorite, favorite.map(String.init)),
+    ]
+    return try fields.compactMap { field, value in
+      try value.map { try EditOp.parse("\(field.rawValue)=\($0)") }
+    }
+  }
 }
 
 // MARK: - rm
