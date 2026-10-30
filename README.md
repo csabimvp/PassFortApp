@@ -177,12 +177,11 @@ The app and the CLI are built on a local Swift package, `PassFortKit`:
 | `PassFort` | Swift | The macOS app |
 
 The rule that shapes the design: keys stay in C++, and Swift can only ask the session to seal or
-open bytes. [`docs/architecture.md`](docs/architecture.md) is the full specification, and
-[`docs/adr/`](docs/adr/) records the reasoning behind each major decision. The sync contract is in
-[`SyncAPI/`](SyncAPI/).
+open bytes. [`docs/architecture.md`](docs/architecture.md) is the full specification, and the
+sync contract is in [`SyncAPI/`](SyncAPI/).
 
 The code was written by an AI coding agent ([Claude Code](https://claude.com/claude-code)) against
-the maintainer's specification and phased build plans ([`docs/runbooks/`](docs/runbooks/)).
+the maintainer's specification and phased build plans.
 
 ## Development
 
