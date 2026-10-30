@@ -3,7 +3,8 @@
 **Status:** Phase 0 and Phase 1 done. The spike ran in CI on 2026-10-26 (branch `m6-spike`, not
 merged; runs `40334650317` to `40343656728`) and in WSL2 on 2026-10-29 (0.7, all checks pass).
 Phase 1 landed 2026-10-26; Phase 2, the last of 0.8, and Phases 3, 4 and 5 on 2026-10-29;
-Phase 6, the milestone's checkpoint, on 2026-10-30. Phases 7 and 8 are left.
+Phase 6, the milestone's checkpoint, and Phases 7 and 8 on 2026-10-30. **M6 is done** apart
+from one by-hand check, deferred: Phase 7's Windows clipboard in WSL2.
 
 **Prerequisite:** M5 complete (it is). M6 doesn't depend on M7, and M7 doesn't depend on M6.
 
@@ -326,7 +327,8 @@ reverse. A wrong pin stops sync with `pinningFailed`.
 
 ## Phase 7 — The WSL2 clipboard (`copy` and `fill`)
 
-> **Built 2026-10-30; the by-hand check on Windows is still to run.** `WindowsClipboard` in
+> **Built 2026-10-30; the by-hand check on Windows is deferred** (the maintainer's call, the same
+> day: CI compiles it and passes `PassFortCLITests` on Linux, which is what the PR could show). `WindowsClipboard` in
 > `passfort-cli` (`WindowsClipboard.swift`) follows the route below: `powershell.exe -STA
 > -EncodedCommand`, the secret as base64 on stdin, a `DataObject` with the three formats, clear
 > by emptying, `explorer.exe` for the URL. `Clipboard` gained `noticesPastes`: false here, so
@@ -395,6 +397,13 @@ browser, pastes the username, then (after Enter) the password, and clears the cl
 shows in Win+V. Ctrl-C mid-sequence clears it.
 
 ## Phase 8 — Doc sweep
+
+> **Done 2026-10-30** (`architecture.md` rev 24). §11.2 now records what the port replaced and
+> how, §11.3 how the CLI is built, §11.5 and §13.1 the tests; the WSL2 clipboard is in §3.2 A5
+> and §3.4; §14.21 keeps (c) and (d) open; §15 drops M6 but for the Phase 7 check. §13.2 got the
+> `linux` job in rev 23. `development.md` has the Linux loop; `SECURITY.md` the Linux pinning, the
+> missing revocation check and memory locking; the README the CLI's requirements and *The CLI on
+> Linux and WSL2*. The `m6-spike` branch stays until the maintainer says to delete it.
 
 `architecture.md` (§11, §13.2, §14.21, Appendix A), `development.md` (the Linux loop),
 `SECURITY.md` (Linux pinning, the locking allocator), the README's requirements and a short "CLI on

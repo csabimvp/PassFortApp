@@ -26,13 +26,14 @@ only for running `scripts/build_botan.sh`.
 | Touched a boundary function (`pf_*`) | also the sanitizer build (below) |
 | Edited the app (`PassFort/`) | `xcodebuild test -scheme PassFort -destination 'platform=macOS'` |
 | Edited `SyncAPI/` or `Sources/PassFortVault/Sync/` | `swift test --filter SyncDTOTests` (in `Packages/PassFortKit/`), then the server's suite (below) |
+| Edited `Sources/CLinuxTLS/`, or code under `#if os(Linux)` | the Linux loop (below) in WSL2, or open a PR: the Mac never compiles it, only the `linux` CI job does |
 | Before a commit | everything above that the change touches, plus the format checks |
 
 ## Swift package
 
 ```bash
 cd Packages/PassFortKit && swift build      # all targets, including the C++ core
-cd Packages/PassFortKit && swift test       # PFCryptoBoundaryTests + PassFortVaultTests
+cd Packages/PassFortKit && swift test       # PFCryptoBoundaryTests, PassFortVaultTests, PassFortCLITests
 swift test --filter PFCryptoBoundaryTests   # one suite, from inside Packages/PassFortKit/
 ```
 
@@ -65,6 +66,26 @@ cmake -S native-tests -B native-tests/build-san \
 cmake --build native-tests/build-san
 ctest --test-dir native-tests/build-san --output-on-failure
 ```
+
+## Linux and WSL2
+
+The package builds and passes on Ubuntu x86_64, natively or in WSL2 (`m6-portable-cli.md`). CI's
+`linux` job runs it in `swift:6.3.3-noble`. Install Swift 6.3.3 with `swiftly` and the libraries
+as in the README (*The CLI on Linux and WSL2*), plus `cmake` for the native tests:
+
+```bash
+cd Packages/PassFortKit && swift build && swift test
+swift test --sanitize=address \
+  --filter 'CurlTransportTests|LinuxPinningTests|PinSetTests|OneTimeCodeTests'   # CLinuxTLS under ASan
+cmake -S native-tests -B native-tests/build -DCMAKE_CXX_COMPILER=clang++        # from the repo root
+cmake --build native-tests/build && ctest --test-dir native-tests/build --output-on-failure
+```
+
+`CLinuxTLS`, `CurlTransport`, `WindowsClipboard` and the Linux-only tests (`LinuxPinningTests`,
+`CurlTransportTests`) compile only here; the Apple-only ones (`PinningTests`,
+`URLSessionTransportTests`) only on the Mac. In WSL2, keep the clone and any vault under `~`, not
+`/mnt/c`. The ASan run reads its LeakSanitizer suppressions from `.github/lsan-suppressions.txt`
+in CI (`LSAN_OPTIONS=suppressions=…`); only XCTest's runner is suppressed.
 
 ## The app
 
@@ -111,8 +132,8 @@ passfort-cli add      <vault> --title T [--username U] [--prompt-password] [--ur
 passfort-cli list     <vault> [--search Q] [--all]          # summary index, no secrets
 passfort-cli get      <vault> <id|title> [--json]           # one account, secrets to stdout
 passfort-cli code     <vault> <id|title>                    # the account's current one-time code
-passfort-cli copy     <vault> <id|title> [--username|--code] # to the clipboard until pasted (macOS)
-passfort-cli fill     <vault> <id|title> [--no-open]        # open the site; username, then password, one per paste (macOS)
+passfort-cli copy     <vault> <id|title> [--username|--code] # to the clipboard until pasted (macOS, WSL2)
+passfort-cli fill     <vault> <id|title> [--no-open]        # open the site; username, then password, one per paste (macOS; WSL2: Enter between)
 passfort-cli history  <vault> <id|title> [--passwords]      # the account's version timeline
 passfort-cli edit     <vault> <id|title> --set password=… [--add-url U] [--prompt-password]
 passfort-cli rm       <vault> <id|title>                    # tombstone

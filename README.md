@@ -8,7 +8,8 @@
 [![CI](https://github.com/csabimvp/PassFortApp/actions/workflows/ci.yml/badge.svg)](https://github.com/csabimvp/PassFortApp/actions/workflows/ci.yml)
 
 A local-first password manager for macOS. Your vault is one encrypted file on your Mac, and the
-app works without an account or a network connection.
+app works without an account or a network connection. A command-line client opens the same vault
+on Linux, and on Windows through WSL2.
 
 Status: personal project, in active development. There is no packaged release yet, so you build
 and install the app from source. Sync between devices works, but it needs a PassFort sync server,
@@ -32,13 +33,22 @@ and the one the maintainer runs isn't public.
 - A recovery key for a forgotten master password, and Recently Deleted for removed accounts.
 - Optional end-to-end encrypted sync between devices. Each device keeps a complete vault and works
   offline, and edits made on two devices at once are kept as a conflict copy, never dropped.
-- `passfort-cli`, a command-line client for the same vault format.
+- `passfort-cli`, a command-line client for the same vault format, with sync. It runs on macOS
+  and on Linux, including WSL2 on Windows.
 
 ## Requirements
+
+The app:
 
 - macOS 26.5 or later on Apple silicon
 - Xcode 26.6
 - An Apple ID signed in to Xcode (a free one is enough) to sign the build
+
+The CLI on Linux:
+
+- Ubuntu 22.04 or 24.04 on x86_64, natively or in WSL2
+- Swift 6.3.3, installed with [swiftly](https://www.swift.org/install/linux/)
+- `libsqlite3-dev`, `libcurl4-openssl-dev` and `libssl-dev`
 
 ## Installation
 
@@ -67,6 +77,40 @@ and the one the maintainer runs isn't public.
    Replace `ABCDE12345` with your team ID. To update later, `git pull` and run the same command.
    Your vault lives in the app's sandbox container, so reinstalling doesn't touch it.
 
+### The CLI on Linux and WSL2
+
+The CLI is built on the machine it runs on. In WSL2, keep the clone and the vault in the Linux
+filesystem (under `~`), not under `/mnt/c`.
+
+1. Install Swift 6.3.3 and the libraries:
+
+   ```bash
+   curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz
+   tar zxf swiftly-$(uname -m).tar.gz && ./swiftly init --quiet-shell-followup
+   . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
+   swiftly install 6.3.3 && swiftly use 6.3.3
+   sudo apt-get install -y libsqlite3-dev libcurl4-openssl-dev libssl-dev
+   ```
+
+2. Clone and build:
+
+   ```bash
+   git clone https://github.com/csabimvp/PassFortApp.git ~/PassFortApp
+   cd ~/PassFortApp/Packages/PassFortKit && swift build -c release --product passfort-cli
+   ```
+
+   The binary is `.build/release/passfort-cli`.
+
+3. To sync, put the server's pins in `~/.config/passfort/pins`, one base64 SHA-256 per line, then
+   join with the vault id from the app's Add a Device…:
+
+   ```bash
+   passfort-cli sync join ~/passfort/vault.sqlite --endpoint https://<site>/api/v1 --vault-id <id>
+   ```
+
+`copy` and `fill` use the Windows clipboard in WSL2: press Enter after each paste. On Linux outside
+WSL2 there is no clipboard support, so use `get`.
+
 ## Usage
 
 On first launch, create a vault and choose a master password. The app then shows a recovery key
@@ -92,7 +136,7 @@ cd Packages/PassFortKit
 swift run passfort-cli init  vault.sqlite
 swift run passfort-cli add   vault.sqlite --title github --username me --prompt-password
 swift run passfort-cli get   vault.sqlite github
-swift run passfort-cli fill  vault.sqlite github   # macOS: opens the site, username then password per paste
+swift run passfort-cli fill  vault.sqlite github   # opens the site; username, then password
 ```
 
 Every command is listed in [`docs/development.md`](docs/development.md#the-cli).
@@ -120,6 +164,7 @@ The app is a SwiftUI shell over a local Swift package, `PassFortKit`:
 | `PFCrypto` | C++ (Botan 3) | Holds every key and never hands one out: key derivation, record sealing, the vault header, the manifest MAC |
 | `PassFortCrypto` | Swift | The only module that talks to C++; wraps it in an `actor VaultSession` |
 | `PassFortVault` | Swift | Storage in SQLite (GRDB), the data model, migrations, import and export, the sync client |
+| `CLinuxTLS` | C | Linux only: sync's pinned TLS through libcurl and OpenSSL, and SHA-256 and HMAC |
 | `PassFort` | Swift | The macOS app |
 
 The rule that shapes the design: keys stay in C++, and Swift can only ask the session to seal or

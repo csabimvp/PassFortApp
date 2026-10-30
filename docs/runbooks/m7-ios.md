@@ -2,7 +2,7 @@
 
 **Status:** Sketch, written ahead of the normal cadence (2026-10-21, on request). **Nothing is built.**
 M5 is done (2026-10-25), so its prerequisite is met and the sync client Phase 0.2 / 0.3 wait on
-exists; M6 (the portable CLI) is in progress, and M7 doesn't need it. Only Phase 0 is safe to act on as written.
+exists; M6 (the portable CLI) is done, and M7 never needed it. Only Phase 0 is safe to act on as written.
 Everything past Phase 0 is a plan to *validate against the spikes*, not a set of steps to follow
 blind. Treat every "Checkpoint" and command below as provisional until Phase 0 has run. Phase 5's
 note records how M5's join flow shipped.
