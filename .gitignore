@@ -38,3 +38,7 @@ UI/mockups/
 # Claude — local-only by choice
 .claude
 CLAUDE.md
+
+# Runbooks and ADRs — kept locally, not published
+docs/runbooks/
+docs/adr/
