@@ -12,7 +12,7 @@ app works without an account or a network connection. A command-line client open
 on Linux, and on Windows through WSL2.
 
 Status: personal project, in active development. There is no packaged release yet, so you build
-and install the app from source. Sync between devices works, but it needs a PassFort sync server,
+the app and the CLI from source. Sync between devices works, but it needs a PassFort sync server,
 and the one the maintainer runs isn't public.
 
 ## Features
@@ -77,6 +77,12 @@ The CLI on Linux:
    Replace `ABCDE12345` with your team ID. To update later, `git pull` and run the same command.
    Your vault lives in the app's sandbox container, so reinstalling doesn't touch it.
 
+4. Optionally, build the CLI. The binary is `.build/release/passfort-cli`.
+
+   ```bash
+   cd Packages/PassFortKit && swift build -c release --product passfort-cli
+   ```
+
 ### The CLI on Linux and WSL2
 
 The CLI is built on the machine it runs on. In WSL2, keep the clone and the vault in the Linux
@@ -125,11 +131,13 @@ password.
 - **Sync.** In Settings ▸ Sync, enter the server address (`https://<site>/api/v1`) and its
   enrollment secret to put the open vault on the server. On another Mac, choose Join a Synced
   Vault (on the first screen, or the File menu) and paste the invite from Add a Device…. Then
-  unlock with the same master password. The CLI does the same with `passfort-cli sync`.
+  unlock with the same master password. A Linux or WSL2 machine joins with `passfort-cli sync join`
+  (see [The CLI on Linux and WSL2](#the-cli-on-linux-and-wsl2)), and `passfort-cli sync now` brings
+  it up to date.
 - **Leaving.** `passfort-cli export` writes a whole vault as plaintext JSON after you type a
   confirmation phrase. Delete the file once you've imported it elsewhere.
 
-The CLI works on the same vault format:
+The CLI works on the same vault format. On Linux, run the built binary instead of `swift run`:
 
 ```bash
 cd Packages/PassFortKit
@@ -147,9 +155,9 @@ Everything in the vault is encrypted, including titles, usernames and URLs. The 
 master password through Argon2id, and each record is sealed with XChaCha20-Poly1305. A manifest MAC
 detects records that were deleted or swapped and a vault file that was rolled back. Sync is
 end-to-end encrypted and treats the server as hostile. The server stores only sealed records and a
-hash of a key it can't use, and the app pins the server's certificate authority. A hostile server
-can still withhold or delay changes from your other devices. It can't read, alter or roll them
-back unnoticed.
+hash of a key it can't use. The app and the CLI pin the server's certificate authority, on Linux
+through libcurl and OpenSSL. A hostile server can still withhold or delay changes from your other
+devices. It can't read, alter or roll them back unnoticed.
 
 PassFort has not been independently audited. The threat model, including what it does not defend
 against, is in [`docs/architecture.md` §3](docs/architecture.md#3-threat-model). To report a
@@ -157,7 +165,7 @@ vulnerability, see [`SECURITY.md`](SECURITY.md).
 
 ## Architecture
 
-The app is a SwiftUI shell over a local Swift package, `PassFortKit`:
+The app and the CLI are built on a local Swift package, `PassFortKit`:
 
 | Module | Language | Role |
 |---|---|---|
@@ -165,6 +173,7 @@ The app is a SwiftUI shell over a local Swift package, `PassFortKit`:
 | `PassFortCrypto` | Swift | The only module that talks to C++; wraps it in an `actor VaultSession` |
 | `PassFortVault` | Swift | Storage in SQLite (GRDB), the data model, migrations, import and export, the sync client |
 | `CLinuxTLS` | C | Linux only: sync's pinned TLS through libcurl and OpenSSL, and SHA-256 and HMAC |
+| `passfort-cli` | Swift | The command-line client, on macOS and Linux |
 | `PassFort` | Swift | The macOS app |
 
 The rule that shapes the design: keys stay in C++, and Swift can only ask the session to seal or
@@ -185,8 +194,11 @@ cd Packages/PassFortKit && swift build && swift test
 xcodebuild test -scheme PassFort -destination 'platform=macOS'
 ```
 
+On Linux the package builds and tests the same way; the app needs a Mac.
+
 ## License
 
 MIT, see [`LICENSE`](LICENSE). Bundled third-party code keeps its own license: Botan (BSD-2-Clause,
-`Packages/PassFortKit/Sources/PFCrypto/vendor/botan/macos-arm64/license.txt`) and the EFF large wordlist
-(CC BY 3.0 US). GRDB (MIT) and swift-argument-parser (Apache-2.0) are fetched by SwiftPM.
+a `license.txt` per platform under `Packages/PassFortKit/Sources/PFCrypto/vendor/botan/`) and the
+EFF large wordlist (CC BY 3.0 US). GRDB (MIT) and swift-argument-parser (Apache-2.0) are fetched by
+SwiftPM. On Linux the CLI links the system's libcurl and OpenSSL.
