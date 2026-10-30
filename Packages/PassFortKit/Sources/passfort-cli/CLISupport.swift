@@ -91,7 +91,7 @@ enum VaultCLI {
         saw \(highWater). A restored backup and an attacker rolling the file back look the \
         same from inside the file. If you deliberately restored a backup, run:
 
-            passfort-cli verify \(path) --accept-restore
+            passfort-cli verify --vault \(path) --accept-restore
         """
     }
   }

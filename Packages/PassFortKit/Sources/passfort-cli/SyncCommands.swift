@@ -34,7 +34,7 @@ struct SyncEnable: AsyncParsableCommand {
     commandName: "enable",
     abstract: "Put this vault on a sync server and upload every record. Prints the vault id.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Option(help: "The API root, e.g. https://<site>.azurestaticapps.net/api/v1.") var endpoint:
     String
   @Option(help: "The server's enrollment secret (prompted for if omitted -- keeps it out of `ps`).")
@@ -42,6 +42,7 @@ struct SyncEnable: AsyncParsableCommand {
   @OptionGroup var pinOptions: PinOptions
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let endpoint = try parseURL(self.endpoint)
     let api = try SyncCLI.api(endpoint, pins: pinOptions.pins)  // refused before any prompt
     let repo = try await VaultCLI.open(vault)
@@ -74,8 +75,10 @@ struct SyncJoin: AsyncParsableCommand {
     commandName: "join",
     abstract: "Create a vault file from a synced vault and download every record.")
 
-  @Argument(help: "Path for the new vault file (must not exist).") var vault: String
+  @Argument(help: "Path for the new vault file (must not exist).", completion: .file())
+  var vault: String
   @Option(help: "The API root the vault syncs through.") var endpoint: String
+  @Option(help: "Remember the new vault under this name (as `init --name`).") var name: String?
   @Option(help: "The vault id `sync enable` printed.") var vaultId: String
   @OptionGroup var pinOptions: PinOptions
 
@@ -85,6 +88,8 @@ struct SyncJoin: AsyncParsableCommand {
       throw CLIError("not a vault id: \(vaultId)")
     }
     let api = try SyncCLI.api(endpoint, pins: pinOptions.pins)
+    var config = try CLIConfig.load()
+    if let name { try config.checkAvailable(name) }
     guard !FileManager.default.fileExists(atPath: vault) else {
       throw CLIError("\(vault) already exists -- join into a new file")
     }
@@ -101,6 +106,10 @@ struct SyncJoin: AsyncParsableCommand {
       throw CLIError("AuthFailed -- wrong password, or the server's header is not genuine")
     }
     print("joined \(SyncCLI.id(vaultID)) into \(vault)")
+    let before = config
+    let registered = config.registerNew(at: vault, as: name)
+    if config != before { try config.save() }
+    print(registered)
     try await SyncCLI.runAndReport(try SyncCLI.engine(repo, api))
   }
 }
@@ -111,10 +120,11 @@ struct SyncNow: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "now", abstract: "Pull, reconcile and push once.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @OptionGroup var pinOptions: PinOptions
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let (repo, state) = try await SyncCLI.openSynced(vault)
     let api = try SyncCLI.api(state.endpoint, pins: pinOptions.pins)
     try await SyncCLI.runAndReport(try SyncCLI.engine(repo, api))
@@ -127,9 +137,10 @@ struct SyncStatus: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "status", abstract: "Where this vault syncs and how far it has got. No network.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let (_, state) = try await SyncCLI.openSynced(vault)
     let device = try CLIDevice.identity()
     var header = state.headerVersion.map { "version \($0)" } ?? "never pushed"
@@ -158,12 +169,13 @@ struct SyncDevices: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "devices", abstract: "List the devices syncing this vault, or remove one.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Option(help: "Remove this device id. If it syncs again it resyncs from scratch.")
   var remove: String?
   @OptionGroup var pinOptions: PinOptions
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let (repo, state) = try await SyncCLI.openSynced(vault)
     let engine = try SyncCLI.engine(repo, try SyncCLI.api(state.endpoint, pins: pinOptions.pins))
     if let remove {
@@ -194,13 +206,14 @@ struct SyncDisable: AsyncParsableCommand {
     commandName: "disable",
     abstract: "Stop syncing this vault. Its records stay; the server copy stays unless deleted.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Flag(help: "Also delete the server copy -- every device's synced data on the server.")
   var deleteServerCopy = false
   @Flag(name: .shortAndLong, help: "Skip the confirmation prompt.") var yes = false
   @OptionGroup var pinOptions: PinOptions
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let (repo, state) = try await SyncCLI.openSynced(vault)
     if deleteServerCopy {
       if !yes {

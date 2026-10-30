@@ -21,12 +21,13 @@ struct Copy: AsyncParsableCommand {
     case password, username, code
   }
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Argument(help: "Account id (UUID) or title.") var account: String
   @Flag(help: "Which field to copy.") var field: Field = .password
   @OptionGroup var clipboard: ClipboardOptions
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let payload = try await clipboard.payload(of: account, in: vault)
     let value: String?
     switch field {
@@ -58,12 +59,13 @@ struct Fill: AsyncParsableCommand {
       --clear-after seconds unpasted, or on Ctrl-C. \(windowsNote)
       """)
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Argument(help: "Account id (UUID) or title.") var account: String
   @Flag(help: "Don't open the website, only fill the clipboard.") var noOpen = false
   @OptionGroup var clipboard: ClipboardOptions
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let payload = try await clipboard.payload(of: account, in: vault)
     let steps = [("username", payload.username ?? payload.email), ("password", payload.password)]
       .compactMap { label, value in value.flatMap { $0.isEmpty ? nil : (label, $0) } }
