@@ -2,8 +2,8 @@
 
 **Status:** Phase 0 and Phase 1 done. The spike ran in CI on 2026-10-26 (branch `m6-spike`, not
 merged; runs `40334650317` to `40343656728`) and in WSL2 on 2026-10-29 (0.7, all checks pass).
-Phase 1 landed 2026-10-26; Phase 2, the last of 0.8, and Phases 3, 4 and 5 on 2026-10-29.
-Phase 6, the WSL2 checkpoint, is next. Phases 6–8 are a plan built from the spike's results.
+Phase 1 landed 2026-10-26; Phase 2, the last of 0.8, and Phases 3, 4 and 5 on 2026-10-29;
+Phase 6, the milestone's checkpoint, on 2026-10-30. Phases 7 and 8 are left.
 
 **Prerequisite:** M5 complete (it is). M6 doesn't depend on M7, and M7 doesn't depend on M6.
 
@@ -308,6 +308,14 @@ The package suites and `native` on `ubuntu-24.04` in `swift:6.3.3-noble` (§13.2
 libcrypto choice holds.
 
 ## Phase 6 — The WSL2 checkpoint
+
+> **Done 2026-10-30** (the maintainer's run on the Windows PC). Swift 6.3.3 via swiftly on
+> Ubuntu 22.04 in WSL2: `swift build` and `swift test` pass. The release CLI joined the real vault
+> from `rg-passfort-dev` through the Mac's pin file (the Microsoft TLS RSA Root G2 and its
+> issuing CA), with the vault under `~`. It pulled every account and shows up in the device list.
+> A throwaway `m6-drill` account went both ways: an edit made in the Mac app reached the CLI
+> after `sync now`, and an edit made with the CLI reached the app. A pin file holding one bogus
+> hash stopped sync. This is the first real pinned handshake through `CLinuxTLS`.
 
 On the Windows PC, in WSL2: build, `swift test`, then join the real vault from
 `rg-passfort-dev` with the CLI and pins, and run the two-device drill with the Mac app as the other
