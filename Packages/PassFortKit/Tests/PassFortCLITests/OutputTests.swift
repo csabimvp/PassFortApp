@@ -96,6 +96,51 @@ import Testing
     #expect(card.contains("  notes     line one\n            line two\n"))
   }
 
+  @Test func fieldBlocksAlignAcrossBlocksAndSkipWhatIsEmpty() {
+    let text = fieldBlocks(
+      [[("a", "1"), ("skipped", nil), ("empty", "")], [("longer", "x\ny")], [("gone", nil)]],
+      style: .plain)
+    #expect(text == "\n  a       1\n\n  longer  x\n          y\n")
+  }
+
+  // MARK: history
+
+  @Test func oldPasswordsAreHiddenUnlessAsked() {
+    var account = account()
+    account.payload.revisionHistory = [
+      RevisionEntry(version: 3, at: .now, changed: ["password"]),
+      RevisionEntry(version: 2, at: .now, changed: ["email", "notes"]),
+    ]
+    account.payload.passwordHistory = [PasswordHistoryEntry(password: "old-one", replacedAt: .now)]
+
+    let hidden = historyView(account, passwords: false, style: .plain)
+    #expect(hidden.hasPrefix("GitHub  \(account.id.uuidString), v3\n\n  v3  "))
+    #expect(hidden.contains("  email, notes\n"))
+    #expect(!hidden.contains("old-one") && hidden.contains("old passwords hidden"))
+
+    let shown = historyView(account, passwords: true, style: .plain)
+    #expect(shown.contains("  old-one\n") && !shown.contains("old passwords hidden"))
+    #expect(Self.stripped(historyView(account, passwords: true, style: Self.styled)) == shown)
+  }
+
+  // MARK: audit
+
+  @Test func auditListsEachFindingWithItsAccount() {
+    let id = UUID()
+    let findings = [
+      AuditFinding(kind: .weak(score: 1), account: id),
+      AuditFinding(kind: .insecureURL, account: UUID()),
+    ]
+    let plain = auditTable(findings, titles: [id: "GitHub"], style: .plain)
+    let lines = plain.split(separator: "\n")
+    #expect(lines.first == "FINDING            ACCOUNT")
+    #expect(lines.dropFirst().first == "weak (score 1/4)   GitHub")
+    #expect(lines.last == "2 findings")
+    #expect(
+      Self.stripped(auditTable(findings, titles: [id: "GitHub"], style: Self.styled)) == plain)
+    #expect(auditTable([], titles: [:], style: .plain).hasPrefix("no findings"))
+  }
+
   @Test func styledCardIsThePlainOneWithCodes() {
     let account = account()
     let plain = accountCard(account, reveal: false, style: .plain)

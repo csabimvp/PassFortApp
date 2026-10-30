@@ -340,32 +340,7 @@ struct History: AsyncParsableCommand {
     guard let account = try await repo.account(id: id) else {
       throw CLIError("no account with id \(id.uuidString)")
     }
-    let payload = account.payload
-    let iso = ISO8601DateFormatter()
-
-    let deleted = account.isDeleted ? ", tombstoned" : ""
-    print("\(payload.title)  (\(account.id.uuidString), currently v\(account.version)\(deleted))")
-
-    if payload.revisionHistory.isEmpty {
-      print("  no recorded revisions")
-    } else {
-      for entry in payload.revisionHistory {
-        print(
-          "  v\(entry.version)  \(iso.string(from: entry.at))  "
-            + entry.changed.joined(separator: ", "))
-      }
-      if payload.revisionHistory.count >= VaultRepository.revisionHistoryLimit {
-        let cap = VaultRepository.revisionHistoryLimit
-        print("  (older revisions dropped -- the last \(cap) are kept)")
-      }
-    }
-
-    guard !payload.passwordHistory.isEmpty else { return }
-    print("\nprevious passwords (\(payload.passwordHistory.count)):")
-    for old in payload.passwordHistory {
-      let value = passwords ? old.password : "(hidden -- pass --passwords)"
-      print("  \(iso.string(from: old.replacedAt))  \(value)")
-    }
+    print(historyView(account, passwords: passwords, style: .stdout), terminator: "")
   }
 }
 
@@ -503,28 +478,7 @@ struct Audit: AsyncParsableCommand {
     let findings = try await repo.audit()
     let titles = Dictionary(
       uniqueKeysWithValues: try await repo.summaries().map { ($0.id, $0.title) })
-    guard !findings.isEmpty else {
-      print("no findings -- nothing weak, reused, old, expiring or on http://")
-      return
-    }
-    for finding in findings {
-      let title = titles[finding.account] ?? finding.account.uuidString
-      print(
-        "\(describe(finding.kind).padding(toLength: 34, withPad: " ", startingAt: 0))  \(title)")
-    }
-    print("\(findings.count) finding\(findings.count == 1 ? "" : "s")")
-  }
-
-  private func describe(_ kind: AuditFinding.Kind) -> String {
-    let day = Date.FormatStyle(date: .abbreviated, time: .omitted)
-    switch kind {
-    case .weak(let score): return "weak (score \(score)/4)"
-    case .reused(let count): return "reused (\(count) accounts)"
-    case .old(let since): return "old (unchanged since \(since.formatted(day)))"
-    case .expired(let on): return "expired \(on.formatted(day))"
-    case .expiringSoon(let on): return "expires \(on.formatted(day))"
-    case .insecureURL: return "http:// login URL"
-    }
+    print(auditTable(findings, titles: titles, style: .stdout), terminator: "")
   }
 }
 

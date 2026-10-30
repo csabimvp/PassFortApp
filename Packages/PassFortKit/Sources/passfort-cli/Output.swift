@@ -42,6 +42,38 @@ private func padded(_ text: String, to width: Int) -> String {
   text.count >= width ? text : text + String(repeating: " ", count: width - text.count)
 }
 
+/// A date as people read it: local time to the minute (or just the day), not ISO 8601.
+func displayDate(_ date: Date, time: Bool = true) -> String {
+  let formatter = DateFormatter()
+  formatter.locale = Locale(identifier: "en_US_POSIX")
+  formatter.dateFormat = time ? "yyyy-MM-dd HH:mm" : "yyyy-MM-dd"
+  return formatter.string(from: date)
+}
+
+/// Blocks of label / value rows, labels dim and aligned across every block, a blank line before
+/// each block. A row with no value is left out, and so is a block left empty. A multi-line value
+/// stays in the value column.
+func fieldBlocks(_ blocks: [[(String, String?)]], style: Style) -> String {
+  let present =
+    blocks
+    .map { $0.compactMap { label, value in value.flatMap { $0.isEmpty ? nil : (label, $0) } } }
+    .filter { !$0.isEmpty }
+  let width = (present.joined().map(\.0.count).max() ?? 0) + 2
+  var out = ""
+  for block in present {
+    out += "\n"
+    for (label, value) in block {
+      let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
+      out +=
+        "  " + style.dim(padded(label, to: width)) + (lines.first.map(String.init) ?? "") + "\n"
+      for line in lines.dropFirst() {
+        out += "  " + String(repeating: " ", count: width) + line + "\n"
+      }
+    }
+  }
+  return out
+}
+
 // MARK: - list
 
 /// `list`'s table: `rows` by title, each under its short id from `ids` (`shortIDs`). A column is
@@ -101,10 +133,6 @@ func accountCard(_ account: Account, reveal: Bool, style: Style, now: Date = .no
     hidden = true
     return "••••••••"
   }
-  let day = DateFormatter()
-  day.locale = Locale(identifier: "en_US_POSIX")
-  day.dateFormat = "yyyy-MM-dd HH:mm"
-
   var login: [(String, String?)] = [
     ("username", payload.username),
     ("password", secret(payload.password)),
@@ -132,15 +160,15 @@ func accountCard(_ account: Account, reveal: Bool, style: Style, now: Date = .no
     ("notes", payload.notes),
     ("category", payload.category.rawValue),
     ("tags", payload.tags.isEmpty ? nil : payload.tags.joined(separator: ", ")),
-    ("expires", payload.expiresAt.map(day.string)),
+    ("expires", payload.expiresAt.map { displayDate($0) }),
   ]
 
   var history: [(String, String?)] = [
     ("id", account.id.uuidString),
     ("version", String(account.version)),
-    ("created", day.string(from: payload.createdAt)),
-    ("updated", day.string(from: account.lastUpdated)),
-    ("pw changed", payload.passwordChangedAt.map(day.string)),
+    ("created", displayDate(payload.createdAt)),
+    ("updated", displayDate(account.lastUpdated)),
+    ("pw changed", payload.passwordChangedAt.map { displayDate($0) }),
   ]
   if let latest = payload.revisionHistory.first {
     history.append(
@@ -153,28 +181,90 @@ func accountCard(_ account: Account, reveal: Bool, style: Style, now: Date = .no
     history.append(("old passwords", "\(payload.passwordHistory.count) -- `history --passwords`"))
   }
 
-  let blocks = [login, details, history.map { ($0.0, $0.1.map(style.dim)) }]
-    .map { $0.compactMap { label, value in value.flatMap { $0.isEmpty ? nil : (label, $0) } } }
-    .filter { !$0.isEmpty }
-  let width = (blocks.joined().map(\.0.count).max() ?? 0) + 2
-
   var heading = style.bold(payload.title)
   if payload.favorite { heading += " " + style.yellow("★") }
   if account.isDeleted { heading += "  " + style.red("deleted") }
   var out = heading + "\n"
-  for block in blocks {
-    out += "\n"
-    for (label, value) in block {
-      let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
-      out +=
-        "  " + style.dim(padded(label, to: width)) + (lines.first.map(String.init) ?? "") + "\n"
-      for line in lines.dropFirst() {
-        out += "  " + String(repeating: " ", count: width) + line + "\n"
-      }
-    }
-  }
+  out += fieldBlocks([login, details, history.map { ($0.0, $0.1.map(style.dim)) }], style: style)
   if hidden {
     out += "\n" + style.dim("  secrets hidden -- `copy` the password, or pass --reveal") + "\n"
   }
   return out
+}
+
+// MARK: - history
+
+/// `history`'s view: the account, its revisions newest first, then its old passwords -- hidden
+/// unless `passwords`.
+func historyView(_ account: Account, passwords: Bool, style: Style) -> String {
+  let payload = account.payload
+  var heading =
+    style.bold(payload.title) + "  " + style.dim("\(account.id.uuidString), v\(account.version)")
+  if account.isDeleted { heading += "  " + style.red("deleted") }
+  var out = heading + "\n\n"
+
+  if payload.revisionHistory.isEmpty {
+    out += style.dim("  no recorded revisions") + "\n"
+  } else {
+    let width = payload.revisionHistory.map { "v\($0.version)".count }.max() ?? 0
+    for entry in payload.revisionHistory {
+      out += "  " + style.bold(padded("v\(entry.version)", to: width)) + "  "
+      out += style.dim(displayDate(entry.at)) + "  " + entry.changed.joined(separator: ", ") + "\n"
+    }
+    if payload.revisionHistory.count >= VaultRepository.revisionHistoryLimit {
+      let cap = VaultRepository.revisionHistoryLimit
+      out += style.dim("  (older revisions dropped -- the last \(cap) are kept)") + "\n"
+    }
+  }
+
+  guard !payload.passwordHistory.isEmpty else { return out }
+  out +=
+    "\n" + style.bold("Previous passwords") + " " + style.dim("(\(payload.passwordHistory.count))")
+    + "\n"
+  for old in payload.passwordHistory {
+    out += "  " + style.dim(displayDate(old.replacedAt)) + "  "
+    out += (passwords ? old.password : "••••••••") + "\n"
+  }
+  if !passwords {
+    out += "\n" + style.dim("  old passwords hidden -- pass --passwords") + "\n"
+  }
+  return out
+}
+
+// MARK: - audit
+
+/// `audit`'s table: each finding with its account, the serious ones (weak, reused, expired) in
+/// red and the rest in yellow.
+func auditTable(_ findings: [AuditFinding], titles: [UUID: String], style: Style) -> String {
+  guard !findings.isEmpty else {
+    return style.green("no findings -- nothing weak, reused, old, expiring or on http://") + "\n"
+  }
+  let described = findings.map { finding in
+    (describe(finding.kind), titles[finding.account] ?? finding.account.uuidString, finding.kind)
+  }
+  let width = max(described.map(\.0.count).max() ?? 0, "FINDING".count)
+  var out = style.bold(padded("FINDING", to: width) + "  ACCOUNT") + "\n"
+  for (text, title, kind) in described {
+    let cell = padded(text, to: width)
+    out += (isSerious(kind) ? style.red(cell) : style.yellow(cell)) + "  " + title + "\n"
+  }
+  return out + style.dim("\(findings.count) finding\(findings.count == 1 ? "" : "s")") + "\n"
+}
+
+private func isSerious(_ kind: AuditFinding.Kind) -> Bool {
+  switch kind {
+  case .weak, .reused, .expired: return true
+  case .old, .expiringSoon, .insecureURL: return false
+  }
+}
+
+private func describe(_ kind: AuditFinding.Kind) -> String {
+  switch kind {
+  case .weak(let score): return "weak (score \(score)/4)"
+  case .reused(let count): return "reused (\(count) accounts)"
+  case .old(let since): return "old (unchanged since \(displayDate(since, time: false)))"
+  case .expired(let on): return "expired \(displayDate(on, time: false))"
+  case .expiringSoon(let on): return "expires \(displayDate(on, time: false))"
+  case .insecureURL: return "http:// login URL"
+  }
 }

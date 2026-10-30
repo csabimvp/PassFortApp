@@ -171,8 +171,8 @@ passfort-cli sync join <path> --endpoint URL --vault-id ID [--name N]
 passfort-cli sync now | status | devices | disable
 ```
 
-At a terminal, `list`, `get` and `vault list` are lightly styled (bold headers, dim labels and
-ids); a pipe, a file, `NO_COLOR` or `TERM=dumb` gets the same text without escape codes. Scripts
+At a terminal, `list`, `get`, `history`, `audit`, `sync status` and `vault list` are lightly
+styled (bold headers, dim labels and ids); a pipe, a file, `NO_COLOR` or `TERM=dumb` gets the same text without escape codes. Scripts
 that need fields should read `get --json`, not the human layout.
 
 `passfort-cli <subcommand> --help` lists every option. `edit`'s options are `add`'s names, and `""`

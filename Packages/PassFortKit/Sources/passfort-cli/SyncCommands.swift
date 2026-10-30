@@ -143,23 +143,38 @@ struct SyncStatus: AsyncParsableCommand {
     let vault = try vaultOption.path()
     let (_, state) = try await SyncCLI.openSynced(vault)
     let device = try CLIDevice.identity()
-    var header = state.headerVersion.map { "version \($0)" } ?? "never pushed"
-    if state.headerDirty { header += " (changed here, not pushed yet)" }
+    let style = Style.stdout
+    var header = state.headerVersion.map { "version \($0)" } ?? style.dim("never pushed")
+    if state.headerDirty { header += " " + style.yellow("(changed here, not pushed yet)") }
     if let pending = state.pendingHeaderVersion {
-      header += "; version \(pending) from another device waits for the next unlock"
+      header +=
+        "\n" + style.yellow("version \(pending) from another device waits for the next unlock")
     }
-    let iso = ISO8601DateFormatter()
-    print(
-      """
-      endpoint   \(state.endpoint)
-      vault id   \(SyncCLI.id(state.vaultID))
-      device     \(device.name) (\(SyncCLI.id(device.id)))
-      enabled    \(iso.string(from: state.enabledAt))
-      cursor     \(state.cursor)\(state.cursor == 0 ? " (the next run is a full resync)" : "")
-      to push    \(state.dirtyCount) record\(state.dirtyCount == 1 ? "" : "s")
-      header     \(header)
-      last sync  \(state.lastSyncedAt.map { iso.string(from: $0) } ?? "never")
-      """)
+    let cursor =
+      state.cursor == 0
+      ? "0 " + style.yellow("(the next run is a full resync)") : String(state.cursor)
+    let toPush =
+      state.dirtyCount == 0
+      ? style.dim("nothing")
+      : style.yellow("\(state.dirtyCount) record\(state.dirtyCount == 1 ? "" : "s")")
+
+    print(style.bold("Sync") + "  " + style.dim(vault))
+    let rows = fieldBlocks(
+      [
+        [
+          ("endpoint", state.endpoint.absoluteString),
+          ("vault id", style.dim(SyncCLI.id(state.vaultID))),
+          ("device", "\(device.name) " + style.dim("(\(SyncCLI.id(device.id)))")),
+          ("enabled", displayDate(state.enabledAt)),
+        ],
+        [
+          ("last sync", state.lastSyncedAt.map { displayDate($0) } ?? style.dim("never")),
+          ("to push", toPush),
+          ("cursor", cursor),
+          ("header", header),
+        ],
+      ], style: style)
+    print(rows, terminator: "")
   }
 }
 
