@@ -13,7 +13,8 @@ struct Copy: AsyncParsableCommand {
     abstract: "Put an account's password (or username, or one-time code) on the clipboard.",
     discussion: """
       Nothing goes to stdout. The copy is hidden from clipboard managers and cleared once it is \
-      pasted, after --clear-after seconds, or on Ctrl-C. The command waits until then.
+      pasted, after --clear-after seconds, or on Ctrl-C. The command waits until then. \
+      \(windowsNote)
       """)
 
   enum Field: EnumerableFlag {
@@ -54,7 +55,7 @@ struct Fill: AsyncParsableCommand {
       Paste the username, move to the password field, paste again; the clipboard then clears. \
       Press Enter to move on without pasting. Nothing goes to stdout. Only http and https \
       addresses are opened. Each value is hidden from clipboard managers and cleared after \
-      --clear-after seconds unpasted, or on Ctrl-C.
+      --clear-after seconds unpasted, or on Ctrl-C. \(windowsNote)
       """)
 
   @Argument(help: "Path to the vault file.") var vault: String
@@ -72,6 +73,13 @@ struct Fill: AsyncParsableCommand {
     try await clipboard.run(steps, opening: noOpen ? nil : payload.website)
   }
 }
+
+/// The help text's WSL2 caveat (`WindowsClipboard`).
+private let windowsNote = """
+  In WSL2 the copy goes to the Windows clipboard, kept out of Win+V history and the cloud \
+  clipboard. A paste can't be seen there: press Enter to move on, and clearing empties the \
+  clipboard even if something else was copied since.
+  """
 
 // MARK: - The clipboard session
 
@@ -102,10 +110,16 @@ struct ClipboardOptions: ParsableArguments {
   private func makeClipboard() throws -> any Clipboard {
     #if canImport(AppKit)
       return MacClipboard(board: pasteboard.map { NSPasteboard(name: .init($0)) } ?? .general)
+    #elseif os(Linux)
+      guard pasteboard == nil else { throw CLIError("--pasteboard is macOS only") }
+      guard let windows = WindowsClipboard() else {
+        throw CLIError(
+          "copy and fill need the macOS clipboard, or the Windows one from WSL2 -- use `get` or `code`"
+        )
+      }
+      return windows
     #else
-      throw CLIError(
-        "copy and fill need the macOS clipboard for now (WSL2: m6-portable-cli.md Phase 7) "
-          + "-- use `get` or `code`")
+      throw CLIError("copy and fill need the macOS clipboard -- use `get` or `code`")
     #endif
   }
 
@@ -125,9 +139,16 @@ struct ClipboardOptions: ParsableArguments {
     watchEnter(input)
 
     for (index, step) in steps.enumerated() {
-      board.offer(step.value) { input.yield(.pasted(index)) }
-      let next = index + 1 < steps.count ? "; Enter skips to the \(steps[index + 1].label)" : ""
-      note("\(step.label.prefix(1).uppercased())\(step.label.dropFirst()) ready -- paste it\(next)")
+      do {
+        try board.offer(step.value) { input.yield(.pasted(index)) }
+      } catch {
+        board.clear()
+        throw error
+      }
+      let following = index + 1 < steps.count ? steps[index + 1].label : nil
+      note(
+        "\(step.label.prefix(1).uppercased())\(step.label.dropFirst()) ready -- paste it"
+          + Self.prompt(following: following, noticesPastes: board.noticesPastes))
       let timeout = Task {
         try? await Task.sleep(for: .seconds(clearAfter))
         if !Task.isCancelled { input.yield(.timeout(index)) }
@@ -158,6 +179,17 @@ struct ClipboardOptions: ParsableArguments {
     }
     board.clear()
     note("Clipboard cleared.")
+  }
+
+  /// The rest of the "ready -- paste it" line: where Enter goes. A clipboard that sees pastes moves
+  /// on by itself, so Enter only skips; one that can't needs Enter after each paste.
+  static func prompt(following label: String?, noticesPastes: Bool) -> String {
+    switch (label, noticesPastes) {
+    case (let label?, true): "; Enter skips to the \(label)"
+    case (let label?, false): ", then press Enter for the \(label)"
+    case (nil, true): ""
+    case (nil, false): ", then press Enter to clear it"
+    }
   }
 }
 
@@ -199,6 +231,9 @@ private func note(_ message: String) {
 private func openInBrowser(_ url: URL) throws {
   #if canImport(AppKit)
     guard NSWorkspace.shared.open(url) else { throw CLIError("couldn't open \(url)") }
+  #elseif os(Linux)
+    guard WSL.isRunning else { throw CLIError("can't open a browser here -- pass --no-open") }
+    try WSL.open(url)
   #else
     throw CLIError("can't open a browser here -- pass --no-open")
   #endif
@@ -210,9 +245,11 @@ private func openInBrowser(_ url: URL) throws {
 /// (`m6-portable-cli.md` Phase 7).
 @MainActor
 protocol Clipboard {
+  /// Whether `offer`'s `pasted` is ever called. If not, Enter is the only way on.
+  var noticesPastes: Bool { get }
   /// Put `value` there, hidden from clipboard managers, and call `pasted` when an app pastes it
   /// -- if this clipboard can tell. Replaces whatever was offered before.
-  func offer(_ value: String, pasted: @escaping @Sendable () -> Void)
+  func offer(_ value: String, pasted: @escaping @Sendable () -> Void) throws
   /// Remove the last offer, if it is still what's on the clipboard.
   func clear()
 }
@@ -225,6 +262,7 @@ protocol Clipboard {
     private static let concealedType = NSPasteboard.PasteboardType(
       "org.nspasteboard.ConcealedType")
 
+    let noticesPastes = true
     private let board: NSPasteboard
     private var value: String?
     private var pasted: (@Sendable () -> Void)?

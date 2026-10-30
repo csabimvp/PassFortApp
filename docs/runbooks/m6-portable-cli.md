@@ -326,6 +326,17 @@ reverse. A wrong pin stops sync with `pinningFailed`.
 
 ## Phase 7 — The WSL2 clipboard (`copy` and `fill`)
 
+> **Built 2026-10-30; the by-hand check on Windows is still to run.** `WindowsClipboard` in
+> `passfort-cli` (`WindowsClipboard.swift`) follows the route below: `powershell.exe -STA
+> -EncodedCommand`, the secret as base64 on stdin, a `DataObject` with the three formats, clear
+> by emptying, `explorer.exe` for the URL. `Clipboard` gained `noticesPastes`: false here, so
+> `fill` says "paste it, then press Enter" instead of moving on by itself, and `offer` can now
+> throw (a PowerShell write can fail). The help text says so. Built before the spike rather than
+> after it: the spike's three checks and this phase's checkpoint run together, in one session on
+> the PC, against the real backend. If check 2 fails, the stderr warning below goes in then.
+> Tests: `PassFortCLITests` (a new test target over the executable) check argv, stdin framing,
+> the scripts and the prompts on every platform.
+
 **Depends on:** `passfort-cli copy` and `fill` already built on macOS, against a `Clipboard`
 protocol in `passfort-cli` with the `NSPasteboard` backend (concealed type, cleared after the
 delay, on Ctrl-C, and only if the clipboard is still ours). This phase adds the second backend; the
