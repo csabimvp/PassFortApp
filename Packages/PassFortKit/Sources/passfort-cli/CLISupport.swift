@@ -91,15 +91,16 @@ enum VaultCLI {
         saw \(highWater). A restored backup and an attacker rolling the file back look the \
         same from inside the file. If you deliberately restored a backup, run:
 
-            passfort-cli verify \(path) --accept-restore
+            passfort-cli verify --vault \(path) --accept-restore
         """
     }
   }
 }
 
-/// Resolve an account reference -- a UUID string, or a (case-insensitive) title,
-/// exact match first then a unique substring -- to its id. Titles match live
-/// accounts, or only deleted ones with `deleted`.
+// MARK: - Naming an account
+
+/// Resolve an account reference to its id (`matchAccount`). Titles and id prefixes match live
+/// accounts, or only deleted ones with `deleted`. Several matches go to `AccountPicker`.
 func resolveAccountID(
   _ reference: String, in repo: VaultRepository, deleted: Bool = false
 ) async throws -> UUID {
@@ -107,18 +108,91 @@ func resolveAccountID(
 
   // Live accounts, or only the deleted ones when `deleted` is set (for `undelete`).
   let pool = try await repo.summaries().filter { $0.isDeleted == deleted }
+  switch matchAccount(reference, in: pool) {
+  case .one(let id): return id
+  case .none: throw CLIError("no account matches \"\(reference)\"")
+  case .several(let rows): return try AccountPicker.choose(from: rows, for: reference)
+  }
+}
+
+enum AccountMatch: Equatable {
+  case one(UUID)
+  case none
+  case several([AccountSummary])
+}
+
+/// What `reference` names in `pool`: a full id; else a title, an exact (case-insensitive) match
+/// first; else every account whose title contains it or whose id starts with it. An id prefix
+/// needs at least `minimumIDPrefix` hex digits, so a short word isn't read as one.
+func matchAccount(_ reference: String, in pool: [AccountSummary]) -> AccountMatch {
+  if let uuid = UUID(uuidString: reference) { return .one(uuid) }
+
   let exact = pool.filter { $0.title.caseInsensitiveCompare(reference) == .orderedSame }
-  if exact.count == 1 { return exact[0].id }
-  if exact.count > 1 {
-    throw CLIError("\(exact.count) accounts are titled \"\(reference)\" -- pass the id instead")
+  if exact.count == 1 { return .one(exact[0].id) }
+  if exact.count > 1 { return .several(exact) }
+
+  let hex = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+  let idPrefix =
+    reference.count >= minimumIDPrefix && reference.unicodeScalars.allSatisfy(hex.contains)
+    ? reference.lowercased() : nil
+  let partial = pool.filter { row in
+    row.title.range(of: reference, options: .caseInsensitive) != nil
+      || idPrefix.map { row.id.uuidString.lowercased().hasPrefix($0) } ?? false
+  }
+  switch partial.count {
+  case 0: return .none
+  case 1: return .one(partial[0].id)
+  default: return .several(partial)
+  }
+}
+
+let minimumIDPrefix = 4
+
+/// The shortest id prefixes, at least 8 characters, that still tell `ids` apart -- what `list`
+/// prints, lowercase, and what a reference may use instead of the whole id.
+func shortIDs(_ ids: [UUID]) -> [UUID: String] {
+  let full = Dictionary(ids.map { ($0, $0.uuidString.lowercased()) }) { first, _ in first }
+  var width = 8
+  while width < 36, Set(full.values.map { $0.prefix(width) }).count < full.count {
+    width += 1
+  }
+  return full.mapValues { String($0.prefix(width)) }
+}
+
+/// A reference that matches several accounts. At a terminal, offer them as a numbered list;
+/// otherwise (a pipe, a script) fail and say how to narrow it.
+enum AccountPicker {
+  /// More than this and the reference is too vague to be worth a menu.
+  static let limit = 20
+
+  static func choose(from rows: [AccountSummary], for reference: String) throws -> UUID {
+    let rows = rows.sorted {
+      $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+    }
+    guard isatty(STDIN_FILENO) == 1, isatty(STDERR_FILENO) == 1, rows.count <= limit else {
+      throw CLIError(
+        "\"\(reference)\" matches \(rows.count) accounts -- narrow it, or use the id from `list`")
+    }
+    FileHandle.standardError.write(Data(menu(rows, for: reference).utf8))
+    guard let line = readLine(strippingNewline: true),
+      let choice = Int(line.trimmingCharacters(in: .whitespaces)),
+      rows.indices.contains(choice - 1)
+    else {
+      throw CLIError("no account chosen")
+    }
+    return rows[choice - 1].id
   }
 
-  let partial = pool.filter { $0.title.range(of: reference, options: .caseInsensitive) != nil }
-  switch partial.count {
-  case 1: return partial[0].id
-  case 0: throw CLIError("no account matches \"\(reference)\"")
-  default:
-    throw CLIError("\"\(reference)\" matches \(partial.count) accounts -- narrow it or pass the id")
+  /// The numbered list and the question, for rows already in display order.
+  static func menu(_ rows: [AccountSummary], for reference: String) -> String {
+    let ids = shortIDs(rows.map(\.id))
+    var text = "\"\(reference)\" matches \(rows.count) accounts:\n"
+    for (index, row) in rows.enumerated() {
+      let details = [row.username, row.host].compactMap { $0 }.joined(separator: "  ")
+      text += "  \(index + 1)) \(row.title)\(details.isEmpty ? "" : "  \(details)")"
+      text += "  [\(ids[row.id] ?? "")]\n"
+    }
+    return text + "Which one? [1-\(rows.count)]: "
   }
 }
 
@@ -296,82 +370,6 @@ struct AccountJSON: Encodable {
     isDeleted = account.isDeleted
     payload = account.payload
   }
-}
-
-func printSummaryTable(_ rows: [AccountSummary]) {
-  guard !rows.isEmpty else {
-    print("(no matching accounts)")
-    return
-  }
-  let sorted = rows.sorted {
-    $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-  }
-  func pad(_ string: String, _ width: Int) -> String {
-    string.count >= width ? string : string + String(repeating: " ", count: width - string.count)
-  }
-  print("\(pad("ID", 36))  \(pad("TITLE", 24))  \(pad("USERNAME", 20))  HOST")
-  for row in sorted {
-    var line = "\(pad(row.id.uuidString, 36))  \(pad(String(row.title.prefix(24)), 24))  "
-    line += "\(pad(row.username ?? "-", 20))  \(row.host ?? "-")"
-    var flags: [String] = []
-    if row.favorite { flags.append("fav") }
-    if row.isConflict { flags.append("conflict") }
-    if row.isDeleted { flags.append("deleted") }
-    if !flags.isEmpty { line += "  [\(flags.joined(separator: ","))]" }
-    print(line)
-  }
-}
-
-func printAccount(_ account: Account) {
-  let payload = account.payload
-  func row(_ label: String, _ value: String?) {
-    guard let value, !value.isEmpty else { return }
-    print("\(label.padding(toLength: 15, withPad: " ", startingAt: 0))\(value)")
-  }
-  let iso = ISO8601DateFormatter()
-
-  row("id", account.id.uuidString)
-  row("version", String(account.version))
-  if account.isDeleted { row("status", "DELETED (tombstone)") }
-  row("title", payload.title)
-  row("username", payload.username)
-  row("password", payload.password)
-  row("email", payload.email)
-  if !payload.urls.isEmpty {
-    row("urls", payload.urls.map(\.absoluteString).joined(separator: ", "))
-  }
-  row("notes", payload.notes)
-  row("category", payload.category.rawValue)
-  if payload.favorite { row("favorite", "yes") }
-  if !payload.tags.isEmpty { row("tags", payload.tags.joined(separator: ", ")) }
-  row("pin", payload.pin)
-  row("memorable", payload.memorableWord)
-  if !payload.recoveryCodes.isEmpty {
-    row("recovery codes", payload.recoveryCodes.joined(separator: ", "))
-  }
-  if let totp = payload.totp {
-    row("totp", "\(totp.code()) (\(totp.secondsRemaining())s left; `export` for the seed)")
-  }
-  if !payload.securityQuestions.isEmpty {
-    row("sec questions", String(payload.securityQuestions.count))
-  }
-  row("created", iso.string(from: payload.createdAt))
-  row("updated", iso.string(from: account.lastUpdated))
-  if let changed = payload.passwordChangedAt {
-    row("pw changed", iso.string(from: changed))
-  }
-  if let latest = payload.revisionHistory.first {
-    row(
-      "revisions",
-      "\(payload.revisionHistory.count) "
-        + "(latest v\(latest.version): \(latest.changed.joined(separator: ", ")))")
-  }
-  if !payload.passwordHistory.isEmpty {
-    row(
-      "old passwords",
-      "\(payload.passwordHistory.count) kept -- `passfort-cli history … --passwords` to read")
-  }
-  if let expiresAt = payload.expiresAt { row("expires", iso.string(from: expiresAt)) }
 }
 
 /// The one-time recovery key, printed to stderr (a piped stdout stays clean),

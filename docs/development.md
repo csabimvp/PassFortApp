@@ -109,53 +109,79 @@ Quit PassFort before re-running it.
 
 ## The CLI
 
-Run it from `Packages/PassFortKit/` with `swift run passfort-cli <subcommand>`, or use the built
-binary at `.build/debug/passfort-cli`. `init` prompts for a new master password. Every other command
-prompts for the password and runs the manifest-MAC and anti-rollback checks (`architecture.md` §5.5)
-before doing anything else.
+Install it with `scripts/install_cli.sh` (a release build in `~/.local/bin`, with zsh and bash
+completion), or run it from `Packages/PassFortKit/` with `swift run passfort-cli <subcommand>`.
+`init` and `sync join` prompt for a new or the synced vault's password. Every other command that
+opens a vault prompts for its password and runs the manifest-MAC and anti-rollback checks
+(`architecture.md` §5.5) before doing anything else.
+
+**Which vault.** A command acts on `--vault` / `-v` (a remembered name or a path), else on
+`$PASSFORT_VAULT`, else on the default vault. The names live in `~/.config/passfort/config.json`,
+which holds paths only (`PASSFORT_CONFIG` points at another file, as `PASSFORT_DEVICE_FILE` does
+for the device identity). `init` and `sync join` remember the first vault they create as the
+default, or any vault under `--name`.
+
+**Which account.** A title, matched case-insensitively (an exact match first, otherwise every
+title containing it); a full id; or an id prefix of at least 4 characters, such as the 8 that
+`list` shows. When several accounts match, a terminal gets a numbered list to pick from and a
+script gets an error.
 
 ```bash
 # No vault needed
-passfort-cli seam                                           # the Swift↔C++ round trip, end to end
 passfort-cli bench    [--target-ms 500]                     # calibrate Argon2id; print params + timing
 passfort-cli gen      [--length 20] [--words N] [-c N]      # passwords or passphrases to stdout
+passfort-cli seam                                           # the Swift↔C++ round trip (hidden from --help)
 
-# Vault lifecycle
-passfort-cli init     <vault> [--recovery] [--force]        # create a vault
-passfort-cli unlock   <vault>                               # open + verify; report account counts
-passfort-cli verify   <vault> [--accept-restore]            # manifest + anti-rollback check only
-passfort-cli passwd   <vault> [--no-recovery-key]           # change the master password
-passfort-cli recover  <vault> --key <grouped-recovery-key>  # reset the master password
+# Vaults
+passfort-cli vault    [list]                                # the remembered vaults; * is the default
+passfort-cli vault add <name> <path> [--default]            # remember an existing vault
+passfort-cli vault use <name>                               # make it the default
+passfort-cli vault forget <name>                            # stop remembering it; the file stays
+passfort-cli init     <path> [--name N] [--recovery] [--force]  # create a vault
+passfort-cli unlock                                         # open + verify; report account counts
+passfort-cli verify   [--accept-restore]                    # manifest + anti-rollback check only
+passfort-cli passwd   [--no-recovery-key]                   # change the master password
+passfort-cli recovery-key                                   # issue a new recovery key
+passfort-cli recover  --key <grouped-recovery-key>          # reset the master password
 
-# Accounts
-passfort-cli add      <vault> --title T [--username U] [--prompt-password] [--url U] [--note N] [--totp URI]
-passfort-cli list     <vault> [--search Q] [--all]          # summary index, no secrets
-passfort-cli get      <vault> <id|title> [--json]           # one account, secrets to stdout
-passfort-cli code     <vault> <id|title>                    # the account's current one-time code
-passfort-cli copy     <vault> <id|title> [--username|--code] # to the clipboard until pasted (macOS, WSL2)
-passfort-cli fill     <vault> <id|title> [--no-open]        # open the site; username, then password, one per paste (macOS; WSL2: Enter between)
-passfort-cli history  <vault> <id|title> [--passwords]      # the account's version timeline
-passfort-cli edit     <vault> <id|title> --set password=… [--add-url U] [--prompt-password]
-passfort-cli rm       <vault> <id|title>                    # tombstone
-passfort-cli undelete <vault> <id|title>                    # bring a tombstoned account back
-passfort-cli audit    <vault>                               # weak, reused, old, expiring, http://
+# Accounts (each also takes --vault)
+passfort-cli list     [--search Q] [--all]                  # summary index, no secrets
+passfort-cli get      <account> [--reveal] [--json]         # one account; secrets only with --reveal / --json
+passfort-cli code     <account>                             # the account's current one-time code
+passfort-cli copy     <account> [--username|--code]         # to the clipboard until pasted (macOS, WSL2)
+passfort-cli fill     <account> [--no-open]                 # open the site; username, then password, one per paste (macOS; WSL2: Enter between)
+passfort-cli add      --title T [--username U] [--prompt-password] [--url U] [--note N] [--totp URI]
+passfort-cli edit     <account> [--title T] [--username U] [--email E] [--note N] [--totp URI] [--favorite|--no-favorite] [--prompt-password] [--add-url U]
+passfort-cli history  <account> [--passwords]               # the account's version timeline
+passfort-cli rm       <account>                             # tombstone
+passfort-cli undelete <account>                             # bring a tombstoned account back
+passfort-cli audit                                          # weak, reused, old, expiring, http://
 
 # Moving data in and out
-passfort-cli import       <vault> <export.txt> [--dry-run]  # Password Safe plain-text export
-passfort-cli import-vault <vault> <source> [--only T] [--dry-run]   # accounts from another vault
-passfort-cli backup   <vault> <folder> [--keep N]           # consistent snapshot, no password needed
-passfort-cli restore  <backup> <vault> [--yes]              # current vault is moved aside, not deleted
-passfort-cli dump     <vault>                               # every record, decrypted, as JSON (debug)
-passfort-cli export   <vault> -o out.json                   # whole vault decrypted; typed phrase required
+passfort-cli import       <export.txt> [--dry-run]          # Password Safe plain-text export
+passfort-cli import-vault <source> [--only T] [--dry-run]   # accounts from another vault (a name or a path)
+passfort-cli backup   <folder> [--keep N]                   # consistent snapshot, no password needed
+passfort-cli restore  <backup> [--yes]                      # current vault is moved aside, not deleted
+passfort-cli dump                                           # every record, decrypted, as JSON (debug)
+passfort-cli export   -o out.json                           # whole vault decrypted; typed phrase required
+
+# Sync (`sync --help`)
+passfort-cli sync enable --endpoint URL                     # put this vault on a server
+passfort-cli sync join <path> --endpoint URL --vault-id ID [--name N]
+passfort-cli sync now | status | devices | disable
 ```
 
-`passfort-cli <subcommand> --help` lists every option. An account reference is a record UUID or a
-title (an exact match, otherwise a unique substring). `get`, `history --passwords`, `dump` and
-`export` write secrets in the clear. `export` writes its file with mode `0600`; delete it when you're
-done.
+At a terminal, `list`, `get`, `history`, `audit`, `sync status` and `vault list` are lightly
+styled (bold headers, dim labels and ids); a pipe, a file, `NO_COLOR` or `TERM=dumb` gets the same text without escape codes. Scripts
+that need fields should read `get --json`, not the human layout.
+
+`passfort-cli <subcommand> --help` lists every option. `edit`'s options are `add`'s names, and `""`
+clears a field; `--set key=value` still works. `get --reveal`, `get --json`, `history --passwords`,
+`dump` and `export` write secrets in the clear. `export` writes its file with mode `0600`; delete
+it when you're done.
 
 After a `restore`, the next unlock reports a rollback on purpose, because the vault really did go
-back in time. Confirm that the restore was deliberate with `verify <vault> --accept-restore`.
+back in time. Confirm that the restore was deliberate with `verify --accept-restore`.
 
 ## The sync contract
 

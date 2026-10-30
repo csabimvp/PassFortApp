@@ -8,13 +8,32 @@ struct PassFortCLI: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "passfort-cli",
     abstract: "PassFort vault tool -- create an encrypted SQLite vault and manage accounts in it.",
-    subcommands: [
-      Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
-      Add.self, List.self, Get.self, Code.self, Copy.self, Fill.self, History.self, Edit.self,
-      Remove.self, Undelete.self, Audit.self, Import.self, ImportVault.self,
-      Dump.self, Export.self, Backup.self, Restore.self, Recover.self, RecoveryKeyCommand.self,
-      Passwd.self, Sync.self,
-      Seam.self,
+    discussion: """
+      Commands act on the vault named by --vault, else $\(CLIConfig.vaultVariable), else the \
+      default vault -- see `passfort-cli vault`. An account is named by its title (or a unique \
+      part of it), or by its id or the id prefix `list` shows.
+      """,
+    subcommands: [Seam.self],
+    groupedSubcommands: [
+      CommandGroup(
+        name: "Accounts",
+        subcommands: [
+          List.self, Get.self, Copy.self, Fill.self, Code.self, Add.self, Edit.self, Remove.self,
+          Undelete.self, History.self, Audit.self, Gen.self,
+        ]),
+      CommandGroup(
+        name: "Vaults",
+        subcommands: [
+          VaultCommand.self, Init.self, Unlock.self, Verify.self, Passwd.self,
+          RecoveryKeyCommand.self, Recover.self,
+        ]),
+      CommandGroup(name: "Sync", subcommands: [Sync.self]),
+      CommandGroup(
+        name: "Moving data",
+        subcommands: [
+          Backup.self, Restore.self, Import.self, ImportVault.self, Export.self,
+        ]),
+      CommandGroup(name: "Diagnostics", subcommands: [Bench.self, Dump.self]),
     ]
   )
 }
@@ -83,13 +102,21 @@ struct Init: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Create a new vault (an encrypted SQLite database) and prompt for its password.")
 
-  @Argument(help: "Path to the vault file to create.") var vault: String
+  @Argument(help: "Path to the vault file to create.", completion: .file()) var vault: String
+  @Option(
+    help: """
+      Remember the vault under this name (see `vault`). Without it, the first vault is \
+      remembered by its file name and becomes the default.
+      """)
+  var name: String?
   @Option(help: "Argon2id calibration target in milliseconds.") var targetMs: UInt32 = 500
   @Flag(help: "Also generate a recovery key -- a second way in, shown once (§5.6).")
   var recovery = false
   @Flag(help: "Delete an existing vault (and its sidecars) at this path first.") var force = false
 
   func run() async throws {
+    var config = try CLIConfig.load()
+    if let name { try config.checkAvailable(name) }
     if force { Files.removeVault(at: vault) }
     guard !FileManager.default.fileExists(atPath: vault) else {
       throw CLIError("\(vault) already exists (pass --force to replace it)")
@@ -109,6 +136,10 @@ struct Init: AsyncParsableCommand {
     }
     let extra = recovery ? ", + recovery key" : ""
     print("created \(vault) (\(params.memoryKiB / 1024) MiB Argon2id\(extra))")
+    let before = config
+    let registered = config.registerNew(at: vault, as: name)
+    if config != before { try config.save() }
+    print(registered)
   }
 }
 
@@ -118,9 +149,10 @@ struct Unlock: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Open a vault, run the manifest + anti-rollback checks, report what's inside.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     let summaries = try await repo.summaries()
     let live = summaries.filter { !$0.isDeleted }.count
@@ -136,11 +168,12 @@ struct Verify: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Check the manifest MAC and the anti-rollback mark, nothing else.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Flag(help: "Accept a deliberately restored backup: clear the anti-rollback mark first.")
   var acceptRestore = false
 
   func run() async throws {
+    let vault = try vaultOption.path()
     if acceptRestore {
       try await Vault.acceptRestoredBackup(databasePath: vault)
       FileHandle.standardError.write(Data("anti-rollback mark cleared; re-verifying...\n".utf8))
@@ -156,7 +189,7 @@ struct Add: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Create an account in the vault. Prints its id.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Option(help: "Account title (required).") var title: String
   @Option(help: "Username.") var username: String?
   @Option(help: "Email.") var email: String?
@@ -177,6 +210,7 @@ struct Add: AsyncParsableCommand {
   var totp: String?
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let sources = [password != nil, promptPassword, generatePassword].filter { $0 }.count
     guard sources <= 1 else {
       throw CLIError("choose one of --password, --prompt-password, --generate-password")
@@ -210,7 +244,7 @@ struct List: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "List accounts from the in-memory summary index -- no secrets.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Option(
     name: .shortAndLong,
     help: "Case-insensitive substring filter on title / username / host / tag.")
@@ -218,8 +252,10 @@ struct List: AsyncParsableCommand {
   @Flag(help: "Include tombstoned (deleted) accounts.") var all = false
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
-    var rows = try await repo.summaries()
+    let summaries = try await repo.summaries()
+    var rows = summaries
     if !all { rows = rows.filter { !$0.isDeleted } }
     if let query = search?.lowercased(), !query.isEmpty {
       rows = rows.filter { row in
@@ -229,7 +265,8 @@ struct List: AsyncParsableCommand {
           || row.tags.contains { $0.lowercased().contains(query) }
       }
     }
-    printSummaryTable(rows)
+    // Prefixes unique across every record, tombstones included, so one never names two.
+    print(summaryTable(rows, ids: shortIDs(summaries.map(\.id)), style: .stdout), terminator: "")
   }
 }
 
@@ -237,13 +274,15 @@ struct List: AsyncParsableCommand {
 
 struct Get: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    abstract: "Show one account -- secrets included -- on stdout.")
+    abstract: "Show one account on stdout. Secrets are hidden unless --reveal.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
-  @Argument(help: "Account id (UUID) or title.") var account: String
-  @Flag(help: "Emit the decrypted payload as JSON.") var json = false
+  @OptionGroup var vaultOption: VaultOption
+  @Argument(help: "Account title, id or id prefix.") var account: String
+  @Flag(help: "Show the password, PIN, memorable word and recovery codes too.") var reveal = false
+  @Flag(help: "Emit the decrypted payload as JSON -- every secret included.") var json = false
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     let id = try await resolveAccountID(account, in: repo)
     guard let account = try await repo.account(id: id) else {
@@ -253,7 +292,7 @@ struct Get: AsyncParsableCommand {
       FileHandle.standardOutput.write(try prettyJSON(AccountJSON(account)))
       FileHandle.standardOutput.write(Data("\n".utf8))
     } else {
-      printAccount(account)
+      print(accountCard(account, reveal: reveal, style: .stdout), terminator: "")
     }
   }
 }
@@ -264,10 +303,11 @@ struct Code: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Print an account's current one-time code (TOTP) and how long it stays valid.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @OptionGroup var vaultOption: VaultOption
+  @Argument(help: "Account title, id or id prefix.") var account: String
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     let id = try await resolveAccountID(account, in: repo)
     guard let account = try await repo.account(id: id) else {
@@ -275,7 +315,7 @@ struct Code: AsyncParsableCommand {
     }
     guard let totp = account.payload.totp else {
       throw CLIError(
-        "\(account.payload.title) has no one-time code -- add one with `edit --set totp=...`")
+        "\(account.payload.title) has no one-time code -- add one with `edit <account> --totp ...`")
     }
     let now = Date()
     print(totp.code(at: now))
@@ -289,42 +329,18 @@ struct History: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Show an account's version timeline -- what changed, when.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @OptionGroup var vaultOption: VaultOption
+  @Argument(help: "Account title, id or id prefix.") var account: String
   @Flag(help: "Also print the old password values (secrets, like `get`).") var passwords = false
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     let id = try await resolveAccountID(account, in: repo)
     guard let account = try await repo.account(id: id) else {
       throw CLIError("no account with id \(id.uuidString)")
     }
-    let payload = account.payload
-    let iso = ISO8601DateFormatter()
-
-    let deleted = account.isDeleted ? ", tombstoned" : ""
-    print("\(payload.title)  (\(account.id.uuidString), currently v\(account.version)\(deleted))")
-
-    if payload.revisionHistory.isEmpty {
-      print("  no recorded revisions")
-    } else {
-      for entry in payload.revisionHistory {
-        print(
-          "  v\(entry.version)  \(iso.string(from: entry.at))  "
-            + entry.changed.joined(separator: ", "))
-      }
-      if payload.revisionHistory.count >= VaultRepository.revisionHistoryLimit {
-        let cap = VaultRepository.revisionHistoryLimit
-        print("  (older revisions dropped -- the last \(cap) are kept)")
-      }
-    }
-
-    guard !payload.passwordHistory.isEmpty else { return }
-    print("\nprevious passwords (\(payload.passwordHistory.count)):")
-    for old in payload.passwordHistory {
-      let value = passwords ? old.password : "(hidden -- pass --passwords)"
-      print("  \(iso.string(from: old.replacedAt))  \(value)")
-    }
+    print(historyView(account, passwords: passwords, style: .stdout), terminator: "")
   }
 }
 
@@ -332,14 +348,24 @@ struct History: AsyncParsableCommand {
 
 struct Edit: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    abstract: """
-      Update an account. Repeatable --set key=value; keys: title, username, \
-      password, email, notes, favorite, category, totp (an otpauth:// URI or \
-      Base32 secret; empty clears it).
+    abstract: "Update an account. The options take the same names as `add`'s; \"\" clears a field.",
+    discussion: """
+      --set key=value (repeatable) does the same; keys: title, username, password, email, notes, \
+      favorite, category, totp.
       """)
 
-  @Argument(help: "Path to the vault file.") var vault: String
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @OptionGroup var vaultOption: VaultOption
+  @Argument(help: "Account title, id or id prefix.") var account: String
+  @Option(help: "New title.") var title: String?
+  @Option(help: "New username.") var username: String?
+  @Option(help: "New email.") var email: String?
+  @Option(help: "New password value (ends up in shell history -- prefer --prompt-password).")
+  var password: String?
+  @Option(help: "New free-text note.") var note: String?
+  @Option(help: "New category.") var category: String?
+  @Option(help: "One-time-code secret: an otpauth://totp/... URI or a Base32 secret.")
+  var totp: String?
+  @Flag(inversion: .prefixedNo, help: "Mark or unmark as a favorite.") var favorite: Bool?
   @Option(name: .customLong("set"), help: "key=value (repeatable).") var sets: [String] = []
   @Flag(help: "Prompt for a new account password with no echo.") var promptPassword = false
   @Flag(help: "Set the password to a fresh random one (see generation options); printed to stderr.")
@@ -350,14 +376,15 @@ struct Edit: AsyncParsableCommand {
   var addURLs: [String] = []
 
   func run() async throws {
-    let setsPassword = sets.contains { $0.hasPrefix("password=") }
+    let vault = try vaultOption.path()
+    let setsPassword = password != nil || sets.contains { $0.hasPrefix("password=") }
     let passwordSources = [setsPassword, promptPassword, generatePassword].filter { $0 }.count
     guard passwordSources <= 1 else {
       throw CLIError(
-        "set the password one way: --set password=..., --prompt-password, or --generate-password")
+        "set the password one way: --password, --prompt-password, or --generate-password")
     }
 
-    var parsed = try sets.map(EditOp.parse)
+    var parsed = try namedEdits() + sets.map(EditOp.parse)
     if promptPassword {
       let entered = String(decoding: try Password.prompt("New account password: "), as: UTF8.self)
       parsed.append(.set(.password, entered))
@@ -370,8 +397,7 @@ struct Edit: AsyncParsableCommand {
     let ops = parsed
     let appended = try addURLs.map(parseURL)
     guard !ops.isEmpty || !appended.isEmpty else {
-      throw CLIError(
-        "nothing to change -- pass --set, --add-url, --prompt-password, or --generate-password")
+      throw CLIError("nothing to change -- pass a field to set, e.g. --username or --add-url")
     }
 
     let repo = try await VaultCLI.open(vault)
@@ -382,6 +408,17 @@ struct Edit: AsyncParsableCommand {
     }
     print("updated \(updated.id.uuidString) -> version \(updated.version)")
   }
+
+  /// The named options as `--set` edits, so they are validated the same way.
+  private func namedEdits() throws -> [EditOp] {
+    let fields: [(EditOp.Field, String?)] = [
+      (.title, title), (.username, username), (.email, email), (.password, password),
+      (.notes, note), (.category, category), (.totp, totp), (.favorite, favorite.map(String.init)),
+    ]
+    return try fields.compactMap { field, value in
+      try value.map { try EditOp.parse("\(field.rawValue)=\($0)") }
+    }
+  }
 }
 
 // MARK: - rm
@@ -389,12 +426,14 @@ struct Edit: AsyncParsableCommand {
 struct Remove: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "rm",
-    abstract: "Tombstone an account. The row survives until `compact` (M5).")
+    abstract:
+      "Delete an account. It stays as a tombstone (`list --all`); `undelete` brings it back.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
-  @Argument(help: "Account id (UUID) or title.") var account: String
+  @OptionGroup var vaultOption: VaultOption
+  @Argument(help: "Account title, id or id prefix.") var account: String
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     let id = try await resolveAccountID(account, in: repo)
     try await repo.delete(id: id)
@@ -408,10 +447,11 @@ struct Undelete: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Bring back a deleted (tombstoned) account as a new version.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Argument(help: "Deleted account's id (UUID) or title -- see `list --all`.") var account: String
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     let id = try await resolveAccountID(account, in: repo, deleted: true)
     do {
@@ -430,35 +470,15 @@ struct Audit: AsyncParsableCommand {
     abstract: "Password health: weak, reused, old, expiring and http:// accounts. No secrets shown."
   )
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     let findings = try await repo.audit()
     let titles = Dictionary(
       uniqueKeysWithValues: try await repo.summaries().map { ($0.id, $0.title) })
-    guard !findings.isEmpty else {
-      print("no findings -- nothing weak, reused, old, expiring or on http://")
-      return
-    }
-    for finding in findings {
-      let title = titles[finding.account] ?? finding.account.uuidString
-      print(
-        "\(describe(finding.kind).padding(toLength: 34, withPad: " ", startingAt: 0))  \(title)")
-    }
-    print("\(findings.count) finding\(findings.count == 1 ? "" : "s")")
-  }
-
-  private func describe(_ kind: AuditFinding.Kind) -> String {
-    let day = Date.FormatStyle(date: .abbreviated, time: .omitted)
-    switch kind {
-    case .weak(let score): return "weak (score \(score)/4)"
-    case .reused(let count): return "reused (\(count) accounts)"
-    case .old(let since): return "old (unchanged since \(since.formatted(day)))"
-    case .expired(let on): return "expired \(on.formatted(day))"
-    case .expiringSoon(let on): return "expires \(on.formatted(day))"
-    case .insecureURL: return "http:// login URL"
-    }
+    print(auditTable(findings, titles: titles, style: .stdout), terminator: "")
   }
 }
 
@@ -469,13 +489,14 @@ struct Import: AsyncParsableCommand {
     abstract:
       "Import a Password Safe plain-text export (tab-separated). Prints titles, never secrets.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Argument(help: "The Password Safe export (File > Export To > Plain Text).") var file: String
   @Flag(help: "Show what would be imported; write nothing.") var dryRun = false
   @Flag(help: "Import accounts that look like ones already in the vault, too.")
   var includeDuplicates = false
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let plan: ImportPlan
     do {
       plan = try PasswordSafeImport.plan(try Files.read(file))
@@ -527,8 +548,11 @@ struct ImportVault: AsyncParsableCommand {
       "Copy accounts from another PassFort vault into this one (§7.6). Prints titles, never secrets."
   )
 
-  @Argument(help: "Path to the vault to import into.") var vault: String
-  @Argument(help: "Path to the vault to copy from. Opened read-only.") var source: String
+  @OptionGroup var vaultOption: VaultOption
+  @Argument(
+    help: "The vault to copy from: a name from `vault list`, or a path. Opened read-only.",
+    completion: .file())
+  var source: String
   @Option(
     help: ArgumentHelp(
       "Import only accounts whose title contains this (case-insensitive). Repeatable.",
@@ -541,6 +565,8 @@ struct ImportVault: AsyncParsableCommand {
   var includeDuplicates = false
 
   func run() async throws {
+    let vault = try vaultOption.path()
+    let source = try CLIConfig.load().path(for: self.source)
     guard Vault.exists(databasePath: source) else {
       throw CLIError("\(source) is not a PassFort vault")
     }
@@ -558,7 +584,7 @@ struct ImportVault: AsyncParsableCommand {
       if let key { .recoveryKey(key) } else {
         .password(try Password.prompt("Source vault password: "))
       }
-    let plan = try await plan(credential: credential, into: repo)
+    let plan = try await plan(credential: credential, into: repo, at: vault, from: source)
 
     let titles = plan.accounts.map(\.payload.title)
     func matches(_ title: String, _ filter: String) -> Bool {
@@ -597,7 +623,8 @@ struct ImportVault: AsyncParsableCommand {
   }
 
   private func plan(
-    credential: VaultImport.Credential, into repo: VaultRepository
+    credential: VaultImport.Credential, into repo: VaultRepository, at vault: String,
+    from source: String
   ) async throws -> ImportPlan {
     do {
       return try await VaultImport.plan(
@@ -615,7 +642,7 @@ struct ImportVault: AsyncParsableCommand {
       throw CLIError(
         """
         \(source) is on a different schema than this build. If it is older, upgrade it first \
-        with `passfort-cli unlock \(source)`; if it is newer, update passfort-cli.
+        with `passfort-cli unlock --vault \(source)`; if it is newer, update passfort-cli.
         """)
     } catch VaultManifest.Failure.macMismatch {
       throw CLIError(
@@ -630,9 +657,10 @@ struct Dump: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Print every record (tombstones included), decrypted, as JSON. Debug aid.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     var entries: [AccountJSON] = []
     for summary in try await repo.summaries() {
@@ -652,11 +680,12 @@ struct Export: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Decrypt the whole vault to a plaintext JSON file (§7.6), behind a typed phrase.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Option(name: .shortAndLong, help: "Output file. Created 0600; must not already exist.")
   var output: String
 
   func run() async throws {
+    let vault = try vaultOption.path()
     FileHandle.standardError.write(
       Data(
         """
@@ -692,12 +721,13 @@ struct Backup: AsyncParsableCommand {
       as sensitive as the vault itself: sealed records plus the plaintext header.
       """)
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Argument(help: "Folder to write the backup into (created if missing).") var folder: String
   @Option(help: "Afterwards, keep only the newest N backups of this vault in the folder.")
   var keep: Int?
 
   func run() async throws {
+    let vault = try vaultOption.path()
     guard let live = VaultBackup.inspect(URL(fileURLWithPath: vault)) else {
       throw CLIError("\(vault) is not a PassFort vault")
     }
@@ -731,16 +761,17 @@ struct Restore: AsyncParsableCommand {
     discussion: """
       Close every app using the vault first. The previous files are kept next to it as \
       vault.sqlite.pre-restore-<time>. The anti-rollback mark is left alone, so the next unlock \
-      reports a rollback; confirm it was deliberate with `verify <vault> --accept-restore`.
+      reports a rollback; confirm it was deliberate with `verify --accept-restore`.
       """)
 
-  @Argument(help: "Path to the backup file.") var backup: String
-  @Argument(help: "Path to the vault file to replace.") var vault: String
+  @Argument(help: "Path to the backup file.", completion: .file()) var backup: String
+  @OptionGroup var vaultOption: VaultOption
   @Flag(help: "Allow replacing a vault with a backup of a different vault.")
   var allowDifferentVault = false
   @Flag(name: .shortAndLong, help: "Skip the confirmation prompt.") var yes = false
 
   func run() async throws {
+    let vault = try vaultOption.path()
     guard let incoming = VaultBackup.inspect(URL(fileURLWithPath: backup)) else {
       throw CLIError("\(backup) is not a usable PassFort vault backup")
     }
@@ -765,7 +796,7 @@ struct Restore: AsyncParsableCommand {
         from: URL(fileURLWithPath: backup), toDatabasePath: vault,
         allowDifferentVault: allowDifferentVault)
       if let aside { print("previous vault kept at: \(aside.path(percentEncoded: false))") }
-      print("restored. Next: passfort-cli verify \(vault) --accept-restore")
+      print("restored. Next: passfort-cli verify --vault \(vault) --accept-restore")
     } catch VaultBackup.Failure.differentVault {
       throw CLIError(
         "the backup belongs to a different vault than \(vault) -- pass --allow-different-vault if that is intended"
@@ -780,11 +811,12 @@ struct Recover: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Open the vault with its recovery key and set a new master password (§5.6).")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Option(name: .customLong("key"), help: "The grouped recovery key, as written down.")
   var key: String
 
   func run() async throws {
+    let vault = try vaultOption.path()
     guard FileManager.default.fileExists(atPath: vault) else {
       throw CLIError("no vault at \(vault)")
     }
@@ -821,9 +853,10 @@ struct RecoveryKeyCommand: AsyncParsableCommand {
     commandName: "recovery-key",
     abstract: "Issue a new recovery key (§5.6). Any existing recovery key stops working.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
 
   func run() async throws {
+    let vault = try vaultOption.path()
     let repo = try await VaultCLI.open(vault)
     let fresh = try await repo.rotateRecoveryKey()
     print("new recovery key issued for \(vault).")
@@ -840,11 +873,12 @@ struct Passwd: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     abstract: "Change the master password. Any existing recovery key stops working.")
 
-  @Argument(help: "Path to the vault file.") var vault: String
+  @OptionGroup var vaultOption: VaultOption
   @Flag(help: "Leave the vault password-only instead of issuing a new recovery key.")
   var noRecoveryKey = false
 
   func run() async throws {
+    let vault = try vaultOption.path()
     guard FileManager.default.fileExists(atPath: vault) else {
       throw CLIError("no vault at \(vault)")
     }
@@ -871,7 +905,7 @@ struct Passwd: AsyncParsableCommand {
 
 struct Seam: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    abstract: "Run the M0 + M1 seam round trip end to end.")
+    abstract: "Run the M0 + M1 seam round trip end to end.", shouldDisplay: false)
 
   func run() async throws {
     let probe = Data("passfort seam check".utf8)
