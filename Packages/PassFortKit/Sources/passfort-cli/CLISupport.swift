@@ -399,11 +399,16 @@ func printSummaryTable(_ rows: [AccountSummary], ids: [UUID: String]) {
   }
 }
 
-func printAccount(_ account: Account) {
+/// One account for `get`. The password, PIN, memorable word and recovery codes show only with
+/// `reveal`, so a plain `get` leaves no secret in the scrollback (§3.4).
+func printAccount(_ account: Account, reveal: Bool) {
   let payload = account.payload
   func row(_ label: String, _ value: String?) {
     guard let value, !value.isEmpty else { return }
     print("\(label.padding(toLength: 15, withPad: " ", startingAt: 0))\(value)")
+  }
+  func secret(_ label: String, _ value: String?) {
+    row(label, reveal ? value : value.map { _ in "(hidden -- `copy` it, or pass --reveal)" })
   }
   let iso = ISO8601DateFormatter()
 
@@ -412,7 +417,7 @@ func printAccount(_ account: Account) {
   if account.isDeleted { row("status", "DELETED (tombstone)") }
   row("title", payload.title)
   row("username", payload.username)
-  row("password", payload.password)
+  secret("password", payload.password)
   row("email", payload.email)
   if !payload.urls.isEmpty {
     row("urls", payload.urls.map(\.absoluteString).joined(separator: ", "))
@@ -421,10 +426,10 @@ func printAccount(_ account: Account) {
   row("category", payload.category.rawValue)
   if payload.favorite { row("favorite", "yes") }
   if !payload.tags.isEmpty { row("tags", payload.tags.joined(separator: ", ")) }
-  row("pin", payload.pin)
-  row("memorable", payload.memorableWord)
+  secret("pin", payload.pin)
+  secret("memorable", payload.memorableWord)
   if !payload.recoveryCodes.isEmpty {
-    row("recovery codes", payload.recoveryCodes.joined(separator: ", "))
+    secret("recovery codes", payload.recoveryCodes.joined(separator: ", "))
   }
   if let totp = payload.totp {
     row("totp", "\(totp.code()) (\(totp.secondsRemaining())s left; `export` for the seed)")

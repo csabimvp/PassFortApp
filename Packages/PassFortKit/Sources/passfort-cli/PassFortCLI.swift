@@ -255,11 +255,12 @@ struct List: AsyncParsableCommand {
 
 struct Get: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    abstract: "Show one account -- secrets included -- on stdout.")
+    abstract: "Show one account on stdout. Secrets are hidden unless --reveal.")
 
   @OptionGroup var vaultOption: VaultOption
   @Argument(help: "Account title, id or id prefix.") var account: String
-  @Flag(help: "Emit the decrypted payload as JSON.") var json = false
+  @Flag(help: "Show the password, PIN, memorable word and recovery codes too.") var reveal = false
+  @Flag(help: "Emit the decrypted payload as JSON -- every secret included.") var json = false
 
   func run() async throws {
     let vault = try vaultOption.path()
@@ -272,7 +273,7 @@ struct Get: AsyncParsableCommand {
       FileHandle.standardOutput.write(try prettyJSON(AccountJSON(account)))
       FileHandle.standardOutput.write(Data("\n".utf8))
     } else {
-      printAccount(account)
+      printAccount(account, reveal: reveal)
     }
   }
 }
