@@ -8,13 +8,32 @@ struct PassFortCLI: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "passfort-cli",
     abstract: "PassFort vault tool -- create an encrypted SQLite vault and manage accounts in it.",
-    subcommands: [
-      Bench.self, Gen.self, Init.self, Unlock.self, Verify.self,
-      Add.self, List.self, Get.self, Code.self, Copy.self, Fill.self, History.self, Edit.self,
-      Remove.self, Undelete.self, Audit.self, Import.self, ImportVault.self,
-      Dump.self, Export.self, Backup.self, Restore.self, Recover.self, RecoveryKeyCommand.self,
-      Passwd.self, Sync.self, VaultCommand.self,
-      Seam.self,
+    discussion: """
+      Commands act on the vault named by --vault, else $\(CLIConfig.vaultVariable), else the \
+      default vault -- see `passfort-cli vault`. An account is named by its title (or a unique \
+      part of it), or by its id or the id prefix `list` shows.
+      """,
+    subcommands: [Seam.self],
+    groupedSubcommands: [
+      CommandGroup(
+        name: "Accounts",
+        subcommands: [
+          List.self, Get.self, Copy.self, Fill.self, Code.self, Add.self, Edit.self, Remove.self,
+          Undelete.self, History.self, Audit.self, Gen.self,
+        ]),
+      CommandGroup(
+        name: "Vaults",
+        subcommands: [
+          VaultCommand.self, Init.self, Unlock.self, Verify.self, Passwd.self,
+          RecoveryKeyCommand.self, Recover.self,
+        ]),
+      CommandGroup(name: "Sync", subcommands: [Sync.self]),
+      CommandGroup(
+        name: "Moving data",
+        subcommands: [
+          Backup.self, Restore.self, Import.self, ImportVault.self, Export.self,
+        ]),
+      CommandGroup(name: "Diagnostics", subcommands: [Bench.self, Dump.self]),
     ]
   )
 }
@@ -432,7 +451,8 @@ struct Edit: AsyncParsableCommand {
 struct Remove: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "rm",
-    abstract: "Tombstone an account. The row survives until `compact` (M5).")
+    abstract:
+      "Delete an account. It stays as a tombstone (`list --all`); `undelete` brings it back.")
 
   @OptionGroup var vaultOption: VaultOption
   @Argument(help: "Account title, id or id prefix.") var account: String
@@ -931,7 +951,7 @@ struct Passwd: AsyncParsableCommand {
 
 struct Seam: AsyncParsableCommand {
   static let configuration = CommandConfiguration(
-    abstract: "Run the M0 + M1 seam round trip end to end.")
+    abstract: "Run the M0 + M1 seam round trip end to end.", shouldDisplay: false)
 
   func run() async throws {
     let probe = Data("passfort seam check".utf8)
